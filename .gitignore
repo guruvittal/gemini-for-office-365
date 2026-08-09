@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build outputs
+dist/
+build/
+*.zip
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.cert
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# IDE Files
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

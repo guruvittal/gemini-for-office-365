@@ -1,0 +1,21 @@
+{
+  "name": "gemini-o365-proxy",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "npx @google-cloud/functions-framework --target=askGemini"
+  },
+  "keywords": ["gemini", "vertex-ai", "office365", "powerpoint", "word", "excel"],
+  "author": "Sathya AG, Principal Architect, Google",
+  "license": "Apache-2.0",
+  "description": "Vertex AI Gemini 2.5 Flash & Multimodal Visual Proxy for Microsoft 365 (Word, PowerPoint, Excel)",
+  "dependencies": {
+    "@google-cloud/aiplatform": "^6.10.0",
+    "@google-cloud/discoveryengine": "^2.9.0",
+    "@google-cloud/functions-framework": "^3.4.0",
+    "@google-cloud/vertexai": "^1.3.0",
+    "@google/genai": "^1.7.0",
+    "cors": "^2.8.5"
+  }
+}
