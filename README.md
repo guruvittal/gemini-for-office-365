@@ -76,7 +76,7 @@ gemini-for-office-365/
 ├── LICENSE                            # Apache-2.0 License
 ├── .gitignore                         # Root gitignore
 │
-├── addin/                             # Microsoft Office 365 Add-in (Word, PowerPoint, Excel)
+├── microsoft-addin/                   # Microsoft Office 365 Add-in (Word, PowerPoint, Excel)
 │   ├── manifest.xml                   # Office Add-in XML Manifest
 │   ├── package.json                   # Webpack, Babel & Office.js dependencies
 │   ├── webpack.config.js              # Webpack bundling configuration
@@ -91,7 +91,7 @@ gemini-for-office-365/
 │       ├── taskpane/                  # taskpane.html, taskpane.css, taskpane.js
 │       └── commands/                  # commands.html, commands.js
 │
-└── proxy/                             # Google Cloud Vertex AI Backend Proxy
+└── geminiproxy/                       # Google Cloud Vertex AI Backend Proxy
     ├── index.js                       # Cloud Function (askGemini), Grounding & Nano Banana vision
     ├── package.json                   # Dependencies (@google-cloud/vertexai, functions-framework)
     ├── .env.example                   # Backend environment configuration (Project ID, Datastore)
@@ -103,9 +103,9 @@ gemini-for-office-365/
 
 ## 🚀 Quick Start & Deployment
 
-### 1. Backend Proxy Deployment (`proxy/`)
+### 1. Backend Proxy Deployment (`geminiproxy/`)
 ```bash
-cd proxy
+cd geminiproxy
 cp .env.example .env
 
 # Deploy to Google Cloud Functions (Gen 2)
@@ -127,9 +127,9 @@ gcloud run services update askgemini \
   --project=YOUR_PROJECT_ID
 ```
 
-### 2. Frontend Add-in Deployment (`addin/`)
+### 2. Frontend Add-in Deployment (`microsoft-addin/`)
 ```bash
-cd ../addin
+cd ../microsoft-addin
 npm install
 npm run build
 
@@ -142,7 +142,7 @@ gcloud run deploy gemini-frontend \
   --project YOUR_PROJECT_ID
 
 gcloud run services update gemini-frontend \
-  --region us-central1 \
+  --region=us-central1 \
   --no-invoker-iam-check \
   --project YOUR_PROJECT_ID
 ```
@@ -150,7 +150,7 @@ gcloud run services update gemini-frontend \
 ### 3. Sideload into Microsoft Office
 1. Open **Microsoft Word**, **PowerPoint**, or **Excel**.
 2. Go to **Insert** > **Add-ins** > **My Add-ins**.
-3. Click **Upload My Add-in** and select `addin/manifest.xml`.
+3. Click **Upload My Add-in** and select `microsoft-addin/manifest.xml`.
 4. The **Gemini for Office 365** icon will appear on the **Home** ribbon.
 
 ---
