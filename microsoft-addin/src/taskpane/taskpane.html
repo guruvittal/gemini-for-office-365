@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Gemini Word Assistant</title>
+    <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        html, body { height: 100%; margin: 0; padding: 0; }
+        body { font-family: "Segoe UI", -apple-system, sans-serif; padding: 12px; background-color: #faf9f8; display: flex; flex-direction: column; }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #edebe9; }
+        h3 { margin: 0; color: #101010; font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 6px; }
+        .header-badge { font-size: 10px; background: #deecf9; color: #0078d4; padding: 2px 6px; border-radius: 10px; font-weight: 600; }
+        button.secondary { background-color: #ffffff; color: #323130; border: 1px solid #8a8886; border-radius: 4px; padding: 4px 10px; font-size: 12px; cursor: pointer; font-weight: 500; }
+        .tip-banner { background-color: #eff6fc; border: 1px solid #c7e0f4; border-radius: 6px; padding: 7px 10px; font-size: 11px; color: #005a9e; margin-bottom: 8px; line-height: 1.4; display: flex; justify-content: space-between; align-items: center; }
+        .tip-banner strong { color: #0078d4; }
+        .scan-btn { background-color: #0078d4; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+        .scan-btn:hover { background-color: #106ebe; }
+
+        /* Feature 1: Document Intelligence Quick Bar */
+        .doc-tools-bar { display: flex; flex-direction: column; gap: 6px; background-color: #ffffff; border: 1px solid #e1dfdd; border-radius: 6px; padding: 8px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+        .doc-tools-title { font-size: 11px; font-weight: 600; color: #323130; display: flex; justify-content: space-between; align-items: center; }
+        .chips-container { display: flex; flex-wrap: wrap; gap: 5px; }
+        .quick-chip { background-color: #eff6fc; color: #005a9e; border: 1px solid #c7e0f4; border-radius: 12px; padding: 4px 9px; font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.15s ease; white-space: nowrap; }
+        .quick-chip:hover { background-color: #0078d4; color: #ffffff; border-color: #0078d4; }
+        
+        #debugStatus { font-size: 10px; color: #605e5c; font-style: italic; display: block; margin-top: 2px; }
+
+        #chatHistory { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 4px; margin-bottom: 8px; min-height: 180px; }
+        
+        .chat-bubble { max-width: 95%; padding: 12px 14px; border-radius: 8px; font-size: 13px; line-height: 1.6; word-wrap: break-word; }
+        .chat-bubble.user { align-self: flex-end; background-color: #0078d4; color: white; border-bottom-right-radius: 2px; white-space: pre-wrap; font-weight: 500; }
+        .chat-bubble.assistant { align-self: flex-start; background-color: #ffffff; border: 1px solid #e1dfdd; color: #201f1e; border-bottom-left-radius: 2px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+        .chat-bubble.system { align-self: center; background-color: #f3f2f1; color: #605e5c; font-size: 12px; font-style: italic; max-width: 100%; border-radius: 4px; padding: 6px 10px; text-align: center; }
+        
+        /* Rich Multimodal & Executive Document Formatting Styles */
+        .chat-bubble.assistant h1, .chat-bubble.assistant h2, .chat-bubble.assistant h3 { margin-top: 10px; margin-bottom: 6px; color: #0078d4; font-weight: 600; }
+        .chat-bubble.assistant h1 { font-size: 16px; border-bottom: 2px solid #eff6fc; padding-bottom: 4px; }
+        .chat-bubble.assistant h2 { font-size: 14px; border-bottom: 1px solid #edebe9; padding-bottom: 2px; }
+        .chat-bubble.assistant h3 { font-size: 13px; }
+        .chat-bubble.assistant p { margin: 6px 0; }
+        .chat-bubble.assistant ul, .chat-bubble.assistant ol { padding-left: 18px; margin: 6px 0; }
+        .chat-bubble.assistant li { margin-bottom: 3px; }
+        .chat-bubble.assistant code { background-color: #f3f2f1; padding: 2px 5px; border-radius: 3px; font-family: Consolas, monospace; font-size: 12px; color: #a4262c; }
+        .chat-bubble.assistant pre { background-color: #201f1e; color: #f3f2f1; padding: 10px; border-radius: 6px; overflow-x: auto; margin: 8px 0; font-family: Consolas, monospace; }
+        
+        /* Executive Callout & Blockquote Boxes */
+        .chat-bubble.assistant blockquote { margin: 8px 0; padding: 8px 12px; background-color: #f0f6ff; border-left: 4px solid #0078d4; border-radius: 4px; color: #106ebe; font-size: 12.5px; }
+        .chat-bubble.assistant blockquote p { margin: 0; }
+
+        /* Rich Executive Tables */
+        .chat-bubble.assistant table { border-collapse: collapse; width: 100%; margin: 10px 0; border: 1px solid #c8c6c4; border-radius: 4px; font-size: 12px; }
+        .chat-bubble.assistant th, .chat-bubble.assistant td { border: 1px solid #e1dfdd; padding: 6px 8px; }
+        .chat-bubble.assistant th { background-color: #0078d4; color: #ffffff; font-weight: 600; text-align: left; }
+        .chat-bubble.assistant tr:nth-child(even) { background-color: #faf9f8; }
+
+        /* Feature 2: Action Toolbar & Refinement Chips under Response */
+        .response-actions-container { margin-top: 10px; padding-top: 8px; border-top: 1px solid #edebe9; display: flex; flex-direction: column; gap: 6px; }
+        .primary-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+        .action-btn { border: none; border-radius: 4px; padding: 5px 10px; font-size: 11px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: background-color 0.15s ease; }
+        .action-btn.replace { background-color: #0078d4; color: white; }
+        .action-btn.replace:hover { background-color: #106ebe; }
+        .action-btn.insert { background-color: #107c41; color: white; }
+        .action-btn.insert:hover { background-color: #0b5a2f; }
+        .action-btn.copy { background-color: #ffffff; color: #323130; border: 1px solid #8a8886; }
+        .action-btn.copy:hover { background-color: #f3f2f1; }
+        
+        .refinement-chips-label { font-size: 10px; color: #605e5c; font-weight: 600; text-transform: uppercase; margin-top: 2px; }
+        .refinement-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+        .refinement-chip { background-color: #f3f2f1; color: #323130; border: 1px solid #e1dfdd; border-radius: 10px; padding: 3px 8px; font-size: 10.5px; cursor: pointer; transition: all 0.15s ease; }
+        .refinement-chip:hover { background-color: #edebe9; border-color: #8a8886; color: #0078d4; }
+
+        /* Feature 3: Selection Quick Toolbar */
+        #selectionToolbar { display: none; background-color: #fff4ce; border: 1px solid #fce100; border-radius: 6px; padding: 8px; margin-bottom: 6px; font-size: 11px; }
+        .selection-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-weight: 600; color: #795b00; }
+        .selection-preview { font-style: italic; color: #323130; margin-bottom: 6px; max-height: 36px; overflow: hidden; text-overflow: ellipsis; }
+        
+        .input-container { margin-top: auto; display: flex; flex-direction: column; gap: 6px; background-color: #ffffff; padding: 8px; border-radius: 8px; border: 1px solid #e1dfdd; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+        textarea { width: 100%; border: 1px solid #8a8886; border-radius: 4px; padding: 8px; font-size: 13px; font-family: inherit; resize: vertical; min-height: 50px; }
+        textarea:focus { outline: none; border-color: #0078d4; box-shadow: 0 0 0 1px #0078d4; }
+        
+        .send-btn { width: 100%; background-color: #0078d4; color: white; border: none; border-radius: 4px; padding: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: background-color 0.2s ease; }
+        .send-btn:disabled { background-color: #c8c6c4; cursor: not-allowed; }
+        .send-btn:hover:not(:disabled) { background-color: #106ebe; }
+        
+        #loading { display: none; color: #0078d4; font-size: 12px; font-weight: bold; padding: 2px 0; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h3>✨ Ask Gemini <span class="header-badge">2.5 Flash</span></h3>
+        <button id="clearSession" class="secondary">New Chat</button>
+    </div>
+
+    <!-- In-Document @gemini Helper -->
+    <div class="tip-banner">
+        <div id="tipBannerText">💡 Type <code>@gemini &lt;prompt&gt;</code> in Doc</div>
+        <button id="scanInDoc" class="scan-btn">⚡ Run @gemini</button>
+    </div>
+
+    <!-- Feature 1: "Chat with this Document" Q&A & Document Intelligence Bar -->
+    <div class="doc-tools-bar">
+        <div class="doc-tools-title">
+            <span id="docToolsTitle">📄 <strong>Chat with Document:</strong></span>
+            <span id="debugStatus">Host: Word (Ready)</span>
+        </div>
+        <div class="chips-container">
+            <button class="quick-chip" id="chipSummarize">📑 Summarize Doc</button>
+            <button class="quick-chip" id="chipRisks">⚠️ Key Risks</button>
+            <button class="quick-chip" id="chipActionItems">✅ Action Items</button>
+            <button class="quick-chip" id="chipExecBox">💡 Executive Card</button>
+        </div>
+    </div>
+    
+    <div id="chatHistory">
+        <div class="chat-bubble system" id="welcomeSystemBubble">
+            Type a prompt below, click a <strong>Doc Chip</strong> above, or highlight text in Word!
+        </div>
+    </div>
+
+    <!-- Feature 3: Dynamic Selection Quick Toolbar -->
+    <div id="selectionToolbar">
+        <div class="selection-header">
+            <span id="selectionTitle">✨ Selected Text Detected</span>
+            <span id="selectionWordCount">0 words</span>
+        </div>
+        <div id="selectionPreviewText" class="selection-preview">"..."</div>
+        <div class="chips-container">
+            <button class="quick-chip" id="selRewrite">🪄 Rewrite</button>
+            <button class="quick-chip" id="selProfessional">💼 Professional</button>
+            <button class="quick-chip" id="selShorten">📉 Shorten</button>
+            <button class="quick-chip" id="selBullets">🎯 Bullet Points</button>
+            <button class="quick-chip" id="selTable">📊 Table</button>
+        </div>
+    </div>
+    
+    <div class="input-container">
+        <div id="loading">⚡ Gemini is thinking...</div>
+        <textarea id="promptText" placeholder="Ask Gemini anything or type instructions..."></textarea>
+        <button id="run" class="send-btn">Send</button>
+    </div>
+
+    <script type="text/javascript" src="taskpane.js"></script>
+</body>
+</html>
+
