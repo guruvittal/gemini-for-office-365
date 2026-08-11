@@ -1,134 +1,125 @@
-# Engineering Team Organization & Architecture Scaling Plan
-**Project:** Gemini for Microsoft Office 365 (Word, PowerPoint, Excel)  
+# 4–5 Week Engineering Sprint Plan: Gemini for Microsoft Office 365
+**Project:** Gemini for Office 365 (Word, PowerPoint, Excel, Outlook)  
 **Author:** Sathya AG, Principal Architect, Google  
-**Date:** August 2026  
+**Team Size:** 9 Dedicated Resources  
+**Timeline:** 5 Weeks (5 Sprints)  
 **License:** Apache-2.0  
 
 ---
 
-## 📑 1. Executive Summary
-
-This document establishes the **Engineering Team Topology, Pod Ownership, and Architecture Scaling Strategy** for developing and extending **Gemini for Microsoft Office 365**.
-
-By utilizing the **Polymorphic Host Adapter Pattern**, the codebase achieves strict file isolation, enabling multiple specialized sub-teams (Word, PowerPoint, Excel, and AI Backend) to work in parallel on the same codebase with **zero cross-team Git merge conflicts**.
-
----
-
-## 🏛️ 2. Architectural Decoupling & Isolation Model
+## 👥 1. Team Allocation (9 Resources Across 5 Pods)
 
 ```mermaid
 graph TB
-    subgraph CoreLayer ["Core & Shared Infrastructure (Owned by Core Pod)"]
-        TaskpaneUI["Taskpane UI Webview<br/>(taskpane.html, taskpane.js, taskpane.css)"]
-        BaseContract["BaseAdapter.js<br/>(Immutable Interface Contract)"]
-        ClientEngine["geminiClient.js<br/>(HTTPS Vertex AI Client)"]
-        BackendProxy["geminiproxy/<br/>(Cloud Functions Gen 2 & Vertex AI Search)"]
+    subgraph CoreSquad ["Core Infrastructure & AI Backend (2 Engineers)"]
+        LeadDev["Tech Lead / Core UI Engineer (1 Dev)"]
+        BackendDev["Vertex AI & Cloud Run Engineer (1 Dev)"]
     end
 
-    subgraph SpecializedAdapters ["Specialized Host Adapters (Independent Pod Ownership)"]
-        WordPod["WordAdapter.js<br/><b>Word Pod</b> (1-2 Devs)<br/>• OOXML & Word.run<br/>• Inline @gemini Triggers"]
-        PPTPod["PPTAdapter.js<br/><b>PowerPoint Pod</b> (2 Devs)<br/>• PowerPoint.run & Decks<br/>• macOS WKWebView Dual-Pipeline"]
-        ExcelPod["ExcelAdapter.js<br/><b>Excel Pod</b> (2 Devs)<br/>• Excel.run & Range Auditing<br/>• Formula Risk & KPI Cards"]
-        OutlookPod["OutlookAdapter.js (Future)<br/><b>Outlook Pod</b> (1 Dev)<br/>• Mailbox & Thread Summarization"]
+    subgraph HostPods ["Specialized Host Adapter Pods (7 Engineers)"]
+        PPTPod["<b>PowerPoint Pod</b> (2 Devs)<br/>Decks, Widescreen Layouts & Visuals"]
+        OutlookPod["<b>Outlook Pod</b> (2 Devs)<br/>Thread Summary & Smart Reply"]
+        ExcelPod["<b>Excel Pod</b> (2 Devs)<br/>Formula Generation & Range Audits"]
+        WordPod["<b>Word Pod</b> (1 Dev)<br/>Inline @gemini & Selection Engine"]
     end
 
-    TaskpaneUI --> BaseContract
-    BaseContract --> WordPod
-    BaseContract --> PPTPod
-    BaseContract --> ExcelPod
-    BaseContract -.-> OutlookPod
-    TaskpaneUI --> ClientEngine
-    ClientEngine --> BackendProxy
+    LeadDev --- PPTPod
+    LeadDev --- OutlookPod
+    LeadDev --- ExcelPod
+    LeadDev --- WordPod
+    BackendDev --- PPTPod
+    BackendDev --- OutlookPod
+    BackendDev --- ExcelPod
+    BackendDev --- WordPod
 
-    style CoreLayer fill:#e8f0fe,stroke:#1a73e8,stroke-width:2px;
-    style SpecializedAdapters fill:#e6f4ea,stroke:#137333,stroke-width:2px;
+    style CoreSquad fill:#e8f0fe,stroke:#1a73e8,stroke-width:2px;
+    style HostPods fill:#e6f4ea,stroke:#137333,stroke-width:2px;
 ```
 
----
-
-## 👥 3. Team Topology & Pod Ownership Matrix
-
-| Pod / Sub-Team | Headcount | Primary Code Ownership | Key Responsibilities |
+| Pod | Headcount | Key Deliverables & Top Copilot Equivalent Features | Primary Files Owned |
 | :--- | :---: | :--- | :--- |
-| **PowerPoint Pod** | 2 Engineers | `microsoft-addin/src/adapters/PPTAdapter.js`<br>`microsoft-addin/src/adapters/ppt/*` | • Widescreen executive slide deck layout trees.<br>• Dual-pipeline macOS WKWebView base64 image injection.<br>• Data table to bullet conversions and slide styling. |
-| **Excel Pod** | 2 Engineers | `microsoft-addin/src/adapters/ExcelAdapter.js`<br>`microsoft-addin/src/adapters/excel/*` | • Active cell selection analysis & range context extraction.<br>• Anomaly detection and formula risk auditing.<br>• Executive KPI summary sheets and card metric rendering. |
-| **Word Pod** | 1–2 Engineers | `microsoft-addin/src/adapters/WordAdapter.js`<br>`microsoft-addin/src/adapters/word/*` | • In-document `@gemini <prompt>` inline parser and replacer.<br>• Selected text transformation (rewrite, summarize, tone change).<br>• Custom OOXML tables and corporate callout blocks. |
-| **Core & AI Backend Pod** | 1–2 Engineers | `geminiproxy/*`<br>`microsoft-addin/src/core/*`<br>`microsoft-addin/src/taskpane/*` | • Vertex AI Search Datastore Grounding & tuning.<br>• Multimodal `gemini-2.5-flash-image` (Nano Banana) prompt pipeline.<br>• Taskpane UI framework and `BaseAdapter.js` contract governance. |
+| **Outlook Pod** | **2 Engineers** | • **Email Thread TL;DR:** Multi-email conversation summarization.<br>• **Smart Draft & Reply:** Context-aware email drafting with tone controls.<br>• **Action Items & Sentiment Extraction:** Next steps and follow-ups. | `src/adapters/OutlookAdapter.js`<br>`src/adapters/outlook/*` |
+| **PowerPoint Pod** | **2 Engineers** | • **Briefing-to-Deck Generator:** Multi-slide presentation creation.<br>• **2D Vector Chart Injection:** Multimodal visual charts (`gemini-2.5-flash-image`).<br>• **Speaker Notes & Agenda Builder:** Auto-generated talking points. | `src/adapters/PPTAdapter.js`<br>`src/adapters/ppt/*` |
+| **Excel Pod** | **2 Engineers** | • **Natural Language Formula Generator:** `=XLOOKUP`, `=SUMIFS` generation.<br>• **Outlier & Formula Risk Auditing:** Cell range anomaly detection.<br>• **Executive KPI Metric Cards:** Visual summary blocks from tables. | `src/adapters/ExcelAdapter.js`<br>`src/adapters/excel/*` |
+| **Word Pod** | **1 Engineer** | • **Inline `@gemini` Execution:** Real-time in-document text generation.<br>• **Live Text Transformation:** Rewrite (Executive, Formal, Concise).<br>• **Structured OOXML Tables:** Formatted executive tables and callouts. | `src/adapters/WordAdapter.js`<br>`src/adapters/word/*` |
+| **Core & Backend Pod** | **2 Engineers** | • **Vertex AI Grounding Datastores:** RAG over enterprise 10-K/10-Q & GCS.<br>• **Unified Taskpane UI:** Host-adaptive Fluent UI chat & context cards.<br>• **BaseAdapter Contract & CI/CD:** Jest mocks, build pipelines & Cloud Run. | `geminiproxy/*`<br>`src/core/*`<br>`src/taskpane/*` |
 
 ---
 
-## 🛡️ 4. Dependency & Merge Conflict Mitigation Strategy
+## 🎯 2. High-Impact "Best of Copilot" Features Selected for the 5-Week Sprint
 
-| Dependency Area | Shared Risk Level | Mitigation & Engineering Guardrail |
-| :--- | :---: | :--- |
-| **Host Adapters** | 🟢 **Zero Conflict** | Adapters live in strictly separate files (`WordAdapter.js`, `PPTAdapter.js`, `ExcelAdapter.js`). Devs never touch other pods' adapter files. |
-| **Backend Microservice** | 🟢 **Zero Conflict** | Backend proxy lives in `geminiproxy/` and is deployed independently via Cloud Run / Cloud Functions. |
-| **BaseAdapter Contract** | 🟡 **Low Risk** | `BaseAdapter.js` is treated as an immutable interface. Breaking schema changes require an RFC approved by all pod leads. |
-| **Taskpane UI & Manifest** | 🟡 **Low Risk** | Event-driven UI architecture. Pods only register callbacks via `HostAdapterFactory` rather than hardcoding host logic in `taskpane.js`. |
+### ✉️ Outlook Features (`OutlookAdapter.js`)
+1. **Thread Summarizer (TL;DR):** Ingests complex email threads (`Office.context.mailbox.item.getConversation()`), isolates key discussions, and generates a 3-bullet executive summary.
+2. **Context-Aware Smart Reply & Drafter:** Drafts high-conviction replies referencing the previous email thread and enterprise Datastore facts. Includes a tone slider (*Executive, Friendly, Direct*).
+3. **Action Item & Meeting Extractor:** Highlights required commitments, deliverables, and proposed meeting times from incoming emails.
 
----
+### 📊 PowerPoint Features (`PPTAdapter.js`)
+1. **Unstructured Text to Executive Presentation:** Converts raw briefings or financial text into structured 4–6 slide decks (Title $\rightarrow$ Executive Summary $\rightarrow$ Data Tables $\rightarrow$ Key Takeaways).
+2. **AI Visual Infographics & Charts:** Natively embeds high-resolution 2D vector comparison charts via macOS WKWebView dual-pipeline (`setSelectedDataAsync`).
+3. **Speaker Talking Points:** Generates executive speaker notes for each slide.
 
-## 🔒 5. Governance: GitHub CODEOWNERS & Branch Policy
+### 📈 Excel Features (`ExcelAdapter.js`)
+1. **Natural Language Formula Generator & Explainer:** Converts prompts like *"Sum revenue where region is West and margin > 20%"* into valid `=SUMIFS(...)` formulas with one-click insertion.
+2. **Spreadsheet Anomaly & Risk Detection:** Scans active selections for mismatched data types, broken formulas, and statistical outliers.
+3. **Executive KPI Cards:** Parses dense numerical tables into summary metric cards.
 
-To ensure clean code reviews, the repository uses a `.github/CODEOWNERS` file:
-
-```gitignore
-# Core UI & Interface Contract
-/microsoft-addin/src/core/                     @cloud-gtm/core-team
-/microsoft-addin/src/adapters/BaseAdapter.js   @cloud-gtm/core-team
-/microsoft-addin/src/adapters/HostAdapterFactory.js @cloud-gtm/core-team
-/geminiproxy/                                  @cloud-gtm/backend-team
-
-# Specialized Pods
-/microsoft-addin/src/adapters/PPTAdapter.js     @cloud-gtm/ppt-team
-/microsoft-addin/src/adapters/ExcelAdapter.js   @cloud-gtm/excel-team
-/microsoft-addin/src/adapters/WordAdapter.js    @cloud-gtm/word-team
-```
+### 📄 Word Features (`WordAdapter.js`)
+1. **In-Document `@gemini` Direct Trigger:** Type `@gemini draft executive summary` directly inside any document line to generate content in place.
+2. **Selection Rewrite & Tone Refiner:** Highlight text $\rightarrow$ instant transformation (*Make Professional, Summarize, Expand, Bulletize*).
+3. **Executive Callout & OOXML Table Injection:** Formats unstructured lists into styled Word tables with headers.
 
 ---
 
-## 🧪 6. Independent Mock Testing Strategy
-
-Each pod tests its adapter in isolation using Jest mock harnesses without requiring live Office desktop installations:
-
-```javascript
-// Example Mock Test for PPTAdapter (Runs in headless CI/CD)
-describe('PPTAdapter Test Suite', () => {
-  it('should construct a 4-slide executive presentation', async () => {
-    const mockContext = createMockPowerPointContext();
-    const adapter = new PPTAdapter(mockContext);
-    
-    const result = await adapter.insertSlideDeck(sampleBriefingData);
-    expect(result.slideCount).toBe(4);
-    expect(mockContext.presentation.setSelectedSlides).toHaveBeenCalled();
-  });
-});
-```
-
----
-
-## 🗺️ 7. Phased Delivery Roadmap (4-Phase Milestones)
+## 🗓️ 3. Week-by-Week Execution Roadmap (5-Week Sprint Schedule)
 
 ```mermaid
 gantt
-    title Gemini for Office 365 Development Roadmap
+    title 5-Week Engineering Sprint Schedule
     dateFormat  YYYY-MM-DD
-    section Phase 1: Core & Grounding
-    BaseAdapter Contract & Manifest Validation :done, p1_1, 2026-08-01, 2026-08-10
-    Cloud Functions Gen 2 & Vertex Search DS   :done, p1_2, 2026-08-05, 2026-08-10
     
-    section Phase 2: Host Specialization
-    PPT Widescreen Decks & macOS Dual Pipeline :active, p2_1, 2026-08-11, 2026-08-25
-    Word Inline @gemini & Selection Engine     :active, p2_2, 2026-08-11, 2026-08-25
-    Excel Range Auditing & Metric Cards        :active, p2_3, 2026-08-11, 2026-08-25
-    
-    section Phase 3: Advanced Intelligence
-    Excel Direct Formula Mutation (=SUMIFS)    :p3_1, 2026-08-26, 2026-09-15
-    PPT Vector Shape Generation Trees          :p3_2, 2026-08-26, 2026-09-15
-    Multimodal Nano Banana High-Res Fine-Tuning:p3_3, 2026-08-26, 2026-09-15
-    
-    section Phase 4: Enterprise Scale & Hosts
-    Outlook Email Thread Summarizer Adapter    :p4_1, 2026-09-16, 2026-10-05
-    Microsoft Teams Meeting Recap Adapter      :p4_2, 2026-09-16, 2026-10-05
-    Enterprise SSO & Tenant Isolation Testing  :p4_3, 2026-10-01, 2026-10-15
+    section Sprint 1 (Week 1)
+    Core: BaseAdapter Interface & Outlook Manifest Extension :active, s1_1, 2026-08-11, 2026-08-17
+    Outlook: Read Thread Body & Basic Taskpane View         :active, s1_2, 2026-08-11, 2026-08-17
+    PPT: Multi-slide Layout Templates (Widescreen)          :active, s1_3, 2026-08-11, 2026-08-17
+    Excel: Selection Range Context & Coordinate Parser      :active, s1_4, 2026-08-11, 2026-08-17
+    Word: Inline @gemini Trigger & Keyup Listeners          :active, s1_5, 2026-08-11, 2026-08-17
+
+    section Sprint 2 (Week 2)
+    Outlook: Thread Summarizer (TL;DR) & Action Item Extraction :s2_1, 2026-08-18, 2026-08-24
+    PPT: AI Visual Chart Injection & Table Parser           :s2_2, 2026-08-18, 2026-08-24
+    Excel: Formula Generator & Copy-to-Cell Helper          :s2_3, 2026-08-18, 2026-08-24
+    Word: Selection Rewrite & Tone Modifier Engine          :s2_4, 2026-08-18, 2026-08-24
+    Core: Vertex AI Search Datastore Multi-Turn Sessions    :s2_5, 2026-08-18, 2026-08-24
+
+    section Sprint 3 (Week 3)
+    Outlook: Smart Reply & Tone-Controlled Drafting          :s3_1, 2026-08-25, 2026-08-31
+    PPT: Speaker Notes Generation & Split Visual Layouts     :s3_2, 2026-08-25, 2026-08-31
+    Excel: Outlier Detection & KPI Metric Card Cards        :s3_3, 2026-08-25, 2026-08-31
+    Word: OOXML Styled Tables & Header Formatting           :s3_4, 2026-08-25, 2026-08-31
+    Core: Citation Grounding UI Chips in Taskpane           :s3_5, 2026-08-25, 2026-08-31
+
+    section Sprint 4 (Week 4)
+    Host Pods: Cross-Platform Testing (Mac, Windows, Web)   :s4_1, 2026-09-01, 2026-09-07
+    Core: Performance Optimization (Latency & Token Caching):s4_2, 2026-09-01, 2026-09-07
+    Security: Enterprise Secret Scan & IAM Token Hardening  :s4_3, 2026-09-01, 2026-09-07
+
+    section Sprint 5 (Week 5)
+    End-to-End User Acceptance Testing (UAT)                :s5_1, 2026-09-08, 2026-09-15
+    Final Packaging, Production Cloud Run & Release Tag      :s5_2, 2026-09-08, 2026-09-15
 ```
+
+---
+
+## 🛡️ 4. Code Conflict & Dependency Elimination Rules
+
+1. **Strict Pod File Boundaries:**
+   - Outlook Pod $\rightarrow$ `src/adapters/OutlookAdapter.js`
+   - PPT Pod $\rightarrow$ `src/adapters/PPTAdapter.js`
+   - Excel Pod $\rightarrow$ `src/adapters/ExcelAdapter.js`
+   - Word Pod $\rightarrow$ `src/adapters/WordAdapter.js`
+   - Core Pod $\rightarrow$ `src/core/`, `geminiproxy/`, `src/taskpane/`
+2. **Branching Strategy:**
+   - Every pod branches from `main` (e.g. `feat/outlook-thread-summary`, `feat/excel-formula-gen`).
+   - PRs only contain modifications to the pod's dedicated adapter directory.
+3. **Immutable Contract:**
+   - `BaseAdapter.js` is locked. If a pod needs a new core capability, they request it through the Core Tech Lead during the Monday sync.
