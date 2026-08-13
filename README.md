@@ -4,6 +4,13 @@
 
 An enterprise-ready Microsoft 365 Add-in and Google Cloud backend that integrates **Google Cloud Vertex AI (Gemini 2.5 Flash, Vertex AI Search Grounding, and Gemini 2.5 Flash Image / Nano Banana)** directly into **Microsoft Word**, **PowerPoint**, and **Excel**.
 
+## 📽️ Demo Video
+
+
+https://github.com/user-attachments/assets/7b361e71-13d4-48ba-81ce-41bf5d0c9e50
+
+
+
 ---
 
 ## 🌟 Key Capabilities
