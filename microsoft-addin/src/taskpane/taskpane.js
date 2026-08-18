@@ -7,7 +7,7 @@
  * @author Sathya AG, Principal Architect, Google
  */
 
-import { askGeminiEnterprise } from '../core/geminiClient.js';
+import { askGeminiEnterprise, getActiveProxyUrl, setProxyUrlOverride } from '../core/geminiClient.js';
 import { parseMarkdown } from '../core/markdownParser.js';
 import { HostAdapterFactory } from '../adapters/HostAdapterFactory.js';
 
@@ -30,6 +30,23 @@ Office.onReady((info) => {
   const scanBtn = document.getElementById("scanInDoc");
   if (scanBtn) {
     scanBtn.onclick = () => checkForInDocumentCommands(true);
+  }
+
+  // Target Proxy Endpoint selector setup
+  const endpointSelect = document.getElementById("endpointSelect");
+  if (endpointSelect) {
+    const savedUrl = window.localStorage ? window.localStorage.getItem('gemini_proxy_url') : "";
+    if (savedUrl) {
+      endpointSelect.value = savedUrl;
+    }
+    endpointSelect.onchange = (e) => {
+      const selectedUrl = e.target.value;
+      setProxyUrlOverride(selectedUrl);
+      const debugStatus = document.getElementById("debugStatus");
+      if (debugStatus) {
+        debugStatus.innerText = selectedUrl ? `Target: Override Active` : `${hostAdapter ? hostAdapter.name : 'Office'} Ready`;
+      }
+    };
   }
 
   // Adapt UI titles, top banners, and action chips to the active Microsoft product

@@ -9,6 +9,8 @@
 
 import functions from '@google-cloud/functions-framework';
 import { VertexAI } from '@google-cloud/vertexai';
+import { GoogleAuth } from 'google-auth-library';
+import express from 'express';
 import corsLib from 'cors';
 
 const cors = corsLib({ origin: true });
@@ -20,15 +22,33 @@ const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const IMAGE_MODEL_NAME = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
 const DATASTORE_ID = process.env.VERTEX_DATASTORE_ID || process.env.VERTEX_DATASTORE || '';
 
+// Gemini Enterprise StreamAssist API Configuration
+const BACKEND_MODE = (process.env.BACKEND_MODE || 'streamassist').toLowerCase();
+const STREAM_ASSIST_ENDPOINT_LOCATION = process.env.STREAM_ASSIST_ENDPOINT_LOCATION || 'global';
+const GCP_LOCATION = process.env.GCP_LOCATION || 'global';
+const ENTERPRISE_APP_ID = process.env.GEMINI_ENTERPRISE_APP_ID || process.env.VERTEX_DATASTORE_ID || '';
+const ENTERPRISE_COLLECTION_ID = process.env.GEMINI_ENTERPRISE_COLLECTION_ID || 'default_collection';
+const ENTERPRISE_ASSISTANT_ID = process.env.GEMINI_ENTERPRISE_ASSISTANT_ID || 'default_assistant';
+
+const auth = new GoogleAuth({
+  scopes: 'https://www.googleapis.com/auth/cloud-platform'
+});
+
 if (!PROJECT_ID) {
   console.warn('WARNING: GCP_PROJECT_ID environment variable is not set. Vertex AI client will use default credentials.');
 }
 
 // Pre-warmed global VertexAI client instance (connection pooling & token caching)
-const vertexAI = new VertexAI({
-  project: PROJECT_ID || undefined,
-  location: REGION,
-});
+let vertexAI;
+function getVertexAI() {
+  if (!vertexAI) {
+    vertexAI = new VertexAI({
+      project: PROJECT_ID || 'genai-demo-catalog',
+      location: REGION,
+    });
+  }
+  return vertexAI;
+}
 
 const modelCache = new Map();
 
@@ -59,7 +79,7 @@ function getCachedModel(modelName, enableGrounding = true) {
       ];
     }
 
-    const model = vertexAI.getGenerativeModel(modelConfig);
+    const model = getVertexAI().getGenerativeModel(modelConfig);
     modelCache.set(cacheKey, model);
   }
   return { model: modelCache.get(cacheKey), name };
@@ -68,16 +88,17 @@ function getCachedModel(modelName, enableGrounding = true) {
 // In-memory session store for multi-turn chats
 const sessionStore = new Map();
 
-// Vertex AI Image Generation Model (Gemini 2.5 Flash Image / Nano Banana)
-const imageModel = vertexAI.getGenerativeModel({
-  model: IMAGE_MODEL_NAME
-});
+function getImageModel() {
+  return getVertexAI().getGenerativeModel({
+    model: IMAGE_MODEL_NAME
+  });
+}
 
 async function generateVertexImage(prompt) {
   try {
     console.log('Generating image via Vertex AI (gemini-2.5-flash-image):', prompt.substring(0, 70) + '...');
-    const res = await imageModel.generateContent(
-      `Generate a high-resolution corporate financial visual, infographic, or chart: ${prompt}. Professional flat 2D graphic design, crisp typography, clean white background.`
+    const res = await getImageModel().generateContent(
+      `Create a professional corporate financial infographic chart reflecting exact data: ${prompt}. Use exact company name and exact numbers provided. DO NOT use generic placeholder names like "Global Innovations Inc.". Flat 2D vector graphic design, crisp typography, clean white background.`
     );
     const parts = (await res.response)?.candidates?.[0]?.content?.parts || [];
     const imgPart = parts.find(p => p.inlineData);
@@ -435,6 +456,187 @@ async function handleGeminiRequest(req, res) {
   });
 }
 
+async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId }) {
+  if (!PROJECT_ID) {
+    throw new Error('GCP_PROJECT_ID environment variable is required for StreamAssist');
+  }
+  if (!ENTERPRISE_APP_ID) {
+    throw new Error('GEMINI_ENTERPRISE_APP_ID environment variable is required for StreamAssist');
+  }
+
+  const client = await auth.getClient();
+  const accessTokenObj = await client.getAccessToken();
+  const accessToken = typeof accessTokenObj === 'string' ? accessTokenObj : accessTokenObj.token;
+
+  const endpointUrl = `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1/projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/engines/${ENTERPRISE_APP_ID}/assistants/${ENTERPRISE_ASSISTANT_ID}:streamAssist`;
+
+  const activeUserId = userPseudoId || userId || 'office_365_user';
+
+  const requestBody = {
+    query: {
+      text: prompt
+    }
+  };
+
+  if (sessionId) {
+    let fullSessionName = sessionId;
+    if (!sessionId.startsWith('projects/')) {
+      fullSessionName = `projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/engines/${ENTERPRISE_APP_ID}/sessions/${sessionId}`;
+    }
+    requestBody.session = fullSessionName;
+  }
+
+  console.log(`Calling StreamAssist API (${endpointUrl})... Session: ${requestBody.session || 'NEW'}`);
+
+  const apiRes = await fetch(endpointUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(requestBody)
+  });
+
+  if (!apiRes.ok) {
+    const errText = await apiRes.text();
+    console.error('StreamAssist API error:', apiRes.status, errText);
+    throw new Error(`StreamAssist API returned HTTP ${apiRes.status}: ${errText}`);
+  }
+
+  const rawResponseBody = await apiRes.text();
+  let parsedChunks = [];
+
+  try {
+    const data = JSON.parse(rawResponseBody);
+    parsedChunks = Array.isArray(data) ? data : [data];
+  } catch (e) {
+    const lines = rawResponseBody.split('\n').filter(l => l.trim().length > 0);
+    for (const line of lines) {
+      try {
+        parsedChunks.push(JSON.parse(line));
+      } catch (err) {
+        console.warn('Could not parse streaming line chunk:', line.substring(0, 80));
+      }
+    }
+  }
+
+  let aggregatedText = '';
+  let returnedSessionResource = null;
+  const citations = [];
+  const seenCitations = new Set();
+
+  for (const chunk of parsedChunks) {
+    if (chunk.sessionInfo?.session) {
+      returnedSessionResource = chunk.sessionInfo.session;
+    }
+
+    const replies = chunk.answer?.replies || [];
+    for (const reply of replies) {
+      const contentObj = reply.groundedContent?.content;
+      if (contentObj && contentObj.text && !contentObj.thought) {
+        aggregatedText += contentObj.text;
+      } else if (reply.replyText) {
+        aggregatedText += reply.replyText;
+      }
+
+      const grounded = reply.groundedContent || {};
+      if (grounded.searchChunk || grounded.web || reply.replyId) {
+        const title = grounded.title || grounded.searchChunk?.title || 'Enterprise Data Source';
+        const uri = grounded.uri || grounded.searchChunk?.uri || '';
+        if (uri && !seenCitations.has(title)) {
+          seenCitations.add(title);
+          citations.push({ title, uri });
+        }
+      }
+    }
+
+    if (!aggregatedText) {
+      let chunkText = chunk.answer?.replyText || chunk.replyText || '';
+      if (chunkText) {
+        aggregatedText += chunkText;
+      }
+    }
+  }
+
+  let shortSessionId = returnedSessionResource;
+  if (returnedSessionResource && returnedSessionResource.includes('/sessions/')) {
+    shortSessionId = returnedSessionResource.split('/sessions/').pop();
+  }
+
+  return {
+    resultText: aggregatedText,
+    sessionResource: returnedSessionResource,
+    sessionId: shortSessionId || sessionId,
+    citations: citations
+  };
+}
+
+async function handleGeminiEnterpriseRequest(req, res) {
+  cors(req, res, async () => {
+    try {
+      if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method Not Allowed' });
+      }
+
+      const { prompt, sessionId, userId, userPseudoId } = req.body;
+      if (!prompt) {
+        return res.status(400).json({ error: 'Prompt is required' });
+      }
+
+      console.log(`Processing Gemini Enterprise request (Mode: ${BACKEND_MODE})... User: ${userPseudoId || userId || 'office_365_user'}`);
+
+      if (BACKEND_MODE === 'streamassist' && ENTERPRISE_APP_ID) {
+        try {
+          const streamAssistResult = await callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId });
+          let rawText = streamAssistResult.resultText || '';
+
+          if (streamAssistResult.citations && streamAssistResult.citations.length > 0) {
+            const citationItems = streamAssistResult.citations.map(c => `* 📄 **${c.title}**${c.uri ? ` \`(${c.uri})\`` : ''}`);
+            rawText += `\n\n---\n> [!NOTE] **Verified Gemini Enterprise Grounded Sources:**\n> ` + citationItems.join('\n> ');
+          }
+
+          const processedText = await inlineImagesInContent(rawText);
+
+          return res.status(200).json({
+            result: processedText,
+            sessionId: streamAssistResult.sessionId,
+            sessionResource: streamAssistResult.sessionResource,
+            citations: streamAssistResult.citations,
+            backendMode: 'streamassist'
+          });
+        } catch (streamAssistErr) {
+          console.warn('StreamAssist execution failed, falling back to direct Vertex AI:', streamAssistErr.message);
+        }
+      }
+
+      // Fallback to direct Vertex AI
+      return handleGeminiRequest(req, res);
+    } catch (error) {
+      console.error('Error in Gemini Enterprise handler:', error);
+      return res.status(500).json({
+        error: 'Failed to process Gemini Enterprise request',
+        details: error.message,
+      });
+    }
+  });
+}
+
 functions.http('askGemini', handleGeminiRequest);
-functions.http('askGeminiEnterprise', handleGeminiRequest);
+functions.http('askGeminiEnterprise', handleGeminiEnterpriseRequest);
 functions.http('geminiProxy', handleGeminiRequest);
+
+// Standalone Express Server (for Cloud Run & Docker execution)
+const app = express();
+app.use(express.json());
+app.use(cors);
+app.post('/askGeminiEnterprise', handleGeminiEnterpriseRequest);
+app.post('/askGemini', handleGeminiRequest);
+app.post('/', handleGeminiEnterpriseRequest);
+app.get('/', (req, res) => res.status(200).send('Gemini Enterprise Proxy Service Healthy'));
+
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => {
+  console.log(`Gemini Enterprise Proxy HTTP Server running on port ${PORT}`);
+});
+
+
