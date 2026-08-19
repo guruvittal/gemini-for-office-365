@@ -103,7 +103,7 @@ async function createSingleSlide(slideData, slideNum) {
     const slideCount = countResult.value;
     logToPPTConsole(`Slide ${slideNum}: Added slide at index ${slideCount - 1} (Total slides: ${slideCount}).`);
 
-
+    const newSlide = slides.getItemAt(slideCount - 1);
 
     // 3. Intelligently map content to existing template placeholders
     let titlePopulated = false;
@@ -111,7 +111,7 @@ async function createSingleSlide(slideData, slideNum) {
     let bodyPopulated = false;
 
     try {
-      newSlide.shapes.load("items/name");
+      newSlide.shapes.load("items");
       await context.sync();
 
       if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
