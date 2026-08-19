@@ -105,18 +105,30 @@ async function createSingleSlide(slideData, slideNum) {
 
     const newSlide = slides.getItemAt(slideCount - 1);
 
-    // 2b. Safely clear all default template placeholders
+    // 2b. Neutralize default template placeholders without deleting them (prevents GeneralException)
+    // We move them off-canvas and inject a non-breaking space to permanently erase the "Click to add..." watermarks.
     try {
       newSlide.shapes.load("items");
       await context.sync();
-      const shapesCount = newSlide.shapes.items.length;
-      // Iterate backwards when deleting to avoid index shifting/InvalidParam errors
-      for (let i = shapesCount - 1; i >= 0; i--) {
-        newSlide.shapes.items[i].delete();
+      if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
+        for (let i = 0; i < newSlide.shapes.items.length; i++) {
+          const s = newSlide.shapes.items[i];
+          try {
+            // Move off-screen
+            s.left = 1500;
+            s.top = 1500;
+            s.width = 10;
+            s.height = 10;
+            // Inject non-breaking space to clear the watermark
+            s.textFrame.textRange.text = "\u00A0"; 
+          } catch (shapeErr) {
+            // Ignore if it's not a text shape or lacks properties
+          }
+        }
+        await context.sync();
       }
-      await context.sync();
     } catch (e) {
-      console.warn("Notice clearing default placeholders:", e.message);
+      console.warn("Notice neutralizing default placeholders:", e.message);
     }
 
     // 3. Add Title TextBox at TOP of slide
