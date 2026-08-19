@@ -92,11 +92,11 @@ async function createSingleSlide(slideData, slideNum) {
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
 
-    // 1. Add standard slide and sync
+    // 1. Add slide and sync
     slides.add();
     await context.sync();
 
-    // 2. Locate the newly added slide
+    // 2. Fetch total count to locate newly added slide
     const countResult = slides.getCount();
     await context.sync();
 
@@ -104,74 +104,63 @@ async function createSingleSlide(slideData, slideNum) {
     logToPPTConsole(`Slide ${slideNum}: Added slide at index ${slideCount - 1} (Total slides: ${slideCount}).`);
 
     const newSlide = slides.getItemAt(slideCount - 1);
+    newSlide.shapes.load("items");
+    await context.sync();
 
-    // 2b. Neutralize default template placeholders without deleting them (prevents GeneralException)
-    // We move them off-canvas and inject a non-breaking space to permanently erase the "Click to add..." watermarks.
-    try {
-      newSlide.shapes.load("items");
-      await context.sync();
-      if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
-        for (let i = 0; i < newSlide.shapes.items.length; i++) {
-          const s = newSlide.shapes.items[i];
-          try {
-            // Move off-screen
-            s.left = 1500;
-            s.top = 1500;
-            s.width = 10;
-            s.height = 10;
-            // Inject non-breaking space to clear the watermark
-            s.textFrame.textRange.text = "\u00A0"; 
-            
-            // Sync immediately to isolate any error per shape
-            await context.sync();
-          } catch (shapeErr) {
-            // Ignore if this specific shape is locked or unsupported by the API
-          }
+    const shapes = newSlide.shapes.items || [];
+    let populatedTitle = false;
+    let populatedBody = false;
+
+    // Combine subtitle and body bullets nicely
+    const fullBodyText = subtitle ? `${subtitle}\n\n${bodyTextContent}` : bodyTextContent;
+
+    // 3. Directly populate native template placeholders (erases "Click to add..." prompts cleanly)
+    if (shapes.length >= 1) {
+      try {
+        shapes[0].textFrame.textRange.text = cleanTitle;
+        if (color) {
+          shapes[0].textFrame.textRange.font.color = color;
         }
+        populatedTitle = true;
+      } catch (e) {
+        // Fallback to custom textbox below
       }
-    } catch (e) {
-      console.warn("Notice neutralizing default placeholders:", e.message);
     }
 
-    // 3. Add Title TextBox at TOP of slide
-    const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
-      left: 50,
-      top: 40,
-      width: 860,
-      height: 60
-    });
-    titleBox.textFrame.textRange.font.size = titleSize;
-    titleBox.textFrame.textRange.font.bold = true;
-    if (color) {
-      titleBox.textFrame.textRange.font.color = color;
+    if (shapes.length >= 2) {
+      try {
+        shapes[1].textFrame.textRange.text = fullBodyText;
+        populatedBody = true;
+      } catch (e) {
+        // Fallback to custom textbox below
+      }
     }
 
-    // 4. Add Subtitle directly UNDER title
-    if (subtitle) {
-      const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
+    // 4. Fallbacks if template had no native placeholders
+    if (!populatedTitle) {
+      const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
         left: 50,
-        top: 110,
+        top: 35,
         width: 860,
-        height: 40
+        height: 50
       });
-      subtitleBox.textFrame.textRange.font.size = subtitleSize;
-      subtitleBox.textFrame.textRange.font.italic = true;
-      if (color) {
-        subtitleBox.textFrame.textRange.font.color = color;
-      }
+      titleBox.textFrame.textRange.font.size = titleSize;
+      titleBox.textFrame.textRange.font.bold = true;
+      if (color) titleBox.textFrame.textRange.font.color = color;
     }
 
-    // 5. Add Body Content TextBox directly UNDER subtitle / title
-    const bodyTop = subtitle ? 160 : 110;
-    const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
-      left: 50,
-      top: bodyTop,
-      width: hasImages ? 400 : 860,
-      height: 340
-    });
-    bodyBox.textFrame.textRange.font.size = 18;
+    if (!populatedBody) {
+      const bodyTop = subtitle ? 135 : 95;
+      const bodyBox = newSlide.shapes.addTextBox(fullBodyText, {
+        left: 50,
+        top: bodyTop,
+        width: hasImages ? 400 : 860,
+        height: 360
+      });
+      bodyBox.textFrame.textRange.font.size = 18;
+    }
 
-    // 6. Add Image if available
+    // 5. Add Image if available
     if (hasImages) {
       for (const rawImg of imagesToInsert) {
         const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
@@ -179,7 +168,7 @@ async function createSingleSlide(slideData, slideNum) {
           try {
             newSlide.shapes.addImage(clean, {
               left: 480,
-              top: bodyTop,
+              top: 135,
               width: 380,
               height: 300
             });
@@ -191,7 +180,7 @@ async function createSingleSlide(slideData, slideNum) {
       }
     }
 
-    // 7. Commit all shapes in single batch
+    // 6. Commit all slide changes in single batch
     await context.sync();
     logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}and Bullets.`);
   });
