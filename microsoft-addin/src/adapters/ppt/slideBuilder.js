@@ -105,6 +105,19 @@ async function createSingleSlide(slideData, slideNum) {
 
     const newSlide = slides.getItemAt(slideCount - 1);
 
+    // 2b. Safely clear all default template placeholders
+    try {
+      newSlide.shapes.load("items");
+      await context.sync();
+      const shapesCount = newSlide.shapes.items.length;
+      for (let i = 0; i < shapesCount; i++) {
+        newSlide.shapes.items[i].delete();
+      }
+      await context.sync();
+    } catch (e) {
+      console.warn("Notice clearing default placeholders:", e.message);
+    }
+
     // 3. Add Title TextBox at TOP of slide
     const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
       left: 50,
