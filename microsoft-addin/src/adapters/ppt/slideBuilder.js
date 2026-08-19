@@ -118,6 +118,69 @@ async function getThemeBlankLayoutOptions() {
 }
 
 /**
+ * Populates title, subtitle, bullets, and visuals onto a slide shape collection.
+ */
+function populateSlideShapes(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, bodyTextContent, hasImages, imagesToInsert, slideNum) {
+  // 1. Add Title TextBox at Top
+  const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
+    left: 50,
+    top: 35,
+    width: 860,
+    height: 50
+  });
+  titleBox.textFrame.textRange.font.size = titleSize;
+  titleBox.textFrame.textRange.font.bold = true;
+  if (color) {
+    titleBox.textFrame.textRange.font.color = color;
+  }
+
+  // 2. Add Subtitle TextBox directly under Title
+  if (subtitle) {
+    const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
+      left: 50,
+      top: 90,
+      width: 860,
+      height: 35
+    });
+    subtitleBox.textFrame.textRange.font.size = subtitleSize;
+    subtitleBox.textFrame.textRange.font.italic = true;
+    if (color) {
+      subtitleBox.textFrame.textRange.font.color = color;
+    }
+  }
+
+  // 3. Add Body Content TextBox
+  const bodyTop = subtitle ? 135 : 95;
+  const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
+    left: 50,
+    top: bodyTop,
+    width: hasImages ? 400 : 860,
+    height: 360
+  });
+  bodyBox.textFrame.textRange.font.size = 18;
+
+  // 4. Add Image if available
+  if (hasImages) {
+    for (const rawImg of imagesToInsert) {
+      const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
+      if (clean.length > 50) {
+        try {
+          newSlide.shapes.addImage(clean, {
+            left: 480,
+            top: bodyTop,
+            width: 380,
+            height: 300
+          });
+          logToPPTConsole(`Slide ${slideNum}: Attached image.`);
+        } catch (imgErr) {
+          logToPPTConsole(`Slide ${slideNum}: Image notice: ${imgErr.message}`);
+        }
+      }
+    }
+  }
+}
+
+/**
  * Creates a single slide atomically in PowerPoint with title, body bullets, and optional images.
  */
 async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
@@ -135,90 +198,46 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
 
   logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."`);
 
-  await PowerPoint.run(async (context) => {
-    const slides = context.presentation.slides;
+  let addedSuccessfully = false;
 
-    // 1. Add slide using theme's blank layout (or default add)
-    if (layoutOptions) {
-      try {
+  // 1. Attempt addition with Theme Blank Layout if available
+  if (layoutOptions) {
+    try {
+      await PowerPoint.run(async (context) => {
+        const slides = context.presentation.slides;
         slides.add(layoutOptions);
-      } catch (_) {
-        slides.add();
-      }
-    } else {
-      slides.add();
-    }
-    await context.sync();
+        await context.sync();
 
-    // 2. Load slides collection to reliably target the newly added slide
-    slides.load("items");
-    await context.sync();
+        slides.load("items");
+        await context.sync();
 
-    const slideCount = slides.items.length;
-    const newSlide = slides.items[slideCount - 1];
-
-    // 3. Add Title TextBox at Top
-    const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
-      left: 50,
-      top: 35,
-      width: 860,
-      height: 50
-    });
-    titleBox.textFrame.textRange.font.size = titleSize;
-    titleBox.textFrame.textRange.font.bold = true;
-    if (color) {
-      titleBox.textFrame.textRange.font.color = color;
-    }
-
-    // 4. Add Subtitle TextBox directly under Title
-    if (subtitle) {
-      const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
-        left: 50,
-        top: 90,
-        width: 860,
-        height: 35
+        const newSlide = slides.items[slides.items.length - 1];
+        populateSlideShapes(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, bodyTextContent, hasImages, imagesToInsert, slideNum);
+        await context.sync();
+        addedSuccessfully = true;
       });
-      subtitleBox.textFrame.textRange.font.size = subtitleSize;
-      subtitleBox.textFrame.textRange.font.italic = true;
-      if (color) {
-        subtitleBox.textFrame.textRange.font.color = color;
-      }
+    } catch (layoutErr) {
+      console.warn(`[PPTBuilder] Theme layout add failed (${layoutErr.message}), falling back to standard slide add.`);
     }
+  }
 
-    // 5. Add Body Content TextBox
-    const bodyTop = subtitle ? 135 : 95;
-    const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
-      left: 50,
-      top: bodyTop,
-      width: hasImages ? 400 : 860,
-      height: 360
+  // 2. Reliable Fallback: Add standard slide if theme blank layout was unavailable or failed
+  if (!addedSuccessfully) {
+    await PowerPoint.run(async (context) => {
+      const slides = context.presentation.slides;
+      slides.add();
+      await context.sync();
+
+      slides.load("items");
+      await context.sync();
+
+      const newSlide = slides.items[slides.items.length - 1];
+      populateSlideShapes(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, bodyTextContent, hasImages, imagesToInsert, slideNum);
+      await context.sync();
     });
-    bodyBox.textFrame.textRange.font.size = 18;
+  }
 
-    // 6. Add Image if available
-    if (hasImages) {
-      for (const rawImg of imagesToInsert) {
-        const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
-        if (clean.length > 50) {
-          try {
-            newSlide.shapes.addImage(clean, {
-              left: 480,
-              top: bodyTop,
-              width: 380,
-              height: 300
-            });
-            logToPPTConsole(`Slide ${slideNum}: Attached image.`);
-          } catch (imgErr) {
-            logToPPTConsole(`Slide ${slideNum}: Image notice: ${imgErr.message}`);
-          }
-        }
-      }
-    }
-
-    // 7. Commit all shapes on this new slide atomically
-    await context.sync();
-    logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}and Bullets.`);
-  });
+  logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}and Bullets.`);
 }
 
 /**
