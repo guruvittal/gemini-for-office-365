@@ -122,20 +122,23 @@ async function createSingleSlide(slideData, slideNum) {
           try {
             if (!titlePopulated && sName.includes("title")) {
               s.textFrame.textRange.text = cleanTitle;
+              await context.sync();
               titlePopulated = true;
-            } else if (!subtitlePopulated && sName.includes("subtitle")) {
-              s.textFrame.textRange.text = subtitle || " ";
+            } else if (!subtitlePopulated && sName.includes("subtitle") && subtitle) {
+              s.textFrame.textRange.text = subtitle;
+              await context.sync();
               subtitlePopulated = true;
-            } else if (!bodyPopulated && (sName.includes("content") || sName.includes("text") || sName.includes("placeholder"))) {
+            } else if (!bodyPopulated && (sName.includes("content") || sName.includes("body") || sName.includes("text") || sName.includes("placeholder") || sName.includes("object"))) {
               s.textFrame.textRange.text = bodyTextContent;
+              await context.sync();
               bodyPopulated = true;
-            } else {
-              // Unused placeholder: Neutralize it by injecting a space
-              s.textFrame.textRange.text = " ";
+            } else if (sName.includes("subtitle") && !subtitle) {
+              // Neutralize empty subtitle placeholder watermark
+              s.textFrame.textRange.text = "\u00A0";
+              await context.sync();
             }
-            await context.sync();
           } catch (shapeErr) {
-            // Ignore locked or non-text shapes
+            // Shape did not accept text; fallback addTextBox will trigger below
           }
         }
       }
