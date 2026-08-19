@@ -105,7 +105,7 @@ async function createSingleSlide(slideData, slideNum) {
 
     const newSlide = slides.getItemAt(slideCount - 1);
 
-    // 2b. Neutralize default template placeholders without deleting them (prevents GeneralException)
+    // 2b. Neutralize default template placeholders without deleting them
     // We move them off-canvas and inject a non-breaking space to permanently erase the "Click to add..." watermarks.
     try {
       newSlide.shapes.load("items");
@@ -121,14 +121,16 @@ async function createSingleSlide(slideData, slideNum) {
             s.height = 10;
             // Inject non-breaking space to clear the watermark
             s.textFrame.textRange.text = "\u00A0"; 
+            
+            // Sync immediately to catch any Office.js batch exception for THIS specific shape!
+            await context.sync();
           } catch (shapeErr) {
-            // Ignore if it's not a text shape or lacks properties
+            // Ignore if this specific shape is locked or unsupported by the API
           }
         }
-        await context.sync();
       }
     } catch (e) {
-      console.warn("Notice neutralizing default placeholders:", e.message);
+      console.warn("Notice loading default placeholders:", e.message);
     }
 
     // 3. Add Title TextBox at TOP of slide
