@@ -72,6 +72,47 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 800, maxHeight 
 }
 
 /**
+ * Safely discovers the "Blank" layout ID from the presentation's slide masters.
+ */
+let cachedBlankLayoutId = undefined;
+
+async function getBlankLayoutId() {
+  if (cachedBlankLayoutId !== undefined) {
+    return cachedBlankLayoutId;
+  }
+
+  try {
+    await PowerPoint.run(async (context) => {
+      const masters = context.presentation.slideMasters;
+      masters.load("items");
+      await context.sync();
+
+      if (masters.items && masters.items.length > 0) {
+        const layouts = masters.items[0].layouts;
+        layouts.load("items");
+        await context.sync();
+
+        for (let i = 0; i < layouts.items.length; i++) {
+          const l = layouts.items[i];
+          const lName = (l.name || "").toLowerCase();
+          if (lName.includes("blank")) {
+            cachedBlankLayoutId = l.id;
+            break;
+          }
+        }
+      }
+    });
+  } catch (e) {
+    console.warn("Notice checking slide master layouts:", e.message);
+  }
+
+  if (!cachedBlankLayoutId) {
+    cachedBlankLayoutId = null;
+  }
+  return cachedBlankLayoutId;
+}
+
+/**
  * Creates a single slide in PowerPoint with title, body bullets, and optional images.
  */
 async function createSingleSlide(slideData, slideNum) {
@@ -89,11 +130,21 @@ async function createSingleSlide(slideData, slideNum) {
 
   logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."`);
 
+  const blankLayoutId = await getBlankLayoutId();
+
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
 
-    // 1. Add slide and sync
-    slides.add();
+    // 1. Add slide (using Blank layout if available to eliminate "Click to add..." placeholders)
+    if (blankLayoutId) {
+      try {
+        slides.add({ layoutId: blankLayoutId });
+      } catch (addErr) {
+        slides.add();
+      }
+    } else {
+      slides.add();
+    }
     await context.sync();
 
     // 2. Fetch total count to locate newly added slide
