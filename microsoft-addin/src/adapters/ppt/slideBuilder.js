@@ -89,112 +89,155 @@ async function createSingleSlide(slideData, slideNum) {
 
   logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."`);
 
-  // Phase 1: Add slide, record its unique slideId, and delete default layout placeholder shapes
-  let slideId = null;
   try {
+    // Primary path: Add slide, delete default layout placeholders, and add standardized textboxes
     await PowerPoint.run(async (context) => {
       const slides = context.presentation.slides;
       const newSlide = slides.add();
-      newSlide.load("id");
+
+      // 1. Inspect existing default layout placeholder shapes
       newSlide.shapes.load("items");
       await context.sync();
 
-      slideId = newSlide.id;
-
-      // Delete default "Click to add title" and "Click to add subtitle" placeholders on this exact slide
-      if (newSlide.shapes && newSlide.shapes.items) {
-        for (const s of newSlide.shapes.items) {
+      if (newSlide.shapes && newSlide.shapes.items && newSlide.shapes.items.length > 0) {
+        for (let s = newSlide.shapes.items.length - 1; s >= 0; s--) {
           try {
-            s.delete();
+            newSlide.shapes.items[s].delete();
           } catch (_) {}
         }
         await context.sync();
       }
-    });
-  } catch (phase1Err) {
-    // If placeholder delete threw on locked shapes, slideId was already captured
-    console.warn(`Slide ${slideNum} phase 1 notice:`, phase1Err);
-  }
 
-  // Phase 2: Insert standardized Title, Subtitle, Body, and Visuals in a guaranteed fresh context
-  await PowerPoint.run(async (context) => {
-    const slides = context.presentation.slides;
-    let targetSlide = null;
-
-    if (slideId) {
-      try {
-        targetSlide = slides.getItem(slideId);
-      } catch (_) {}
-    }
-
-    if (!targetSlide) {
-      const countResult = slides.getCount();
-      await context.sync();
-      targetSlide = slides.getItemAt(countResult.value - 1);
-    }
-
-    // 1. Add Title TextBox at Top
-    const titleBox = targetSlide.shapes.addTextBox(cleanTitle, {
-      left: 50,
-      top: 35,
-      width: 860,
-      height: 50
-    });
-    titleBox.textFrame.textRange.font.size = titleSize;
-    titleBox.textFrame.textRange.font.bold = true;
-    if (color) {
-      titleBox.textFrame.textRange.font.color = color;
-    }
-
-    // 2. Add Subtitle TextBox directly under Title
-    if (subtitle) {
-      const subtitleBox = targetSlide.shapes.addTextBox(subtitle, {
+      // 2. Add Title TextBox at Top
+      const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
         left: 50,
-        top: 90,
+        top: 35,
         width: 860,
-        height: 35
+        height: 50
       });
-      subtitleBox.textFrame.textRange.font.size = subtitleSize;
-      subtitleBox.textFrame.textRange.font.italic = true;
+      titleBox.textFrame.textRange.font.size = titleSize;
+      titleBox.textFrame.textRange.font.bold = true;
       if (color) {
-        subtitleBox.textFrame.textRange.font.color = color;
+        titleBox.textFrame.textRange.font.color = color;
       }
-    }
 
-    // 3. Add Body Content TextBox
-    const bodyTop = subtitle ? 135 : 95;
-    const bodyBox = targetSlide.shapes.addTextBox(bodyTextContent, {
-      left: 50,
-      top: bodyTop,
-      width: hasImages ? 400 : 860,
-      height: 360
-    });
-    bodyBox.textFrame.textRange.font.size = 18;
+      // 3. Add Subtitle TextBox directly under Title
+      if (subtitle) {
+        const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
+          left: 50,
+          top: 90,
+          width: 860,
+          height: 35
+        });
+        subtitleBox.textFrame.textRange.font.size = subtitleSize;
+        subtitleBox.textFrame.textRange.font.italic = true;
+        if (color) {
+          subtitleBox.textFrame.textRange.font.color = color;
+        }
+      }
 
-    // 4. Add Image if available
-    if (hasImages) {
-      for (const rawImg of imagesToInsert) {
-        const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
-        if (clean.length > 50) {
-          try {
-            targetSlide.shapes.addImage(clean, {
-              left: 480,
-              top: bodyTop,
-              width: 380,
-              height: 300
-            });
-            logToPPTConsole(`Slide ${slideNum}: Attached image.`);
-          } catch (imgErr) {
-            logToPPTConsole(`Slide ${slideNum}: Image notice: ${imgErr.message}`);
+      // 4. Add Body Content TextBox
+      const bodyTop = subtitle ? 135 : 95;
+      const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
+        left: 50,
+        top: bodyTop,
+        width: hasImages ? 400 : 860,
+        height: 360
+      });
+      bodyBox.textFrame.textRange.font.size = 18;
+
+      // 5. Add Image if available
+      if (hasImages) {
+        for (const rawImg of imagesToInsert) {
+          const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
+          if (clean.length > 50) {
+            try {
+              newSlide.shapes.addImage(clean, {
+                left: 480,
+                top: bodyTop,
+                width: 380,
+                height: 300
+              });
+              logToPPTConsole(`Slide ${slideNum}: Attached image.`);
+            } catch (imgErr) {
+              logToPPTConsole(`Slide ${slideNum}: Image notice: ${imgErr.message}`);
+            }
           }
         }
       }
-    }
 
-    // 5. Commit all shapes in single batch
-    await context.sync();
-    logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}and Bullets.`);
-  });
+      await context.sync();
+      logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}and Bullets.`);
+    });
+  } catch (cleanRunErr) {
+    console.warn(`Slide ${slideNum} cleanup insertion retry:`, cleanRunErr);
+    // Bulletproof Fallback: Add slide and insert textboxes directly
+    await PowerPoint.run(async (context) => {
+      const slides = context.presentation.slides;
+      const newSlide = slides.add();
+
+      // 1. Add Title TextBox at Top
+      const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
+        left: 50,
+        top: 35,
+        width: 860,
+        height: 50
+      });
+      titleBox.textFrame.textRange.font.size = titleSize;
+      titleBox.textFrame.textRange.font.bold = true;
+      if (color) {
+        titleBox.textFrame.textRange.font.color = color;
+      }
+
+      // 2. Add Subtitle TextBox directly under Title
+      if (subtitle) {
+        const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
+          left: 50,
+          top: 90,
+          width: 860,
+          height: 35
+        });
+        subtitleBox.textFrame.textRange.font.size = subtitleSize;
+        subtitleBox.textFrame.textRange.font.italic = true;
+        if (color) {
+          subtitleBox.textFrame.textRange.font.color = color;
+        }
+      }
+
+      // 3. Add Body Content TextBox
+      const bodyTop = subtitle ? 135 : 95;
+      const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
+        left: 50,
+        top: bodyTop,
+        width: hasImages ? 400 : 860,
+        height: 360
+      });
+      bodyBox.textFrame.textRange.font.size = 18;
+
+      // 4. Add Image if available
+      if (hasImages) {
+        for (const rawImg of imagesToInsert) {
+          const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
+          if (clean.length > 50) {
+            try {
+              newSlide.shapes.addImage(clean, {
+                left: 480,
+                top: bodyTop,
+                width: 380,
+                height: 300
+              });
+              logToPPTConsole(`Slide ${slideNum}: Attached image.`);
+            } catch (imgErr) {
+              logToPPTConsole(`Slide ${slideNum}: Image notice: ${imgErr.message}`);
+            }
+          }
+        }
+      }
+
+      await context.sync();
+      logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}and Bullets.`);
+    });
+  }
 }
 
 /**
