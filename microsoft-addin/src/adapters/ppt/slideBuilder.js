@@ -92,18 +92,10 @@ async function createSingleSlide(slideData, slideNum) {
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
 
-    // 1. Add standard slide and sync
-    slides.add();
+    // 1. Add standard slide directly (slides.add() returns the Slide object reference)
+    const newSlide = slides.add();
     await context.sync();
-
-    // 2. Locate the newly added slide
-    const countResult = slides.getCount();
-    await context.sync();
-
-    const slideCount = countResult.value;
-    logToPPTConsole(`Slide ${slideNum}: Added slide at index ${slideCount - 1} (Total slides: ${slideCount}).`);
-
-    const newSlide = slides.getItemAt(slideCount - 1);
+    logToPPTConsole(`Slide ${slideNum}: Added slide to presentation.`);
 
     // 3. Intelligently map content to existing template placeholders
     let titlePopulated = false;
