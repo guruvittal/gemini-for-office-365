@@ -72,47 +72,6 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 800, maxHeight 
 }
 
 /**
- * Safely discovers the "Blank" layout ID from the presentation's slide masters.
- */
-let cachedBlankLayoutId = undefined;
-
-async function getBlankLayoutId() {
-  if (cachedBlankLayoutId !== undefined) {
-    return cachedBlankLayoutId;
-  }
-
-  try {
-    await PowerPoint.run(async (context) => {
-      const masters = context.presentation.slideMasters;
-      masters.load("items");
-      await context.sync();
-
-      if (masters.items && masters.items.length > 0) {
-        const layouts = masters.items[0].layouts;
-        layouts.load("items");
-        await context.sync();
-
-        for (let i = 0; i < layouts.items.length; i++) {
-          const l = layouts.items[i];
-          const lName = (l.name || "").toLowerCase();
-          if (lName.includes("blank")) {
-            cachedBlankLayoutId = l.id;
-            break;
-          }
-        }
-      }
-    });
-  } catch (e) {
-    console.warn("Notice checking slide master layouts:", e.message);
-  }
-
-  if (!cachedBlankLayoutId) {
-    cachedBlankLayoutId = null;
-  }
-  return cachedBlankLayoutId;
-}
-
-/**
  * Creates a single slide in PowerPoint with title, body bullets, and optional images.
  */
 async function createSingleSlide(slideData, slideNum) {
@@ -130,21 +89,11 @@ async function createSingleSlide(slideData, slideNum) {
 
   logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."`);
 
-  const blankLayoutId = await getBlankLayoutId();
-
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
 
-    // 1. Add slide (using Blank layout if available to eliminate "Click to add..." placeholders)
-    if (blankLayoutId) {
-      try {
-        slides.add({ layoutId: blankLayoutId });
-      } catch (addErr) {
-        slides.add();
-      }
-    } else {
-      slides.add();
-    }
+    // 1. Add standard slide and sync
+    slides.add();
     await context.sync();
 
     // 2. Fetch total count to locate newly added slide
@@ -156,45 +105,68 @@ async function createSingleSlide(slideData, slideNum) {
 
     const newSlide = slides.getItemAt(slideCount - 1);
 
-    // 3. Add Title TextBox
-    const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
-      left: 50,
-      top: 35,
-      width: 860,
-      height: 50
-    });
-    titleBox.textFrame.textRange.font.size = titleSize;
-    titleBox.textFrame.textRange.font.bold = true;
-    if (color) {
-      titleBox.textFrame.textRange.font.color = color;
+    // 3. Inspect existing slide shapes safely
+    newSlide.shapes.load("items/id,items/name,items/hasTextFrame");
+    await context.sync();
+
+    const rawShapes = newSlide.shapes.items || [];
+    const textShapes = rawShapes.filter(s => s.hasTextFrame === true);
+
+    const fullBodyText = subtitle ? `${subtitle}\n\n${bodyTextContent}` : bodyTextContent;
+
+    let titleWritten = false;
+    let bodyWritten = false;
+
+    if (textShapes.length >= 1) {
+      // Shape 0 is the native Title placeholder -> erases "Click to add title"
+      textShapes[0].textFrame.textRange.text = cleanTitle;
+      textShapes[0].textFrame.textRange.font.size = titleSize;
+      textShapes[0].textFrame.textRange.font.bold = true;
+      if (color) {
+        textShapes[0].textFrame.textRange.font.color = color;
+      }
+      titleWritten = true;
     }
 
-    // 4. Add Subtitle if exists
-    if (subtitle) {
-      const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
+    if (textShapes.length >= 2) {
+      // Shape 1 is the native Subtitle/Content placeholder -> erases "Click to add subtitle"
+      textShapes[1].textFrame.textRange.text = fullBodyText;
+      textShapes[1].textFrame.textRange.font.size = 18;
+      bodyWritten = true;
+    }
+
+    // Neutralize any additional leftover placeholder prompts safely
+    for (let k = 2; k < textShapes.length; k++) {
+      textShapes[k].textFrame.textRange.text = " ";
+    }
+
+    // 4. Fallbacks if slide had no native text placeholders
+    if (!titleWritten) {
+      const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
         left: 50,
-        top: 90,
+        top: 35,
         width: 860,
-        height: 35
+        height: 50
       });
-      subtitleBox.textFrame.textRange.font.size = subtitleSize;
-      subtitleBox.textFrame.textRange.font.italic = true;
+      titleBox.textFrame.textRange.font.size = titleSize;
+      titleBox.textFrame.textRange.font.bold = true;
       if (color) {
-        subtitleBox.textFrame.textRange.font.color = color;
+        titleBox.textFrame.textRange.font.color = color;
       }
     }
 
-    // 5. Add Body Content TextBox
-    const bodyTop = subtitle ? 135 : 95;
-    const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
-      left: 50,
-      top: bodyTop,
-      width: hasImages ? 400 : 860,
-      height: 360
-    });
-    bodyBox.textFrame.textRange.font.size = 18;
+    if (!bodyWritten) {
+      const bodyTop = subtitle ? 135 : 95;
+      const bodyBox = newSlide.shapes.addTextBox(fullBodyText, {
+        left: 50,
+        top: bodyTop,
+        width: hasImages ? 400 : 860,
+        height: 360
+      });
+      bodyBox.textFrame.textRange.font.size = 18;
+    }
 
-    // 6. Add Image if available
+    // 5. Add Image if available
     if (hasImages) {
       for (const rawImg of imagesToInsert) {
         const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
@@ -202,7 +174,7 @@ async function createSingleSlide(slideData, slideNum) {
           try {
             newSlide.shapes.addImage(clean, {
               left: 480,
-              top: bodyTop,
+              top: 135,
               width: 380,
               height: 300
             });
@@ -214,7 +186,7 @@ async function createSingleSlide(slideData, slideNum) {
       }
     }
 
-    // 7. Commit all shapes in single batch
+    // 6. Commit all shapes in single batch
     await context.sync();
     logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}and Bullets.`);
   });
