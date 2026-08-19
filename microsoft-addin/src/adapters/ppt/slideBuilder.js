@@ -105,73 +105,59 @@ async function createSingleSlide(slideData, slideNum) {
 
     const newSlide = slides.getItemAt(slideCount - 1);
 
-    // 3. Inspect existing slide shapes safely
+    // 3. Inspect existing slide shapes and wipe placeholder prompt watermarks safely
     newSlide.shapes.load("items");
     await context.sync();
 
     const shapes = newSlide.shapes.items || [];
-
-    // Find the real Title and Subtitle/Content placeholders by name, ignoring decorative graphics (e.g. Ovals, Rectangles)
-    let titleShape = null;
-    let contentShape = null;
-    const leftoverPlaceholderShapes = [];
-
     for (const s of shapes) {
       const name = (s.name || "").toLowerCase();
-      if (!titleShape && (name.includes("title") || name.includes("header") || name.includes("heading"))) {
-        titleShape = s;
-      } else if (!contentShape && (name.includes("subtitle") || name.includes("content") || name.includes("body") || name.includes("text") || name.includes("notes") || name.includes("placeholder"))) {
-        contentShape = s;
-      } else if (name.includes("placeholder") || name.includes("subtitle") || name.includes("content")) {
-        leftoverPlaceholderShapes.push(s);
+      if (name.includes("title") || name.includes("header") || name.includes("heading") ||
+          name.includes("subtitle") || name.includes("content") || name.includes("body") ||
+          name.includes("text") || name.includes("notes") || name.includes("placeholder")) {
+        try {
+          s.textFrame.textRange.text = " ";
+        } catch (_) {}
       }
     }
 
-    const fullBodyText = subtitle ? `${subtitle}\n\n${bodyTextContent}` : bodyTextContent;
+    // 4. Add Title TextBox at Top
+    const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
+      left: 50,
+      top: 35,
+      width: 860,
+      height: 50
+    });
+    titleBox.textFrame.textRange.font.size = titleSize;
+    titleBox.textFrame.textRange.font.bold = true;
+    if (color) {
+      titleBox.textFrame.textRange.font.color = color;
+    }
 
-    // 4. Populate Title placeholder (erases "Click to add title") or create Title textbox
-    if (titleShape) {
-      titleShape.textFrame.textRange.text = cleanTitle;
-      titleShape.textFrame.textRange.font.size = titleSize;
-      titleShape.textFrame.textRange.font.bold = true;
-      if (color) {
-        titleShape.textFrame.textRange.font.color = color;
-      }
-    } else {
-      const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
+    // 5. Add Subtitle TextBox directly under Title
+    if (subtitle) {
+      const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
         left: 50,
-        top: 35,
+        top: 90,
         width: 860,
-        height: 50
+        height: 35
       });
-      titleBox.textFrame.textRange.font.size = titleSize;
-      titleBox.textFrame.textRange.font.bold = true;
+      subtitleBox.textFrame.textRange.font.size = subtitleSize;
+      subtitleBox.textFrame.textRange.font.italic = true;
       if (color) {
-        titleBox.textFrame.textRange.font.color = color;
+        subtitleBox.textFrame.textRange.font.color = color;
       }
     }
 
-    // 5. Populate Subtitle/Body placeholder (erases "Click to add subtitle") or create Content textbox
-    if (contentShape) {
-      contentShape.textFrame.textRange.text = fullBodyText;
-      contentShape.textFrame.textRange.font.size = 18;
-    } else {
-      const bodyTop = subtitle ? 135 : 95;
-      const bodyBox = newSlide.shapes.addTextBox(fullBodyText, {
-        left: 50,
-        top: bodyTop,
-        width: hasImages ? 400 : 860,
-        height: 360
-      });
-      bodyBox.textFrame.textRange.font.size = 18;
-    }
-
-    // 6. Neutralize any leftover placeholder prompts safely
-    for (const leftover of leftoverPlaceholderShapes) {
-      try {
-        leftover.textFrame.textRange.text = " ";
-      } catch (_) {}
-    }
+    // 6. Add Body Content TextBox
+    const bodyTop = subtitle ? 135 : 95;
+    const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
+      left: 50,
+      top: bodyTop,
+      width: hasImages ? 400 : 860,
+      height: 360
+    });
+    bodyBox.textFrame.textRange.font.size = 18;
 
     // 7. Add Image if available
     if (hasImages) {
@@ -181,7 +167,7 @@ async function createSingleSlide(slideData, slideNum) {
           try {
             newSlide.shapes.addImage(clean, {
               left: 480,
-              top: 135,
+              top: bodyTop,
               width: 380,
               height: 300
             });
