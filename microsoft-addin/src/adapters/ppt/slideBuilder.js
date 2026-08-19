@@ -89,39 +89,45 @@ async function createSingleSlide(slideData, slideNum) {
 
   logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."`);
 
+  // Phase 1: Add slide
+  let slideIndex = -1;
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
-
-    // 1. Add standard slide and sync
     slides.add();
     await context.sync();
 
-    // 2. Fetch total count to locate newly added slide
     const countResult = slides.getCount();
     await context.sync();
+    slideIndex = countResult.value - 1;
+    logToPPTConsole(`Slide ${slideNum}: Added slide at index ${slideIndex} (Total slides: ${countResult.value}).`);
+  });
 
-    const slideCount = countResult.value;
-    logToPPTConsole(`Slide ${slideNum}: Added slide at index ${slideCount - 1} (Total slides: ${slideCount}).`);
+  // Optional: Try deleting default layout placeholders in an isolated session
+  // If the template has locked shapes, any error is caught and won't affect the fresh context in Phase 2
+  try {
+    await PowerPoint.run(async (cleanCtx) => {
+      const slides = cleanCtx.presentation.slides;
+      const targetSlide = slides.getItemAt(slideIndex);
+      targetSlide.shapes.load("items");
+      await cleanCtx.sync();
 
-    const newSlide = slides.getItemAt(slideCount - 1);
-
-    // 3. Inspect existing slide shapes and wipe placeholder prompt watermarks safely
-    newSlide.shapes.load("items");
-    await context.sync();
-
-    const shapes = newSlide.shapes.items || [];
-    for (const s of shapes) {
-      const name = (s.name || "").toLowerCase();
-      if (name.includes("title") || name.includes("header") || name.includes("heading") ||
-          name.includes("subtitle") || name.includes("content") || name.includes("body") ||
-          name.includes("text") || name.includes("notes") || name.includes("placeholder")) {
+      for (let s = targetSlide.shapes.items.length - 1; s >= 0; s--) {
         try {
-          s.textFrame.textRange.text = " ";
+          targetSlide.shapes.items[s].delete();
         } catch (_) {}
       }
-    }
+      await cleanCtx.sync();
+    });
+  } catch (_) {
+    // Template placeholders are locked or cannot be deleted; safely proceed to fresh session
+  }
 
-    // 4. Add Title TextBox at Top
+  // Phase 2: Insert standardized Title, Subtitle, Body, and Visuals in a guaranteed fresh context
+  await PowerPoint.run(async (context) => {
+    const slides = context.presentation.slides;
+    const newSlide = slides.getItemAt(slideIndex);
+
+    // 1. Add Title TextBox at Top
     const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
       left: 50,
       top: 35,
@@ -134,7 +140,7 @@ async function createSingleSlide(slideData, slideNum) {
       titleBox.textFrame.textRange.font.color = color;
     }
 
-    // 5. Add Subtitle TextBox directly under Title
+    // 2. Add Subtitle TextBox directly under Title
     if (subtitle) {
       const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
         left: 50,
@@ -149,7 +155,7 @@ async function createSingleSlide(slideData, slideNum) {
       }
     }
 
-    // 6. Add Body Content TextBox
+    // 3. Add Body Content TextBox
     const bodyTop = subtitle ? 135 : 95;
     const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
       left: 50,
@@ -159,7 +165,7 @@ async function createSingleSlide(slideData, slideNum) {
     });
     bodyBox.textFrame.textRange.font.size = 18;
 
-    // 7. Add Image if available
+    // 4. Add Image if available
     if (hasImages) {
       for (const rawImg of imagesToInsert) {
         const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
@@ -179,7 +185,7 @@ async function createSingleSlide(slideData, slideNum) {
       }
     }
 
-    // 8. Commit all slide changes in single batch
+    // 5. Commit all shapes in single batch
     await context.sync();
     logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}and Bullets.`);
   });
