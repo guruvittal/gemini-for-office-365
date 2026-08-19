@@ -65,6 +65,7 @@ module.exports = async (env, options) => {
         filename: "taskpane.html",
         template: "./src/taskpane/taskpane.html",
         chunks: ["polyfill", "taskpane"],
+        hash: true,
       }),
       new CopyWebpackPlugin({
         patterns: [

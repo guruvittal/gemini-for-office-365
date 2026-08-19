@@ -5,13 +5,20 @@
  */
 
 export function getActiveProxyUrl() {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const override = window.localStorage.getItem('gemini_proxy_url');
+    if (override) return override;
+  }
+  if (typeof process !== 'undefined' && process.env && process.env.GEMINI_PROXY_URL) {
+    return process.env.GEMINI_PROXY_URL;
+  }
   if (typeof window !== 'undefined' && window.location) {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('backend') === 'streamassist') {
-      return 'https://gemini-enterprise-proxy-133594738129.us-central1.run.app/askGeminiEnterprise';
+      return 'https://askgemini-proxy-mriilnqopa-uc.a.run.app/askGeminiEnterprise';
     }
   }
-  return 'https://us-central1-genai-demo-catalog.cloudfunctions.net/askGemini';
+  return 'https://askgemini-proxy-mriilnqopa-uc.a.run.app/askGeminiEnterprise';
 }
 
 export function setProxyUrlOverride(url) {

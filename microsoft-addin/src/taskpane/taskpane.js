@@ -10,6 +10,7 @@
 import { askGeminiEnterprise, getActiveProxyUrl, setProxyUrlOverride } from '../core/geminiClient.js';
 import { parseMarkdown } from '../core/markdownParser.js';
 import { HostAdapterFactory } from '../adapters/HostAdapterFactory.js';
+import { initPowerPointDiagnostics } from '../adapters/ppt/pptDiagnostics.js';
 
 let currentSessionId = null;
 let chatHistoryState = [];
@@ -22,6 +23,17 @@ Office.onReady((info) => {
   hostAdapter = HostAdapterFactory.getAdapter();
 
   document.getElementById("run").onclick = () => callGeminiProxy();
+  
+  const promptText = document.getElementById("promptText");
+  if (promptText) {
+    promptText.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        callGeminiProxy();
+      }
+    });
+  }
+
   const clearSessionBtn = document.getElementById("clearSession");
   if (clearSessionBtn) {
     clearSessionBtn.onclick = resetChatSession;
@@ -51,6 +63,10 @@ Office.onReady((info) => {
 
   // Adapt UI titles, top banners, and action chips to the active Microsoft product
   adaptUIForHost(hostAdapter.name);
+
+  if (hostAdapter.name === "PowerPoint") {
+    initPowerPointDiagnostics();
+  }
 
   // Setup Document Intelligence Chips (Feature 1: Full Document Q&A)
   setupDocToolsChips();
@@ -338,6 +354,12 @@ async function callGeminiProxy(customPrompt = null) {
   }
 
   if (promptInput) promptInput.value = "";
+  
+  if (hostAdapter.name === "PowerPoint") {
+    const { enhancePromptForPowerPoint } = await import('../adapters/ppt/promptEnhancer.js');
+    fullPrompt = enhancePromptForPowerPoint(fullPrompt);
+  }
+
   await executeGeminiWorkflow(fullPrompt, displayUserBubble);
 }
 
