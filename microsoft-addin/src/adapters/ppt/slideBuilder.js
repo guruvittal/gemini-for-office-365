@@ -72,6 +72,52 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 800, maxHeight 
 }
 
 /**
+ * Discovers the Blank layout (or best clean layout) from the presentation's active theme/master.
+ */
+async function getThemeBlankLayoutOptions() {
+  try {
+    return await PowerPoint.run(async (context) => {
+      const slideMasters = context.presentation.slideMasters;
+      slideMasters.load("id, name, layouts/items/name, layouts/items/id");
+      await context.sync();
+
+      if (!slideMasters.items || slideMasters.items.length === 0) {
+        return null;
+      }
+
+      // Use the active slide master
+      const master = slideMasters.items[0];
+      if (!master.layouts || !master.layouts.items || master.layouts.items.length === 0) {
+        return null;
+      }
+
+      // 1. Look for a layout named "blank" (case-insensitive)
+      let targetLayout = master.layouts.items.find(l => (l.name || "").toLowerCase().includes("blank"));
+
+      // 2. If no "blank", look for "empty" or "clean"
+      if (!targetLayout) {
+        targetLayout = master.layouts.items.find(l => {
+          const n = (l.name || "").toLowerCase();
+          return n.includes("empty") || n.includes("clean") || n.includes("custom");
+        });
+      }
+
+      if (targetLayout) {
+        return {
+          slideMasterId: master.id,
+          layoutId: targetLayout.id
+        };
+      }
+
+      return null;
+    });
+  } catch (err) {
+    console.warn("Could not query slide masters/layouts:", err);
+    return null;
+  }
+}
+
+/**
  * Creates a single slide in PowerPoint with title, body bullets, and optional images.
  */
 async function createSingleSlide(slideData, slideNum) {
@@ -89,11 +135,23 @@ async function createSingleSlide(slideData, slideNum) {
 
   logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."`);
 
-  // Step 1: Add slide and capture index
+  // Step 1: Discover theme's blank layout options to preserve theme background graphics
+  const layoutOptions = await getThemeBlankLayoutOptions();
+
+  // Step 2: Add slide using the theme's blank layout
   let slideIndex = -1;
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
-    slides.add();
+    let added = false;
+    if (layoutOptions) {
+      try {
+        slides.add(layoutOptions);
+        added = true;
+      } catch (_) {}
+    }
+    if (!added) {
+      slides.add();
+    }
     await context.sync();
 
     const countResult = slides.getCount();
@@ -101,42 +159,10 @@ async function createSingleSlide(slideData, slideNum) {
     slideIndex = countResult.value - 1;
   });
 
-  // Step 2: Attempt placeholder deletion in an isolated session (safely ignored if master shapes are locked)
-  try {
-    await PowerPoint.run(async (cleanCtx) => {
-      const slides = cleanCtx.presentation.slides;
-      const targetSlide = slides.getItemAt(slideIndex);
-      targetSlide.shapes.load("items");
-      await cleanCtx.sync();
-
-      if (targetSlide.shapes && targetSlide.shapes.items) {
-        for (let s = targetSlide.shapes.items.length - 1; s >= 0; s--) {
-          try {
-            targetSlide.shapes.items[s].delete();
-          } catch (_) {}
-        }
-        await cleanCtx.sync();
-      }
-    });
-  } catch (_) {
-    // Isolated cleanup exception ignored safely
-  }
-
-  // Step 3: Guaranteed clean rendering session with backdrop masking & standard layout
+  // Step 3: Insert standard Title, Subtitle, Body, and Visuals preserving the theme artwork
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
     const newSlide = slides.getItemAt(slideIndex);
-
-    // Add clean white backdrop to mask any locked layout placeholder watermarks
-    try {
-      const bgBox = newSlide.shapes.addTextBox("", {
-        left: 0,
-        top: 0,
-        width: 960,
-        height: 540
-      });
-      bgBox.fill.setSolidColor("white");
-    } catch (_) {}
 
     // 1. Add Title TextBox at Top
     const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
