@@ -118,9 +118,9 @@ async function getThemeBlankLayoutOptions() {
 }
 
 /**
- * Creates a single slide in PowerPoint with title, body bullets, and optional images.
+ * Creates a single slide atomically in PowerPoint with title, body bullets, and optional images.
  */
-async function createSingleSlide(slideData, slideNum) {
+async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
   const cleanTitle = (slideData.title || `Slide ${slideNum}`).replace(/\*\*/g, "").trim();
   const subtitle = slideData.subtitle || "";
   const titleSize = slideData.titleSize || 40;
@@ -135,36 +135,29 @@ async function createSingleSlide(slideData, slideNum) {
 
   logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."`);
 
-  // Step 1: Discover theme's blank layout options to preserve theme background graphics
-  const layoutOptions = await getThemeBlankLayoutOptions();
-
-  // Step 2: Add slide using the theme's blank layout
-  let slideIndex = -1;
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
-    let added = false;
+
+    // 1. Add slide using theme's blank layout (or default add)
     if (layoutOptions) {
       try {
         slides.add(layoutOptions);
-        added = true;
-      } catch (_) {}
-    }
-    if (!added) {
+      } catch (_) {
+        slides.add();
+      }
+    } else {
       slides.add();
     }
     await context.sync();
 
-    const countResult = slides.getCount();
+    // 2. Load slides collection to reliably target the newly added slide
+    slides.load("items");
     await context.sync();
-    slideIndex = countResult.value - 1;
-  });
 
-  // Step 3: Insert standard Title, Subtitle, Body, and Visuals preserving the theme artwork
-  await PowerPoint.run(async (context) => {
-    const slides = context.presentation.slides;
-    const newSlide = slides.getItemAt(slideIndex);
+    const slideCount = slides.items.length;
+    const newSlide = slides.items[slideCount - 1];
 
-    // 1. Add Title TextBox at Top
+    // 3. Add Title TextBox at Top
     const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
       left: 50,
       top: 35,
@@ -177,7 +170,7 @@ async function createSingleSlide(slideData, slideNum) {
       titleBox.textFrame.textRange.font.color = color;
     }
 
-    // 2. Add Subtitle TextBox directly under Title
+    // 4. Add Subtitle TextBox directly under Title
     if (subtitle) {
       const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
         left: 50,
@@ -192,7 +185,7 @@ async function createSingleSlide(slideData, slideNum) {
       }
     }
 
-    // 3. Add Body Content TextBox
+    // 5. Add Body Content TextBox
     const bodyTop = subtitle ? 135 : 95;
     const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
       left: 50,
@@ -202,7 +195,7 @@ async function createSingleSlide(slideData, slideNum) {
     });
     bodyBox.textFrame.textRange.font.size = 18;
 
-    // 4. Add Image if available
+    // 6. Add Image if available
     if (hasImages) {
       for (const rawImg of imagesToInsert) {
         const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
@@ -222,7 +215,7 @@ async function createSingleSlide(slideData, slideNum) {
       }
     }
 
-    // 5. Commit all shapes
+    // 7. Commit all shapes on this new slide atomically
     await context.sync();
     logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}and Bullets.`);
   });
@@ -246,7 +239,13 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
   const totalSlides = slideStructures.length;
   logToPPTConsole(`=== Starting Generation of ${totalSlides} Slides ===`);
 
-  // 1. Pre-process images
+  // 1. Discover Theme Blank Layout ONCE upfront to preserve presentation theme
+  const layoutOptions = await getThemeBlankLayoutOptions();
+  if (layoutOptions) {
+    logToPPTConsole(`ℹ️ Using Theme Blank Layout.`);
+  }
+
+  // 2. Pre-process images
   for (let idx = 0; idx < slideStructures.length; idx++) {
     const slide = slideStructures[idx];
     slide.compressedImages = [];
@@ -263,7 +262,7 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     }
   }
 
-  // 2. Build each slide sequentially
+  // 3. Build each slide sequentially
   for (let i = 0; i < totalSlides; i++) {
     const slideData = slideStructures[i];
     const slideNum = i + 1;
@@ -277,7 +276,7 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     }
 
     try {
-      await createSingleSlide(slideData, slideNum);
+      await createSingleSlide(slideData, slideNum, layoutOptions);
     } catch (slideErr) {
       logToPPTConsole(`Slide ${slideNum} Error: ${slideErr.message}`, true);
       console.error(`[PPTBuilder] Slide ${slideNum} Error:`, slideErr);
