@@ -92,9 +92,18 @@ async function createSingleSlide(slideData, slideNum) {
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
 
-    // 1. Add standard slide directly (slides.add() returns the Slide object reference)
-    const newSlide = slides.add();
+    // 1. Add standard slide and load slides collection safely
+    const addedSlide = slides.add();
     await context.sync();
+
+    slides.load("items");
+    await context.sync();
+
+    // Use returned reference if available, otherwise pull from loaded items array
+    const newSlide = addedSlide || (slides.items && slides.items.length > 0 ? slides.items[slides.items.length - 1] : null);
+    if (!newSlide) {
+      throw new Error("Unable to obtain reference to newly created slide.");
+    }
     logToPPTConsole(`Slide ${slideNum}: Added slide to presentation.`);
 
     // 3. Intelligently map content to existing template placeholders
