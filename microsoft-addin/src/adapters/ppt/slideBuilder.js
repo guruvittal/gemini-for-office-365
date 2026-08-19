@@ -105,6 +105,24 @@ async function createSingleSlide(slideData, slideNum) {
 
     const newSlide = slides.getItemAt(slideCount - 1);
 
+    // 2b. Clear default empty placeholder shapes ("Click to add title", "Click to add subtitle")
+    try {
+      newSlide.shapes.load("items");
+      await context.sync();
+      if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
+        for (const s of newSlide.shapes.items) {
+          try {
+            s.delete();
+          } catch (delErr) {
+            // Ignore if shape cannot be deleted
+          }
+        }
+        await context.sync();
+      }
+    } catch (clearErr) {
+      console.warn("Notice clearing default placeholders:", clearErr);
+    }
+
     // 3. Add Title TextBox
     const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
       left: 50,
