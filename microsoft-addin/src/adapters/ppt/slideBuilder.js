@@ -110,7 +110,8 @@ async function createSingleSlide(slideData, slideNum) {
       newSlide.shapes.load("items");
       await context.sync();
       const shapesCount = newSlide.shapes.items.length;
-      for (let i = 0; i < shapesCount; i++) {
+      // Iterate backwards when deleting to avoid index shifting/InvalidParam errors
+      for (let i = shapesCount - 1; i >= 0; i--) {
         newSlide.shapes.items[i].delete();
       }
       await context.sync();
