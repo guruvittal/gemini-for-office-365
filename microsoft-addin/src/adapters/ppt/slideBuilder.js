@@ -71,39 +71,8 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 800, maxHeight 
   });
 }
 
-let cachedBlankLayoutId = null;
-let testedSlideMasters = false;
-
-async function getBlankLayoutId(context) {
-  if (testedSlideMasters) return cachedBlankLayoutId;
-  try {
-    const slideMasters = context.presentation.slideMasters;
-    if (slideMasters) {
-      slideMasters.load("items/layouts/items/name, items/layouts/items/id");
-      await context.sync();
-      if (slideMasters.items && slideMasters.items.length > 0) {
-        for (const master of slideMasters.items) {
-          if (master.layouts && master.layouts.items) {
-            for (const layout of master.layouts.items) {
-              if (layout.name && layout.name.toLowerCase().includes("blank")) {
-                cachedBlankLayoutId = layout.id;
-                break;
-              }
-            }
-          }
-          if (cachedBlankLayoutId) break;
-        }
-      }
-    }
-  } catch (e) {
-    console.warn("Notice: SlideMasters API not available, using default add:", e.message);
-  }
-  testedSlideMasters = true;
-  return cachedBlankLayoutId;
-}
-
 /**
- * Creates a single slide in PowerPoint with title, body bullets, and optional images.
+ * Creates a single slide in PowerPoint with title at top, subtitle directly under title, and body bullets.
  */
 async function createSingleSlide(slideData, slideNum) {
   const cleanTitle = (slideData.title || `Slide ${slideNum}`).replace(/\*\*/g, "").trim();
@@ -123,23 +92,9 @@ async function createSingleSlide(slideData, slideNum) {
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
 
-    // 1. Try adding with Blank layout to eliminate native placeholder prompts
-    let added = false;
-    try {
-      const blankLayoutId = await getBlankLayoutId(context);
-      if (blankLayoutId) {
-        slides.add({ layoutId: blankLayoutId });
-        await context.sync();
-        added = true;
-      }
-    } catch (e) {
-      console.warn("Blank layout add notice:", e.message);
-    }
-
-    if (!added) {
-      slides.add();
-      await context.sync();
-    }
+    // 1. Add standard slide and sync
+    slides.add();
+    await context.sync();
 
     // 2. Locate the newly added slide
     const countResult = slides.getCount();
@@ -150,10 +105,28 @@ async function createSingleSlide(slideData, slideNum) {
 
     const newSlide = slides.getItemAt(slideCount - 1);
 
-    // 3. Add Title TextBox
+    // 2b. Erase default template placeholder watermarks ("Click to add title", etc.)
+    try {
+      newSlide.shapes.load("items");
+      await context.sync();
+      if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
+        for (let s = 0; s < newSlide.shapes.items.length; s++) {
+          try {
+            newSlide.shapes.items[s].textFrame.textRange.text = " ";
+          } catch (e) {
+            // ignore non-text shape
+          }
+        }
+        await context.sync();
+      }
+    } catch (e) {
+      console.warn("Notice erasing template watermarks:", e.message);
+    }
+
+    // 3. Add Title TextBox at TOP of slide
     const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
       left: 50,
-      top: 35,
+      top: 40,
       width: 860,
       height: 50
     });
@@ -163,11 +136,11 @@ async function createSingleSlide(slideData, slideNum) {
       titleBox.textFrame.textRange.font.color = color;
     }
 
-    // 4. Add Subtitle if exists
+    // 4. Add Subtitle directly UNDER title
     if (subtitle) {
       const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
         left: 50,
-        top: 90,
+        top: 95,
         width: 860,
         height: 35
       });
@@ -178,8 +151,8 @@ async function createSingleSlide(slideData, slideNum) {
       }
     }
 
-    // 5. Add Body Content TextBox
-    const bodyTop = subtitle ? 135 : 95;
+    // 5. Add Body Content TextBox directly UNDER subtitle / title
+    const bodyTop = subtitle ? 140 : 100;
     const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
       left: 50,
       top: bodyTop,
@@ -187,6 +160,8 @@ async function createSingleSlide(slideData, slideNum) {
       height: 360
     });
     bodyBox.textFrame.textRange.font.size = 18;
+
+
 
     // 6. Add Image if available
     if (hasImages) {
