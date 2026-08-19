@@ -93,7 +93,14 @@ async function createSingleSlide(slideData, slideNum) {
     // Primary path: Add slide, delete default layout placeholders, and add standardized textboxes
     await PowerPoint.run(async (context) => {
       const slides = context.presentation.slides;
-      const newSlide = slides.add();
+      slides.add();
+      await context.sync();
+
+      const countResult = slides.getCount();
+      await context.sync();
+
+      const slideCount = countResult.value;
+      const newSlide = slides.getItemAt(slideCount - 1);
 
       // 1. Inspect existing default layout placeholder shapes
       newSlide.shapes.load("items");
@@ -174,7 +181,14 @@ async function createSingleSlide(slideData, slideNum) {
     // Bulletproof Fallback: Add slide and insert textboxes directly
     await PowerPoint.run(async (context) => {
       const slides = context.presentation.slides;
-      const newSlide = slides.add();
+      slides.add();
+      await context.sync();
+
+      const countResult = slides.getCount();
+      await context.sync();
+
+      const slideCount = countResult.value;
+      const newSlide = slides.getItemAt(slideCount - 1);
 
       // 1. Add Title TextBox at Top
       const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
