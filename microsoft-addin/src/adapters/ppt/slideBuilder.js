@@ -105,39 +105,71 @@ async function createSingleSlide(slideData, slideNum) {
 
     const newSlide = slides.getItemAt(slideCount - 1);
 
-    // 2b. Clear default empty placeholder shapes ("Click to add title", "Click to add subtitle")
+    // 2b. Populate native title/subtitle placeholders if present, or clear watermarks
+    let usedNativeTitle = false;
+    let usedNativeSubtitle = false;
+
     try {
       newSlide.shapes.load("items");
       await context.sync();
-      if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
-        for (const s of newSlide.shapes.items) {
-          try {
-            s.delete();
-          } catch (delErr) {
-            // Ignore if shape cannot be deleted
-          }
+      const existingShapes = newSlide.shapes.items || [];
+
+      if (existingShapes.length > 0) {
+        try {
+          existingShapes[0].textFrame.textRange.text = cleanTitle;
+          existingShapes[0].textFrame.textRange.font.size = titleSize;
+          existingShapes[0].textFrame.textRange.font.bold = true;
+          if (color) existingShapes[0].textFrame.textRange.font.color = color;
+          usedNativeTitle = true;
+        } catch (e) {
+          // not a text shape
         }
-        await context.sync();
       }
-    } catch (clearErr) {
-      console.warn("Notice clearing default placeholders:", clearErr);
+
+      if (existingShapes.length > 1) {
+        try {
+          if (subtitle) {
+            existingShapes[1].textFrame.textRange.text = subtitle;
+            existingShapes[1].textFrame.textRange.font.size = subtitleSize;
+            existingShapes[1].textFrame.textRange.font.italic = true;
+            if (color) existingShapes[1].textFrame.textRange.font.color = color;
+            usedNativeSubtitle = true;
+          } else {
+            existingShapes[1].textFrame.textRange.text = " ";
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      for (let s = 2; s < existingShapes.length; s++) {
+        try {
+          existingShapes[s].textFrame.textRange.text = " ";
+        } catch (e) {
+          // ignore
+        }
+      }
+    } catch (placeholderErr) {
+      console.warn("Notice inspecting placeholders:", placeholderErr);
     }
 
-    // 3. Add Title TextBox
-    const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
-      left: 50,
-      top: 35,
-      width: 860,
-      height: 50
-    });
-    titleBox.textFrame.textRange.font.size = titleSize;
-    titleBox.textFrame.textRange.font.bold = true;
-    if (color) {
-      titleBox.textFrame.textRange.font.color = color;
+    // 3. Add Title TextBox if native placeholder wasn't used
+    if (!usedNativeTitle) {
+      const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
+        left: 50,
+        top: 35,
+        width: 860,
+        height: 50
+      });
+      titleBox.textFrame.textRange.font.size = titleSize;
+      titleBox.textFrame.textRange.font.bold = true;
+      if (color) {
+        titleBox.textFrame.textRange.font.color = color;
+      }
     }
 
-    // 4. Add Subtitle if exists
-    if (subtitle) {
+    // 4. Add Subtitle TextBox if exists and native placeholder wasn't used
+    if (subtitle && !usedNativeSubtitle) {
       const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
         left: 50,
         top: 90,
