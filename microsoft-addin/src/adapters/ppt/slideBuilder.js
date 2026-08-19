@@ -106,42 +106,38 @@ async function createSingleSlide(slideData, slideNum) {
     const newSlide = slides.getItemAt(slideCount - 1);
 
     // 3. Inspect existing slide shapes safely
-    newSlide.shapes.load("items/id,items/name,items/hasTextFrame");
+    newSlide.shapes.load("items");
     await context.sync();
 
-    const rawShapes = newSlide.shapes.items || [];
-    const textShapes = rawShapes.filter(s => s.hasTextFrame === true);
+    const shapes = newSlide.shapes.items || [];
+
+    // Find the real Title and Subtitle/Content placeholders by name, ignoring decorative graphics (e.g. Ovals, Rectangles)
+    let titleShape = null;
+    let contentShape = null;
+    const leftoverPlaceholderShapes = [];
+
+    for (const s of shapes) {
+      const name = (s.name || "").toLowerCase();
+      if (!titleShape && (name.includes("title") || name.includes("header") || name.includes("heading"))) {
+        titleShape = s;
+      } else if (!contentShape && (name.includes("subtitle") || name.includes("content") || name.includes("body") || name.includes("text") || name.includes("notes") || name.includes("placeholder"))) {
+        contentShape = s;
+      } else if (name.includes("placeholder") || name.includes("subtitle") || name.includes("content")) {
+        leftoverPlaceholderShapes.push(s);
+      }
+    }
 
     const fullBodyText = subtitle ? `${subtitle}\n\n${bodyTextContent}` : bodyTextContent;
 
-    let titleWritten = false;
-    let bodyWritten = false;
-
-    if (textShapes.length >= 1) {
-      // Shape 0 is the native Title placeholder -> erases "Click to add title"
-      textShapes[0].textFrame.textRange.text = cleanTitle;
-      textShapes[0].textFrame.textRange.font.size = titleSize;
-      textShapes[0].textFrame.textRange.font.bold = true;
+    // 4. Populate Title placeholder (erases "Click to add title") or create Title textbox
+    if (titleShape) {
+      titleShape.textFrame.textRange.text = cleanTitle;
+      titleShape.textFrame.textRange.font.size = titleSize;
+      titleShape.textFrame.textRange.font.bold = true;
       if (color) {
-        textShapes[0].textFrame.textRange.font.color = color;
+        titleShape.textFrame.textRange.font.color = color;
       }
-      titleWritten = true;
-    }
-
-    if (textShapes.length >= 2) {
-      // Shape 1 is the native Subtitle/Content placeholder -> erases "Click to add subtitle"
-      textShapes[1].textFrame.textRange.text = fullBodyText;
-      textShapes[1].textFrame.textRange.font.size = 18;
-      bodyWritten = true;
-    }
-
-    // Neutralize any additional leftover placeholder prompts safely
-    for (let k = 2; k < textShapes.length; k++) {
-      textShapes[k].textFrame.textRange.text = " ";
-    }
-
-    // 4. Fallbacks if slide had no native text placeholders
-    if (!titleWritten) {
+    } else {
       const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
         left: 50,
         top: 35,
@@ -155,7 +151,11 @@ async function createSingleSlide(slideData, slideNum) {
       }
     }
 
-    if (!bodyWritten) {
+    // 5. Populate Subtitle/Body placeholder (erases "Click to add subtitle") or create Content textbox
+    if (contentShape) {
+      contentShape.textFrame.textRange.text = fullBodyText;
+      contentShape.textFrame.textRange.font.size = 18;
+    } else {
       const bodyTop = subtitle ? 135 : 95;
       const bodyBox = newSlide.shapes.addTextBox(fullBodyText, {
         left: 50,
@@ -166,7 +166,14 @@ async function createSingleSlide(slideData, slideNum) {
       bodyBox.textFrame.textRange.font.size = 18;
     }
 
-    // 5. Add Image if available
+    // 6. Neutralize any leftover placeholder prompts safely
+    for (const leftover of leftoverPlaceholderShapes) {
+      try {
+        leftover.textFrame.textRange.text = " ";
+      } catch (_) {}
+    }
+
+    // 7. Add Image if available
     if (hasImages) {
       for (const rawImg of imagesToInsert) {
         const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
@@ -186,7 +193,7 @@ async function createSingleSlide(slideData, slideNum) {
       }
     }
 
-    // 6. Commit all shapes in single batch
+    // 8. Commit all slide changes in single batch
     await context.sync();
     logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}and Bullets.`);
   });
