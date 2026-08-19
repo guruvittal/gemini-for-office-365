@@ -89,46 +89,52 @@ async function createSingleSlide(slideData, slideNum) {
 
   logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."`);
 
-  // Phase 1: Add slide
-  let slideIndex = -1;
-  await PowerPoint.run(async (context) => {
-    const slides = context.presentation.slides;
-    slides.add();
-    await context.sync();
-
-    const countResult = slides.getCount();
-    await context.sync();
-    slideIndex = countResult.value - 1;
-    logToPPTConsole(`Slide ${slideNum}: Added slide at index ${slideIndex} (Total slides: ${countResult.value}).`);
-  });
-
-  // Optional: Try deleting default layout placeholders in an isolated session
-  // If the template has locked shapes, any error is caught and won't affect the fresh context in Phase 2
+  // Phase 1: Add slide, record its unique slideId, and delete default layout placeholder shapes
+  let slideId = null;
   try {
-    await PowerPoint.run(async (cleanCtx) => {
-      const slides = cleanCtx.presentation.slides;
-      const targetSlide = slides.getItemAt(slideIndex);
-      targetSlide.shapes.load("items");
-      await cleanCtx.sync();
+    await PowerPoint.run(async (context) => {
+      const slides = context.presentation.slides;
+      const newSlide = slides.add();
+      newSlide.load("id");
+      newSlide.shapes.load("items");
+      await context.sync();
 
-      for (let s = targetSlide.shapes.items.length - 1; s >= 0; s--) {
-        try {
-          targetSlide.shapes.items[s].delete();
-        } catch (_) {}
+      slideId = newSlide.id;
+
+      // Delete default "Click to add title" and "Click to add subtitle" placeholders on this exact slide
+      if (newSlide.shapes && newSlide.shapes.items) {
+        for (const s of newSlide.shapes.items) {
+          try {
+            s.delete();
+          } catch (_) {}
+        }
+        await context.sync();
       }
-      await cleanCtx.sync();
     });
-  } catch (_) {
-    // Template placeholders are locked or cannot be deleted; safely proceed to fresh session
+  } catch (phase1Err) {
+    // If placeholder delete threw on locked shapes, slideId was already captured
+    console.warn(`Slide ${slideNum} phase 1 notice:`, phase1Err);
   }
 
   // Phase 2: Insert standardized Title, Subtitle, Body, and Visuals in a guaranteed fresh context
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
-    const newSlide = slides.getItemAt(slideIndex);
+    let targetSlide = null;
+
+    if (slideId) {
+      try {
+        targetSlide = slides.getItem(slideId);
+      } catch (_) {}
+    }
+
+    if (!targetSlide) {
+      const countResult = slides.getCount();
+      await context.sync();
+      targetSlide = slides.getItemAt(countResult.value - 1);
+    }
 
     // 1. Add Title TextBox at Top
-    const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
+    const titleBox = targetSlide.shapes.addTextBox(cleanTitle, {
       left: 50,
       top: 35,
       width: 860,
@@ -142,7 +148,7 @@ async function createSingleSlide(slideData, slideNum) {
 
     // 2. Add Subtitle TextBox directly under Title
     if (subtitle) {
-      const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
+      const subtitleBox = targetSlide.shapes.addTextBox(subtitle, {
         left: 50,
         top: 90,
         width: 860,
@@ -157,7 +163,7 @@ async function createSingleSlide(slideData, slideNum) {
 
     // 3. Add Body Content TextBox
     const bodyTop = subtitle ? 135 : 95;
-    const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
+    const bodyBox = targetSlide.shapes.addTextBox(bodyTextContent, {
       left: 50,
       top: bodyTop,
       width: hasImages ? 400 : 860,
@@ -171,7 +177,7 @@ async function createSingleSlide(slideData, slideNum) {
         const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
         if (clean.length > 50) {
           try {
-            newSlide.shapes.addImage(clean, {
+            targetSlide.shapes.addImage(clean, {
               left: 480,
               top: bodyTop,
               width: 380,
