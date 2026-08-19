@@ -89,169 +89,158 @@ async function createSingleSlide(slideData, slideNum) {
 
   logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."`);
 
-  try {
-    // Primary path: Add slide, delete default layout placeholders, and add standardized textboxes
-    await PowerPoint.run(async (context) => {
-      const slides = context.presentation.slides;
-      slides.add();
-      await context.sync();
+  await PowerPoint.run(async (context) => {
+    const slides = context.presentation.slides;
 
-      const countResult = slides.getCount();
-      await context.sync();
+    // 1. Add exactly ONE slide and sync
+    slides.add();
+    await context.sync();
 
-      const slideCount = countResult.value;
-      const newSlide = slides.getItemAt(slideCount - 1);
+    // 2. Locate newly created slide
+    const countResult = slides.getCount();
+    await context.sync();
 
-      // 1. Inspect existing default layout placeholder shapes
-      newSlide.shapes.load("items");
-      await context.sync();
+    const slideCount = countResult.value;
+    const newSlide = slides.getItemAt(slideCount - 1);
 
-      if (newSlide.shapes && newSlide.shapes.items && newSlide.shapes.items.length > 0) {
-        for (let s = newSlide.shapes.items.length - 1; s >= 0; s--) {
+    // 3. Inspect existing slide shapes
+    newSlide.shapes.load("items");
+    await context.sync();
+
+    const existingShapes = newSlide.shapes.items || [];
+    let titlePlaceholder = null;
+    let bodyPlaceholder = null;
+
+    // Identify real Title and Subtitle/Content placeholders by name
+    for (const s of existingShapes) {
+      const name = (s.name || "").toLowerCase();
+      if (!titlePlaceholder && (name.includes("title") || name.includes("header") || name.includes("heading"))) {
+        titlePlaceholder = s;
+      } else if (!bodyPlaceholder && (name.includes("subtitle") || name.includes("content") || name.includes("body") || name.includes("text") || name.includes("placeholder"))) {
+        bodyPlaceholder = s;
+      }
+    }
+
+    // 4. Populate & Reposition Title (Reuses native placeholder to eliminate "Click to add title", or creates new box)
+    if (titlePlaceholder) {
+      try {
+        titlePlaceholder.left = 50;
+        titlePlaceholder.top = 35;
+        titlePlaceholder.width = 860;
+        titlePlaceholder.height = 50;
+        titlePlaceholder.textFrame.textRange.text = cleanTitle;
+        titlePlaceholder.textFrame.textRange.font.size = titleSize;
+        titlePlaceholder.textFrame.textRange.font.bold = true;
+        if (color) {
+          titlePlaceholder.textFrame.textRange.font.color = color;
+        }
+      } catch (_) {
+        const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
+          left: 50,
+          top: 35,
+          width: 860,
+          height: 50
+        });
+        titleBox.textFrame.textRange.font.size = titleSize;
+        titleBox.textFrame.textRange.font.bold = true;
+        if (color) {
+          titleBox.textFrame.textRange.font.color = color;
+        }
+      }
+    } else {
+      const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
+        left: 50,
+        top: 35,
+        width: 860,
+        height: 50
+      });
+      titleBox.textFrame.textRange.font.size = titleSize;
+      titleBox.textFrame.textRange.font.bold = true;
+      if (color) {
+        titleBox.textFrame.textRange.font.color = color;
+      }
+    }
+
+    // 5. Add Subtitle directly under Title if present
+    if (subtitle) {
+      const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
+        left: 50,
+        top: 90,
+        width: 860,
+        height: 35
+      });
+      subtitleBox.textFrame.textRange.font.size = subtitleSize;
+      subtitleBox.textFrame.textRange.font.italic = true;
+      if (color) {
+        subtitleBox.textFrame.textRange.font.color = color;
+      }
+    }
+
+    // 6. Populate & Reposition Body Bullets (Reuses native placeholder to eliminate "Click to add subtitle", or creates new box)
+    const bodyTop = subtitle ? 135 : 95;
+    if (bodyPlaceholder) {
+      try {
+        bodyPlaceholder.left = 50;
+        bodyPlaceholder.top = bodyTop;
+        bodyPlaceholder.width = hasImages ? 400 : 860;
+        bodyPlaceholder.height = 360;
+        bodyPlaceholder.textFrame.textRange.text = bodyTextContent;
+        bodyPlaceholder.textFrame.textRange.font.size = 18;
+      } catch (_) {
+        const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
+          left: 50,
+          top: bodyTop,
+          width: hasImages ? 400 : 860,
+          height: 360
+        });
+        bodyBox.textFrame.textRange.font.size = 18;
+      }
+    } else {
+      const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
+        left: 50,
+        top: bodyTop,
+        width: hasImages ? 400 : 860,
+        height: 360
+      });
+      bodyBox.textFrame.textRange.font.size = 18;
+    }
+
+    // 7. Delete any other unneeded placeholder prompts
+    for (const s of existingShapes) {
+      if (s !== titlePlaceholder && s !== bodyPlaceholder) {
+        const name = (s.name || "").toLowerCase();
+        if (name.includes("placeholder") || name.includes("subtitle") || name.includes("notes")) {
           try {
-            newSlide.shapes.items[s].delete();
+            s.delete();
           } catch (_) {}
         }
-        await context.sync();
       }
+    }
 
-      // 2. Add Title TextBox at Top
-      const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
-        left: 50,
-        top: 35,
-        width: 860,
-        height: 50
-      });
-      titleBox.textFrame.textRange.font.size = titleSize;
-      titleBox.textFrame.textRange.font.bold = true;
-      if (color) {
-        titleBox.textFrame.textRange.font.color = color;
-      }
-
-      // 3. Add Subtitle TextBox directly under Title
-      if (subtitle) {
-        const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
-          left: 50,
-          top: 90,
-          width: 860,
-          height: 35
-        });
-        subtitleBox.textFrame.textRange.font.size = subtitleSize;
-        subtitleBox.textFrame.textRange.font.italic = true;
-        if (color) {
-          subtitleBox.textFrame.textRange.font.color = color;
-        }
-      }
-
-      // 4. Add Body Content TextBox
-      const bodyTop = subtitle ? 135 : 95;
-      const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
-        left: 50,
-        top: bodyTop,
-        width: hasImages ? 400 : 860,
-        height: 360
-      });
-      bodyBox.textFrame.textRange.font.size = 18;
-
-      // 5. Add Image if available
-      if (hasImages) {
-        for (const rawImg of imagesToInsert) {
-          const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
-          if (clean.length > 50) {
-            try {
-              newSlide.shapes.addImage(clean, {
-                left: 480,
-                top: bodyTop,
-                width: 380,
-                height: 300
-              });
-              logToPPTConsole(`Slide ${slideNum}: Attached image.`);
-            } catch (imgErr) {
-              logToPPTConsole(`Slide ${slideNum}: Image notice: ${imgErr.message}`);
-            }
+    // 8. Add Image if available
+    if (hasImages) {
+      for (const rawImg of imagesToInsert) {
+        const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
+        if (clean.length > 50) {
+          try {
+            newSlide.shapes.addImage(clean, {
+              left: 480,
+              top: bodyTop,
+              width: 380,
+              height: 300
+            });
+            logToPPTConsole(`Slide ${slideNum}: Attached image.`);
+          } catch (imgErr) {
+            logToPPTConsole(`Slide ${slideNum}: Image notice: ${imgErr.message}`);
           }
         }
       }
+    }
 
-      await context.sync();
-      logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}and Bullets.`);
-    });
-  } catch (cleanRunErr) {
-    console.warn(`Slide ${slideNum} cleanup insertion retry:`, cleanRunErr);
-    // Bulletproof Fallback: Add slide and insert textboxes directly
-    await PowerPoint.run(async (context) => {
-      const slides = context.presentation.slides;
-      slides.add();
-      await context.sync();
-
-      const countResult = slides.getCount();
-      await context.sync();
-
-      const slideCount = countResult.value;
-      const newSlide = slides.getItemAt(slideCount - 1);
-
-      // 1. Add Title TextBox at Top
-      const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
-        left: 50,
-        top: 35,
-        width: 860,
-        height: 50
-      });
-      titleBox.textFrame.textRange.font.size = titleSize;
-      titleBox.textFrame.textRange.font.bold = true;
-      if (color) {
-        titleBox.textFrame.textRange.font.color = color;
-      }
-
-      // 2. Add Subtitle TextBox directly under Title
-      if (subtitle) {
-        const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
-          left: 50,
-          top: 90,
-          width: 860,
-          height: 35
-        });
-        subtitleBox.textFrame.textRange.font.size = subtitleSize;
-        subtitleBox.textFrame.textRange.font.italic = true;
-        if (color) {
-          subtitleBox.textFrame.textRange.font.color = color;
-        }
-      }
-
-      // 3. Add Body Content TextBox
-      const bodyTop = subtitle ? 135 : 95;
-      const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
-        left: 50,
-        top: bodyTop,
-        width: hasImages ? 400 : 860,
-        height: 360
-      });
-      bodyBox.textFrame.textRange.font.size = 18;
-
-      // 4. Add Image if available
-      if (hasImages) {
-        for (const rawImg of imagesToInsert) {
-          const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
-          if (clean.length > 50) {
-            try {
-              newSlide.shapes.addImage(clean, {
-                left: 480,
-                top: bodyTop,
-                width: 380,
-                height: 300
-              });
-              logToPPTConsole(`Slide ${slideNum}: Attached image.`);
-            } catch (imgErr) {
-              logToPPTConsole(`Slide ${slideNum}: Image notice: ${imgErr.message}`);
-            }
-          }
-        }
-      }
-
-      await context.sync();
-      logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}and Bullets.`);
-    });
-  }
+    // 9. Commit all slide changes
+    await context.sync();
+    logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}and Bullets.`);
+  });
 }
 
 /**
