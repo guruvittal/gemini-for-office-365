@@ -105,30 +105,12 @@ async function createSingleSlide(slideData, slideNum) {
 
     const newSlide = slides.getItemAt(slideCount - 1);
 
-    // 2b. Erase default template placeholder watermarks ("Click to add title", etc.)
-    try {
-      newSlide.shapes.load("items");
-      await context.sync();
-      if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
-        for (let s = 0; s < newSlide.shapes.items.length; s++) {
-          try {
-            newSlide.shapes.items[s].textFrame.textRange.text = " ";
-          } catch (e) {
-            // ignore non-text shape
-          }
-        }
-        await context.sync();
-      }
-    } catch (e) {
-      console.warn("Notice erasing template watermarks:", e.message);
-    }
-
     // 3. Add Title TextBox at TOP of slide
     const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
       left: 50,
       top: 40,
       width: 860,
-      height: 50
+      height: 60
     });
     titleBox.textFrame.textRange.font.size = titleSize;
     titleBox.textFrame.textRange.font.bold = true;
@@ -140,9 +122,9 @@ async function createSingleSlide(slideData, slideNum) {
     if (subtitle) {
       const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
         left: 50,
-        top: 95,
+        top: 110,
         width: 860,
-        height: 35
+        height: 40
       });
       subtitleBox.textFrame.textRange.font.size = subtitleSize;
       subtitleBox.textFrame.textRange.font.italic = true;
@@ -152,12 +134,12 @@ async function createSingleSlide(slideData, slideNum) {
     }
 
     // 5. Add Body Content TextBox directly UNDER subtitle / title
-    const bodyTop = subtitle ? 140 : 100;
+    const bodyTop = subtitle ? 160 : 110;
     const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
       left: 50,
       top: bodyTop,
       width: hasImages ? 400 : 860,
-      height: 360
+      height: 340
     });
     bodyBox.textFrame.textRange.font.size = 18;
 
