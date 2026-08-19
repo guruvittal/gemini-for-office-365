@@ -71,6 +71,37 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 800, maxHeight 
   });
 }
 
+let cachedBlankLayoutId = null;
+let testedSlideMasters = false;
+
+async function getBlankLayoutId(context) {
+  if (testedSlideMasters) return cachedBlankLayoutId;
+  try {
+    const slideMasters = context.presentation.slideMasters;
+    if (slideMasters) {
+      slideMasters.load("items/layouts/items/name, items/layouts/items/id");
+      await context.sync();
+      if (slideMasters.items && slideMasters.items.length > 0) {
+        for (const master of slideMasters.items) {
+          if (master.layouts && master.layouts.items) {
+            for (const layout of master.layouts.items) {
+              if (layout.name && layout.name.toLowerCase().includes("blank")) {
+                cachedBlankLayoutId = layout.id;
+                break;
+              }
+            }
+          }
+          if (cachedBlankLayoutId) break;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("Notice: SlideMasters API not available, using default add:", e.message);
+  }
+  testedSlideMasters = true;
+  return cachedBlankLayoutId;
+}
+
 /**
  * Creates a single slide in PowerPoint with title, body bullets, and optional images.
  */
@@ -92,11 +123,25 @@ async function createSingleSlide(slideData, slideNum) {
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
 
-    // 1. Add slide and sync
-    slides.add();
-    await context.sync();
+    // 1. Try adding with Blank layout to eliminate native placeholder prompts
+    let added = false;
+    try {
+      const blankLayoutId = await getBlankLayoutId(context);
+      if (blankLayoutId) {
+        slides.add({ layoutId: blankLayoutId });
+        await context.sync();
+        added = true;
+      }
+    } catch (e) {
+      console.warn("Blank layout add notice:", e.message);
+    }
 
-    // 2. Fetch total count to locate newly added slide
+    if (!added) {
+      slides.add();
+      await context.sync();
+    }
+
+    // 2. Locate the newly added slide
     const countResult = slides.getCount();
     await context.sync();
 
@@ -105,71 +150,21 @@ async function createSingleSlide(slideData, slideNum) {
 
     const newSlide = slides.getItemAt(slideCount - 1);
 
-    // 2b. Populate native title/subtitle placeholders if present, or clear watermarks
-    let usedNativeTitle = false;
-    let usedNativeSubtitle = false;
-
-    try {
-      newSlide.shapes.load("items");
-      await context.sync();
-      const existingShapes = newSlide.shapes.items || [];
-
-      if (existingShapes.length > 0) {
-        try {
-          existingShapes[0].textFrame.textRange.text = cleanTitle;
-          existingShapes[0].textFrame.textRange.font.size = titleSize;
-          existingShapes[0].textFrame.textRange.font.bold = true;
-          if (color) existingShapes[0].textFrame.textRange.font.color = color;
-          usedNativeTitle = true;
-        } catch (e) {
-          // not a text shape
-        }
-      }
-
-      if (existingShapes.length > 1) {
-        try {
-          if (subtitle) {
-            existingShapes[1].textFrame.textRange.text = subtitle;
-            existingShapes[1].textFrame.textRange.font.size = subtitleSize;
-            existingShapes[1].textFrame.textRange.font.italic = true;
-            if (color) existingShapes[1].textFrame.textRange.font.color = color;
-            usedNativeSubtitle = true;
-          } else {
-            existingShapes[1].textFrame.textRange.text = " ";
-          }
-        } catch (e) {
-          // ignore
-        }
-      }
-
-      for (let s = 2; s < existingShapes.length; s++) {
-        try {
-          existingShapes[s].textFrame.textRange.text = " ";
-        } catch (e) {
-          // ignore
-        }
-      }
-    } catch (placeholderErr) {
-      console.warn("Notice inspecting placeholders:", placeholderErr);
+    // 3. Add Title TextBox
+    const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
+      left: 50,
+      top: 35,
+      width: 860,
+      height: 50
+    });
+    titleBox.textFrame.textRange.font.size = titleSize;
+    titleBox.textFrame.textRange.font.bold = true;
+    if (color) {
+      titleBox.textFrame.textRange.font.color = color;
     }
 
-    // 3. Add Title TextBox if native placeholder wasn't used
-    if (!usedNativeTitle) {
-      const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
-        left: 50,
-        top: 35,
-        width: 860,
-        height: 50
-      });
-      titleBox.textFrame.textRange.font.size = titleSize;
-      titleBox.textFrame.textRange.font.bold = true;
-      if (color) {
-        titleBox.textFrame.textRange.font.color = color;
-      }
-    }
-
-    // 4. Add Subtitle TextBox if exists and native placeholder wasn't used
-    if (subtitle && !usedNativeSubtitle) {
+    // 4. Add Subtitle if exists
+    if (subtitle) {
       const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
         left: 50,
         top: 90,
