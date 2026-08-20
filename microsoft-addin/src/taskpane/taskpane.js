@@ -108,6 +108,27 @@ function adaptUIForHost(hostName) {
     if (chipExecBox) chipExecBox.innerHTML = `💡 Executive Card`;
     if (welcomeBubble) welcomeBubble.innerHTML = `Type a prompt below, click a <strong>Doc Chip</strong> above, or highlight text in Word!`;
   }
+
+  // Detect Gemini Enterprise StreamAssist Mode
+  if (typeof window !== 'undefined' && window.location) {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('backend') === 'streamassist') {
+      const titleEl = document.querySelector(".header h3");
+      if (titleEl) {
+        titleEl.innerHTML = `✨ Gemini Enterprise <span class="header-badge" style="background:#e8f5e9; color:#1b5e20;">🍔 Wendy's KB</span>`;
+      }
+      if (welcomeBubble) {
+        welcomeBubble.innerHTML = `Connected to <strong>Wendy's Gemini Enterprise Assistant</strong> (HR, Sales, SharePoint, Box, ServiceNow). Answers are grounded on Wendy's internal records with citations!`;
+      }
+      const promptInput = document.getElementById("promptText");
+      if (promptInput) {
+        promptInput.placeholder = "Ask Wendy's Enterprise Knowledge Base (HR, Sales, SharePoint)...";
+      }
+      if (debugStatus) {
+        debugStatus.innerText = `Enterprise: Wendy's (${hostName})`;
+      }
+    }
+  }
 }
 
 function resetChatSession() {
@@ -348,7 +369,8 @@ async function executeGeminiWorkflow(fullPrompt, displayUserBubble) {
 
   if (runButton) runButton.disabled = true;
   if (loadingText) {
-    loadingText.innerText = "⚡ Gemini 2.5 is thinking...";
+    const isEnterprise = typeof window !== 'undefined' && window.location && new URLSearchParams(window.location.search).get('backend') === 'streamassist';
+    loadingText.innerText = isEnterprise ? "⚡ Gemini Enterprise is thinking..." : "⚡ Gemini Guru is thinking...";
     loadingText.style.display = "block";
   }
 
@@ -494,7 +516,13 @@ async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {
   }
 
   try {
-    await hostAdapter.insertContent(htmlContent, rawText);
+    const insertPromise = hostAdapter.insertContent(htmlContent, rawText);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Operation timed out after 60 seconds")), 60000)
+    );
+
+    await Promise.race([insertPromise, timeoutPromise]);
+
     const debugStatus = document.getElementById("debugStatus");
     if (debugStatus) {
       const host = hostAdapter?.name || 'Office';
@@ -502,7 +530,7 @@ async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {
     }
   } catch (err) {
     console.error("Document insertion error:", err);
-    appendBubble(`🔴 Insertion Error: ${err.message || err}`, "system");
+    appendBubble(`🔴 Insertion Notice: ${err.message || err}`, "system");
   } finally {
     if (runButton) runButton.disabled = false;
     if (loadingText) loadingText.style.display = "none";
