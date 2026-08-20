@@ -6,10 +6,10 @@ set -e
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ID="${GCP_PROJECT_ID:-${PROJECT_ID:-vertexsearch-447722}}"
-REGION="${GCP_REGION:-${REGION:-us-central1}}"
-BACKEND_SERVICE_NAME="${BACKEND_SERVICE_NAME:-gemini-proxy}"
-FRONTEND_SERVICE_NAME="${FRONTEND_SERVICE_NAME:-gemini-frontend}"
+PROJECT_ID="vertexsearch-447722"
+REGION="us-central1"
+BACKEND_SERVICE_NAME="gemini-proxy"
+FRONTEND_SERVICE_NAME="gemini-frontend"
 
 echo "============================================================"
 echo " Deploying Gemini for Office 365 to Google Cloud Run"
