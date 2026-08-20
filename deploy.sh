@@ -2,13 +2,14 @@
 set -e
 
 # ==============================================================================
-# Gemini for Office 365 - Cloud Run Deployment Script (Argolis Environment)
+# Gemini for Office 365 - Cloud Run Deployment Script
 # ==============================================================================
 
-PROJECT_ID="vertexsearch-447722"
-REGION="us-central1"
-BACKEND_SERVICE_NAME="gemini-proxy"
-FRONTEND_SERVICE_NAME="gemini-frontend"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ID="${GCP_PROJECT_ID:-${PROJECT_ID:-vertexsearch-447722}}"
+REGION="${GCP_REGION:-${REGION:-us-central1}}"
+BACKEND_SERVICE_NAME="${BACKEND_SERVICE_NAME:-gemini-proxy}"
+FRONTEND_SERVICE_NAME="${FRONTEND_SERVICE_NAME:-gemini-frontend}"
 
 echo "============================================================"
 echo " Deploying Gemini for Office 365 to Google Cloud Run"
@@ -21,11 +22,11 @@ gcloud config set project "${PROJECT_ID}"
 gcloud config set run/region "${REGION}"
 
 # ------------------------------------------------------------------------------
-# 1. Deploy Backend Proxy Container
+# 1. Deploy Backend Proxy Container (geminiproxy)
 # ------------------------------------------------------------------------------
 echo ""
 echo ">>> [1/3] Deploying Backend Proxy Service (${BACKEND_SERVICE_NAME})..."
-cd "$(dirname "$0")/backend"
+cd "${SCRIPT_DIR}/geminiproxy"
 
 gcloud run deploy "${BACKEND_SERVICE_NAME}" \
   --source=. \
@@ -39,11 +40,11 @@ BACKEND_URL=$(gcloud run services describe "${BACKEND_SERVICE_NAME}" --region="$
 echo " Backend Service deployed successfully at: ${BACKEND_URL}"
 
 # ------------------------------------------------------------------------------
-# 2. Deploy Frontend Add-in Container
+# 2. Deploy Frontend Add-in Container (microsoft-addin)
 # ------------------------------------------------------------------------------
 echo ""
 echo ">>> [2/3] Deploying Frontend Add-in Service (${FRONTEND_SERVICE_NAME})..."
-cd "../frontend"
+cd "${SCRIPT_DIR}/microsoft-addin"
 
 # Build and deploy frontend container
 gcloud run deploy "${FRONTEND_SERVICE_NAME}" \
@@ -67,7 +68,7 @@ echo " Backend URL:  ${BACKEND_URL}"
 echo " Frontend URL: ${FRONTEND_URL}"
 echo "============================================================"
 echo "To sideload into Word, PowerPoint, or Excel:"
-echo "1. Verify manifest.xml points to ${FRONTEND_URL}/"
+echo "1. Verify microsoft-addin/manifest.xml points to ${FRONTEND_URL}/"
 echo "2. Open Office > Insert > Add-ins > My Add-ins > Upload My Add-in"
-echo "3. Upload frontend/manifest.xml"
+echo "3. Upload microsoft-addin/manifest.xml (or manifest_gemini_enterprise.xml)"
 echo "============================================================"
