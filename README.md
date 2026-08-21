@@ -23,7 +23,10 @@ https://github.com/user-attachments/assets/7b361e71-13d4-48ba-81ce-41bf5d0c9e50
 
 ---
 
+> 📖 **Developer & Architecture Guide:** For a detailed breakdown of the new decoupled authentication architecture, Microsoft Entra ID SSO integration, Google Cloud S2S IAM security, and flow diagrams, see [DEVELOPER_ARCHITECTURE_GUIDE.md](file:///Users/caugusto/Documents/antigravity/retail-gemini-for-office-365/authproxy/DEVELOPER_ARCHITECTURE_GUIDE.md).
+
 ## 🏗️ Architecture Overview
+
 
 ```mermaid
 graph TB
@@ -78,87 +81,108 @@ graph TB
 ```
 gemini-for-office-365/
 │
-├── README.md                          # Main project overview & quick-start guide
-├── ARCHITECTURE.md                    # Detailed architecture, grounding & visual flow diagrams
-├── LICENSE                            # Apache-2.0 License
-├── .gitignore                         # Root gitignore
+├── README.md                                   # Main project overview & quick-start guide
+├── ARCHITECTURE.md                             # Detailed architecture, grounding, visual & auth diagrams
+├── DEPLOYMENT_INFO_CA.md                       # Active deployment environment & configuration reference
+├── MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md    # Microsoft 365 Admin Center enterprise distribution guide
+├── manifest-ca.xml                             # Single canonical Office 365 Add-in XML Manifest
+├── LICENSE                                     # Apache-2.0 License
+├── .gitignore                                  # Root gitignore
 │
-├── microsoft-addin/                   # Microsoft Office 365 Add-in (Word, PowerPoint, Excel)
-│   ├── manifest.xml                   # Office Add-in XML Manifest
-│   ├── package.json                   # Webpack, Babel & Office.js dependencies
-│   ├── webpack.config.js              # Webpack bundling configuration
-│   ├── babel.config.json              # Babel presets
-│   ├── Dockerfile                     # Nginx container for Cloud Run deployment
-│   ├── nginx.conf                     # Nginx server configuration with CORS headers
-│   ├── .env.example                   # Add-in environment variable template
-│   ├── assets/                        # Icons & logos for Office Ribbon & Taskpane
+├── authproxy/                                  # Tier 2: Microsoft Entra ID Auth Gateway (Python FastAPI)
+│   ├── main.py                                 # JWT verification, IdP auto-discovery & S2S token minting
+│   ├── requirements.txt                        # FastAPI, uvicorn, PyJWT, cryptography, google-auth
+│   ├── Dockerfile                              # Python 3.11 Cloud Run container
+│   ├── DEPLOYMENT_AND_ENTRA_GUIDE.md           # Step-by-step Entra ID & Cloud Run deployment guide
+│   └── DEVELOPER_ARCHITECTURE_GUIDE.md         # Deep-dive architecture, sequence flows & developer guide
+│
+├── microsoft-addin/                            # Tier 1: Microsoft Office 365 Add-in (Word, PPT, Excel)
+│   ├── package.json                            # Webpack, Babel, Office.js dependencies
+│   ├── webpack.config.js                       # Production build & bundling configuration
+│   ├── Dockerfile                              # Nginx web server for Cloud Run hosting
+│   ├── nginx.conf                              # Nginx security & CORS headers
+│   ├── assets/                                 # Office Ribbon and Taskpane branding icons
 │   └── src/
-│       ├── adapters/                  # WordAdapter, PPTAdapter, ExcelAdapter, HostAdapterFactory
-│       ├── core/                      # geminiClient, markdownParser
-│       ├── taskpane/                  # taskpane.html, taskpane.css, taskpane.js
-│       └── commands/                  # commands.html, commands.js
+│       ├── adapters/                           # WordAdapter, PPTAdapter, ExcelAdapter, HostAdapterFactory
+│       ├── core/                               # authService (Office SSO), geminiClient, markdownParser
+│       ├── taskpane/                           # taskpane.html, taskpane.css, taskpane.js
+│       └── commands/                           # commands.html, commands.js
 │
-└── geminiproxy/                       # Google Cloud Vertex AI Backend Proxy
-    ├── index.js                       # Cloud Function (askGemini), Grounding & Nano Banana vision
-    ├── package.json                   # Dependencies (@google-cloud/vertexai, functions-framework)
-    ├── .env.example                   # Backend environment configuration (Project ID, Datastore)
-    ├── .gcloudignore                  # Ignored files for Cloud Functions deployment
-    └── README.md                      # Backend deployment & configuration guide
+├── geminiproxy/                                # Tier 3: Core Inference Backend (Node.js Express)
+│   ├── index.js                                # Discovery Engine streamAssist, Gemini 2.5 Flash, Grounding
+│   ├── package.json                            # Dependencies (express, cors, google-auth-library)
+│   ├── Dockerfile                              # Node.js 20 Cloud Run container
+│   └── README.md                               # Backend configuration guide
+│
+└── scripts/
+    └── sideload_mac.sh                         # macOS local development sideloading automation script
 ```
 
 ---
 
 ## 🚀 Quick Start & Deployment
 
-### 1. Backend Proxy Deployment (`geminiproxy/`)
+For complete, detailed instructions on setting up Microsoft Entra ID, Google Cloud IAM, and deploying the microservices, consult:
+- 📖 [DEVELOPER_ARCHITECTURE_GUIDE.md](authproxy/DEVELOPER_ARCHITECTURE_GUIDE.md)
+- 🚀 [DEPLOYMENT_AND_ENTRA_GUIDE.md](authproxy/DEPLOYMENT_AND_ENTRA_GUIDE.md)
+- 🏢 [MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md](MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md)
+- 📋 [DEPLOYMENT_INFO_CA.md](DEPLOYMENT_INFO_CA.md)
+
+### 1. Deploy Auth Gateway Proxy (`authproxy/`)
 ```bash
-cd geminiproxy
-cp .env.example .env
-
-# Deploy to Google Cloud Functions (Gen 2)
-gcloud functions deploy askGemini \
-  --gen2 \
-  --runtime=nodejs20 \
-  --region=us-central1 \
-  --source=. \
-  --entry-point=askGemini \
-  --trigger-http \
-  --no-allow-unauthenticated \
-  --set-env-vars GCP_PROJECT_ID=YOUR_PROJECT_ID,VERTEX_DATASTORE_ID=YOUR_DATASTORE_ID \
-  --project=YOUR_PROJECT_ID
-
-# Enable public invocation via Cloud Run (for add-in webview)
-gcloud run services update askgemini \
-  --region=us-central1 \
-  --no-invoker-iam-check \
-  --project=YOUR_PROJECT_ID
+cd authproxy
+gcloud run deploy auth-proxy \
+  --source . \
+  --project YOUR_GCP_PROJECT_ID \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --service-account auth-proxy-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com \
+  --set-env-vars "\
+MICROSOFT_ENTRA_APP_ID=YOUR_MICROSOFT_ENTRA_CLIENT_ID,\
+DOWNSTREAM_BACKEND_URL=https://askgemini-proxy-XXXXXXXX.us-central1.run.app,\
+GCP_PROJECT_ID=YOUR_GCP_PROJECT_ID,\
+GCP_LOCATION=global,\
+USER_AUTH_MODE=auto,\
+REQUIRE_ENTRA_AUTH=true,\
+VERBOSE_LOGGING=true"
 ```
 
-### 2. Frontend Add-in Deployment (`microsoft-addin/`)
+### 2. Deploy Backend Proxy (`geminiproxy/`)
+```bash
+cd ../geminiproxy
+gcloud run deploy askgemini-proxy \
+  --source . \
+  --project YOUR_GCP_PROJECT_ID \
+  --region us-central1 \
+  --no-allow-unauthenticated \
+  --set-env-vars "\
+GCP_PROJECT_ID=YOUR_GCP_PROJECT_ID,\
+GEMINI_ENTERPRISE_APP_ID=YOUR_GEMINI_ENTERPRISE_APP_ID,\
+BACKEND_MODE=streamassist,\
+GCP_LOCATION=global,\
+ENTERPRISE_COLLECTION_ID=default_collection,\
+ENTERPRISE_ASSISTANT_ID=default_assistant,\
+ALLOW_SERVICE_ACCOUNT_FALLBACK=true"
+```
+
+### 3. Deploy Frontend Add-in (`microsoft-addin/`)
 ```bash
 cd ../microsoft-addin
 npm install
 npm run build
 
-# Deploy containerized frontend to Cloud Run
 gcloud run deploy gemini-frontend \
-  --source dist \
+  --source . \
   --region us-central1 \
-  --port 80 \
-  --no-allow-unauthenticated \
-  --project YOUR_PROJECT_ID
-
-gcloud run services update gemini-frontend \
-  --region=us-central1 \
-  --no-invoker-iam-check \
-  --project YOUR_PROJECT_ID
+  --project YOUR_GCP_PROJECT_ID \
+  --allow-unauthenticated
 ```
 
-### 3. Sideload into Microsoft Office
-1. Open **Microsoft Word**, **PowerPoint**, or **Excel**.
-2. Go to **Insert** > **Add-ins** > **My Add-ins**.
-3. Click **Upload My Add-in** and select `microsoft-addin/manifest.xml`.
-4. The **Gemini for Office 365** icon will appear on the **Home** ribbon.
+### 4. Sideload into Microsoft Office 365
+- **macOS Quick Sideload**: Run `./scripts/sideload_mac.sh` and restart Word, PowerPoint, or Excel.
+- **Office for Web**: Open document on [office.com](https://www.office.com), navigate to **Insert** > **Add-ins** > **Upload My Add-in**, and select `manifest-ca.xml`.
+- **Microsoft 365 Admin Center**: Upload `manifest-ca.xml` under **Settings** > **Integrated apps** for tenant-wide deployment.
+
 
 ---
 

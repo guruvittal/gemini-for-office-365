@@ -91,12 +91,30 @@
         .send-btn:hover:not(:disabled) { background-color: #106ebe; }
         
         #loading { display: none; color: #0078d4; font-size: 12px; font-weight: bold; padding: 2px 0; }
+        
+        /* SSO Identity Status Bar */
+        .user-auth-bar { display: flex; align-items: center; justify-content: space-between; background-color: #f3f2f1; border: 1px solid #edebe9; border-radius: 6px; padding: 4px 8px; margin-bottom: 6px; font-size: 11px; color: #323130; }
+        .user-identity-container { display: flex; align-items: center; gap: 6px; overflow: hidden; }
+        .user-status-dot { width: 7px; height: 7px; border-radius: 50%; background-color: #107c41; flex-shrink: 0; }
+        .user-status-dot.offline { background-color: #a19f9d; }
+        .user-email-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+        .user-auth-mode-badge { font-size: 9px; background: #e1dfdd; color: #323130; padding: 1px 5px; border-radius: 8px; font-weight: 600; text-transform: uppercase; flex-shrink: 0; }
+        .user-auth-mode-badge.active { background: #dff6dd; color: #107c41; }
     </style>
 </head>
 <body>
     <div class="header">
-        <h3>✨ Ask Gemini <span class="header-badge">2.5 Flash</span></h3>
+        <h3>✨ Ask Gemini <span class="header-badge">Enterprise</span></h3>
         <button id="clearSession" class="secondary">New Chat</button>
+    </div>
+
+    <!-- SSO Authenticated Identity Indicator -->
+    <div class="user-auth-bar" id="userAuthBar" title="Microsoft 365 Single Sign-On Identity">
+        <div class="user-identity-container">
+            <span class="user-status-dot" id="userStatusDot"></span>
+            <span class="user-email-text" id="userEmailText">Connecting to Office SSO...</span>
+        </div>
+        <span class="user-auth-mode-badge active" id="userAuthBadge">Logged in</span>
     </div>
 
     <!-- In-Document @gemini Helper -->

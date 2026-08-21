@@ -29,6 +29,7 @@ const GCP_LOCATION = process.env.GCP_LOCATION || 'global';
 const ENTERPRISE_APP_ID = process.env.GEMINI_ENTERPRISE_APP_ID || process.env.VERTEX_DATASTORE_ID || '';
 const ENTERPRISE_COLLECTION_ID = process.env.GEMINI_ENTERPRISE_COLLECTION_ID || 'default_collection';
 const ENTERPRISE_ASSISTANT_ID = process.env.GEMINI_ENTERPRISE_ASSISTANT_ID || 'default_assistant';
+const ALLOW_SERVICE_ACCOUNT_FALLBACK = (process.env.ALLOW_SERVICE_ACCOUNT_FALLBACK || 'false').toLowerCase() === 'true';
 
 const auth = new GoogleAuth({
   scopes: 'https://www.googleapis.com/auth/cloud-platform'
@@ -456,70 +457,7 @@ async function handleGeminiRequest(req, res) {
   });
 }
 
-async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId }) {
-  if (!PROJECT_ID) {
-    throw new Error('GCP_PROJECT_ID environment variable is required for StreamAssist');
-  }
-  if (!ENTERPRISE_APP_ID) {
-    throw new Error('GEMINI_ENTERPRISE_APP_ID environment variable is required for StreamAssist');
-  }
-
-  const client = await auth.getClient();
-  const accessTokenObj = await client.getAccessToken();
-  const accessToken = typeof accessTokenObj === 'string' ? accessTokenObj : accessTokenObj.token;
-
-  const endpointUrl = `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1/projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/engines/${ENTERPRISE_APP_ID}/assistants/${ENTERPRISE_ASSISTANT_ID}:streamAssist`;
-
-  const activeUserId = userPseudoId || userId || 'office_365_user';
-
-  const requestBody = {
-    query: {
-      text: prompt
-    }
-  };
-
-  if (sessionId) {
-    let fullSessionName = sessionId;
-    if (!sessionId.startsWith('projects/')) {
-      fullSessionName = `projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/engines/${ENTERPRISE_APP_ID}/sessions/${sessionId}`;
-    }
-    requestBody.session = fullSessionName;
-  }
-
-  console.log(`Calling StreamAssist API (${endpointUrl})... Session: ${requestBody.session || 'NEW'}`);
-
-  const apiRes = await fetch(endpointUrl, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(requestBody)
-  });
-
-  if (!apiRes.ok) {
-    const errText = await apiRes.text();
-    console.error('StreamAssist API error:', apiRes.status, errText);
-    throw new Error(`StreamAssist API returned HTTP ${apiRes.status}: ${errText}`);
-  }
-
-  const rawResponseBody = await apiRes.text();
-  let parsedChunks = [];
-
-  try {
-    const data = JSON.parse(rawResponseBody);
-    parsedChunks = Array.isArray(data) ? data : [data];
-  } catch (e) {
-    const lines = rawResponseBody.split('\n').filter(l => l.trim().length > 0);
-    for (const line of lines) {
-      try {
-        parsedChunks.push(JSON.parse(line));
-      } catch (err) {
-        console.warn('Could not parse streaming line chunk:', line.substring(0, 80));
-      }
-    }
-  }
-
+function processStreamAssistChunks(parsedChunks, originalSessionId) {
   let aggregatedText = '';
   let returnedSessionResource = null;
   const citations = [];
@@ -566,9 +504,156 @@ async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId }) 
   return {
     resultText: aggregatedText,
     sessionResource: returnedSessionResource,
-    sessionId: shortSessionId || sessionId,
+    sessionId: shortSessionId || originalSessionId,
     citations: citations
   };
+}
+
+async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, userGoogleToken, authMode }) {
+  if (!PROJECT_ID) {
+    throw new Error('GCP_PROJECT_ID environment variable is required for StreamAssist');
+  }
+  if (!ENTERPRISE_APP_ID) {
+    throw new Error('GEMINI_ENTERPRISE_APP_ID environment variable is required for StreamAssist');
+  }
+
+  const activeUserId = userPseudoId || userId || 'office_365_user';
+  let bearerToken = null;
+
+  if (userGoogleToken) {
+    console.log(JSON.stringify({
+      severity: 'INFO',
+      message: `[AUTH] Using End-User Google Token for Discovery Engine StreamAssist (Mode: ${authMode || 'user_token'}, User: ${activeUserId})`,
+      user_id: activeUserId,
+      auth_mode: authMode || 'user_token',
+      token_source: 'X-End-User-Google-Token'
+    }));
+    bearerToken = userGoogleToken;
+  } else {
+    if (ALLOW_SERVICE_ACCOUNT_FALLBACK) {
+      console.warn(JSON.stringify({
+        severity: 'WARNING',
+        message: `[AUTH_FALLBACK] No end-user Google token provided for user '${activeUserId}'. ALLOW_SERVICE_ACCOUNT_FALLBACK is enabled. Falling back to Cloud Run Service Account ADC credentials.`,
+        user_id: activeUserId,
+        fallback_reason: 'MISSING_END_USER_GOOGLE_TOKEN',
+        allow_service_account_fallback: true
+      }));
+
+      const client = await auth.getClient();
+      const accessTokenObj = await client.getAccessToken();
+      bearerToken = typeof accessTokenObj === 'string' ? accessTokenObj : accessTokenObj.token;
+    } else {
+      console.error(JSON.stringify({
+        severity: 'ERROR',
+        message: `[AUTH_REJECTED] Request for user '${activeUserId}' rejected: End-user Google token is required to enforce Gemini Enterprise licensing, and ALLOW_SERVICE_ACCOUNT_FALLBACK is false.`,
+        user_id: activeUserId,
+        allow_service_account_fallback: false
+      }));
+
+      const authErr = new Error(`End-user Google authentication token is required to access Gemini Enterprise. Service account fallback is disabled.`);
+      authErr.statusCode = 403;
+      throw authErr;
+    }
+  }
+
+  const endpointUrl = `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1/projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/engines/${ENTERPRISE_APP_ID}/assistants/${ENTERPRISE_ASSISTANT_ID}:streamAssist`;
+
+  const requestBody = {
+    query: {
+      text: prompt
+    }
+  };
+
+  if (sessionId) {
+    let fullSessionName = sessionId;
+    if (!sessionId.startsWith('projects/')) {
+      fullSessionName = `projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/engines/${ENTERPRISE_APP_ID}/sessions/${sessionId}`;
+    }
+    requestBody.session = fullSessionName;
+  }
+
+  console.log(`Calling StreamAssist API (${endpointUrl})... Session: ${requestBody.session || 'NEW'}`);
+
+  const apiRes = await fetch(endpointUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${bearerToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(requestBody)
+  });
+
+  if (!apiRes.ok) {
+    const errText = await apiRes.text();
+    
+    // Auto-recover if session ownership conflict occurs (e.g. stale session from another caller)
+    if (apiRes.status === 403 && errText.includes('Session is not owned') && requestBody.session) {
+      console.warn(JSON.stringify({
+        severity: 'WARNING',
+        message: `[SESSION_RECOVERY] Discovery Engine session '${requestBody.session}' is not owned by current identity. Retrying automatically with a fresh session...`,
+        user_id: activeUserId
+      }));
+      delete requestBody.session;
+      const retryRes = await fetch(endpointUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${bearerToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+      if (retryRes.ok) {
+        const rawRetryBody = await retryRes.text();
+        let retryChunks = [];
+        try {
+          const retryData = JSON.parse(rawRetryBody);
+          retryChunks = Array.isArray(retryData) ? retryData : [retryData];
+        } catch (e) {
+          retryChunks = rawRetryBody.split('\n').filter(l => l.trim()).map(l => {
+            try { return JSON.parse(l); } catch (_) { return null; }
+          }).filter(Boolean);
+        }
+        return processStreamAssistChunks(retryChunks, null);
+      }
+    }
+
+    console.error(JSON.stringify({
+      severity: 'ERROR',
+      message: `StreamAssist API call failed with HTTP ${apiRes.status}`,
+      status_code: apiRes.status,
+      user_id: activeUserId,
+      error_detail: errText
+    }));
+
+    if (apiRes.status === 403) {
+      const forbiddenErr = new Error(`Google Cloud Discovery Engine rejected the request (HTTP 403): User '${activeUserId}' does not have an active Gemini Enterprise license or IAM permission on engine '${ENTERPRISE_APP_ID}'. Details: ${errText}`);
+      forbiddenErr.statusCode = 403;
+      throw forbiddenErr;
+    }
+
+    const genericErr = new Error(`StreamAssist API returned HTTP ${apiRes.status}: ${errText}`);
+    genericErr.statusCode = apiRes.status;
+    throw genericErr;
+  }
+
+  const rawResponseBody = await apiRes.text();
+  let parsedChunks = [];
+
+  try {
+    const data = JSON.parse(rawResponseBody);
+    parsedChunks = Array.isArray(data) ? data : [data];
+  } catch (e) {
+    const lines = rawResponseBody.split('\n').filter(l => l.trim().length > 0);
+    for (const line of lines) {
+      try {
+        parsedChunks.push(JSON.parse(line));
+      } catch (err) {
+        console.warn('Could not parse streaming line chunk:', line.substring(0, 80));
+      }
+    }
+  }
+
+  return processStreamAssistChunks(parsedChunks, sessionId);
 }
 
 async function handleGeminiEnterpriseRequest(req, res) {
@@ -578,16 +663,29 @@ async function handleGeminiEnterpriseRequest(req, res) {
         return res.status(405).json({ error: 'Method Not Allowed' });
       }
 
-      const { prompt, sessionId, userId, userPseudoId } = req.body;
+      const { prompt, sessionId } = req.body;
+      const userId = req.body.userId || req.headers['x-end-user-id'] || req.headers['x-end-user-email'];
+      const userPseudoId = req.body.userPseudoId || userId || req.headers['x-end-user-id'] || req.headers['x-end-user-email'] || 'office_365_user';
+      const endUserName = req.body.authenticatedUser?.name || req.headers['x-end-user-name'] || '';
+      const userGoogleToken = req.headers['x-end-user-google-token'] || req.headers['x-end-user-token'] || '';
+      const authMode = req.headers['x-user-auth-mode'] || '';
+
       if (!prompt) {
         return res.status(400).json({ error: 'Prompt is required' });
       }
 
-      console.log(`Processing Gemini Enterprise request (Mode: ${BACKEND_MODE})... User: ${userPseudoId || userId || 'office_365_user'}`);
+      console.log(`Processing Gemini Enterprise request (Mode: ${BACKEND_MODE})... Authenticated User: ${userPseudoId} (${endUserName || 'Corporate User'}, AuthMode: ${authMode || 'default'})`);
 
       if (BACKEND_MODE === 'streamassist' && ENTERPRISE_APP_ID) {
         try {
-          const streamAssistResult = await callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId });
+          const streamAssistResult = await callStreamAssistAPI({ 
+            prompt, 
+            sessionId, 
+            userId, 
+            userPseudoId, 
+            userGoogleToken, 
+            authMode 
+          });
           let rawText = streamAssistResult.resultText || '';
 
           if (streamAssistResult.citations && streamAssistResult.citations.length > 0) {
@@ -605,7 +703,25 @@ async function handleGeminiEnterpriseRequest(req, res) {
             backendMode: 'streamassist'
           });
         } catch (streamAssistErr) {
-          console.warn('StreamAssist execution failed, falling back to direct Vertex AI:', streamAssistErr.message);
+          console.error('StreamAssist execution failed:', streamAssistErr.message);
+          // If auth or licensing failed (403), return error directly to caller
+          if (streamAssistErr.statusCode === 403) {
+            return res.status(403).json({
+              error: 'Gemini Enterprise License / Access Denied',
+              details: streamAssistErr.message,
+              statusCode: 403
+            });
+          }
+          // If fallback to direct Vertex AI is desired only on non-auth backend failures:
+          if (ALLOW_SERVICE_ACCOUNT_FALLBACK) {
+            console.warn('Falling back to direct Vertex AI model due to backend error...');
+          } else {
+            return res.status(streamAssistErr.statusCode || 500).json({
+              error: 'Gemini Enterprise StreamAssist failed',
+              details: streamAssistErr.message,
+              statusCode: streamAssistErr.statusCode || 500
+            });
+          }
         }
       }
 

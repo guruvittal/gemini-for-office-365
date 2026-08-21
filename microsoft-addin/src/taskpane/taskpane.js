@@ -8,6 +8,7 @@
  */
 
 import { askGeminiEnterprise, getActiveProxyUrl, setProxyUrlOverride } from '../core/geminiClient.js';
+import { getOfficeAuthToken, getUserProfile, getLastAuthError } from '../core/authService.js';
 import { parseMarkdown } from '../core/markdownParser.js';
 import { HostAdapterFactory } from '../adapters/HostAdapterFactory.js';
 import { initPowerPointDiagnostics } from '../adapters/ppt/pptDiagnostics.js';
@@ -21,6 +22,9 @@ let currentSelectedText = "";
 Office.onReady((info) => {
   // Detect active Microsoft Office host (Word, PowerPoint, Excel) dynamically
   hostAdapter = HostAdapterFactory.getAdapter();
+
+  // Initialize Entra ID Single Sign-On Identity in UI
+  initAuthUI();
 
   document.getElementById("run").onclick = () => callGeminiProxy();
   
@@ -83,7 +87,94 @@ Office.onReady((info) => {
   } catch (e) {
     console.warn("Could not attach selection handler:", e);
   }
+  // Wire interactive sign-in click on user profile badge
+  const userAuthBadge = document.getElementById("userAuthBadge");
+  const userStatusDot = document.getElementById("userStatusDot");
+  const userProfileBar = document.getElementById("userProfileBar");
+  
+  const handleAuthClick = async () => {
+    console.log("Triggering explicit Office Entra ID SSO sign-in...");
+    if (userAuthBadge) userAuthBadge.innerText = "Signing in...";
+    const token = await getOfficeAuthToken(true);
+    await initAuthUI();
+    const lastErr = getLastAuthError();
+    if (!token && lastErr) {
+      console.warn("Explicit sign-in attempt did not yield token:", lastErr);
+      if (lastErr.code === 13007) {
+        alert("Office SSO Error 13007: Application ID URI mismatch or client app not authorized in Entra ID.\n\n" +
+              "1. In Entra ID App 'b990d644-e47b-4575-97b3-2067c488042b' -> Expose an API:\n" +
+              "   Set App ID URI: api://gemini-frontend-16933400417.us-central1.run.app/b990d644-e47b-4575-97b3-2067c488042b\n" +
+              "   Authorized Client IDs:\n" +
+              "   - 00000002-0000-0ff1-ce00-000000000000 (Office Desktop)\n" +
+              "   - ea5a67f6-b6f3-4338-b240-c655ddc3cc8e (Office Web)\n" +
+              "   - d3590ed6-52b3-4102-aeff-aad2292ab01c (Office Web / WAC)\n" +
+              "2. Restart Office.");
+      } else if (lastErr.code === 13001) {
+        alert("Office SSO Error 13001: You are not currently signed into Microsoft Office with a corporate Microsoft Entra ID account.");
+      } else if (lastErr.code === 13002) {
+        alert("Office SSO Error 13002: Sign-in or consent was cancelled.");
+      } else if (lastErr.code === 13012) {
+        alert("Office SSO Error 13012: SSO API is not supported on this platform version or requires Office restart.");
+      } else if (lastErr.code) {
+        alert(`Office SSO Code ${lastErr.code}: ${lastErr.message || JSON.stringify(lastErr)}`);
+      }
+    }
+  };
+
+  if (userAuthBadge) userAuthBadge.onclick = handleAuthClick;
+  if (userStatusDot) userStatusDot.onclick = handleAuthClick;
+  if (userProfileBar) {
+    userProfileBar.style.cursor = "pointer";
+    userProfileBar.onclick = handleAuthClick;
+  }
 });
+
+async function initAuthUI() {
+  const userEmailText = document.getElementById("userEmailText");
+  const userStatusDot = document.getElementById("userStatusDot");
+  const userAuthBadge = document.getElementById("userAuthBadge");
+
+  try {
+    const token = await getOfficeAuthToken();
+    const profile = getUserProfile();
+    const lastErr = getLastAuthError();
+
+    if (token && profile.is_authenticated) {
+      if (userEmailText) {
+        userEmailText.innerText = profile.email || profile.name;
+        userEmailText.title = `Signed in as ${profile.email} (Tenant: ${profile.tenant_id || 'Entra ID'})`;
+      }
+      if (userStatusDot) {
+        userStatusDot.className = "user-status-dot";
+        userStatusDot.title = "Connected with Microsoft Entra ID";
+      }
+      if (userAuthBadge) {
+        userAuthBadge.innerText = "Logged in";
+        userAuthBadge.className = "user-auth-mode-badge active";
+        userAuthBadge.title = `Authenticated SSO session (${profile.email})`;
+      }
+    } else {
+      const errHint = lastErr ? `SSO: ${lastErr.message || lastErr.code || JSON.stringify(lastErr)}` : "Click to sign in with Microsoft Entra ID";
+      if (userEmailText) {
+        userEmailText.innerText = profile.email && profile.email !== 'user@organization.com' ? profile.email : "Sign In / Entra ID";
+        userEmailText.title = errHint;
+      }
+      if (userStatusDot) {
+        userStatusDot.className = "user-status-dot offline";
+        userStatusDot.title = errHint;
+      }
+      if (userAuthBadge) {
+        userAuthBadge.innerText = lastErr ? "Sign In" : "Dev Mode";
+        userAuthBadge.className = "user-auth-mode-badge";
+        userAuthBadge.title = errHint;
+      }
+    }
+  } catch (err) {
+    console.warn("Auth UI init error:", err);
+    if (userEmailText) userEmailText.innerText = "Unauthenticated";
+    if (userStatusDot) userStatusDot.className = "user-status-dot offline";
+  }
+}
 
 function adaptUIForHost(hostName) {
   const tipBannerText = document.getElementById("tipBannerText");

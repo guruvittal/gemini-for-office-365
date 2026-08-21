@@ -14,9 +14,165 @@ The system combines:
 3. **Multimodal Visual Synthesis** via **Gemini 2.5 Flash Image** (Nano Banana) for dynamic 2D flat vector financial charts and infographics.
 4. **Native Host Adapters** for Microsoft Word (inline `@gemini` insertion, text transformation), PowerPoint (multi-slide executive decks with native macOS WKWebView dual-pipeline image rendering), and Excel (range analysis, anomaly detection, KPI metric cards).
 
+> 📖 **Decoupled Auth & S2S System Architecture:** For a deep dive into the decoupled Microsoft Entra ID authentication gateway, Google Cloud Service-to-Service IAM model, and implementation blueprints, see [DEVELOPER_ARCHITECTURE_GUIDE.md](file:///Users/caugusto/Documents/antigravity/retail-gemini-for-office-365/authproxy/DEVELOPER_ARCHITECTURE_GUIDE.md) and [DEPLOYMENT_AND_ENTRA_GUIDE.md](file:///Users/caugusto/Documents/antigravity/retail-gemini-for-office-365/authproxy/DEPLOYMENT_AND_ENTRA_GUIDE.md).
+
 ---
 
-## 🏛️ High-Level System Architecture
+## 🏛️ Enterprise Multi-Tier Architecture (Milestones 2 & 3)
+
+The enterprise deployment separates concerns into dedicated, independently scalable, least-privilege tiers across **Microsoft 365**, **Microsoft Entra ID**, and **Google Cloud Platform**:
+
+```mermaid
+graph TB
+    subgraph OfficeClientTier ["1. Microsoft 365 Office Client Tier"]
+        WordApp["Microsoft Word<br/>(Desktop & Web)"]
+        PPTApp["Microsoft PowerPoint<br/>(Desktop & Web)"]
+        ExcelApp["Microsoft Excel<br/>(Desktop & Web)"]
+        OfficeSSO["Office.js SSO Runtime<br/>(Office.auth.getAccessToken)"]
+        TaskpaneUI["Add-in Taskpane UI<br/>(HTML5 / Vanilla JS / CSS)"]
+        
+        WordApp <--> TaskpaneUI
+        PPTApp <--> TaskpaneUI
+        ExcelApp <--> TaskpaneUI
+        TaskpaneUI <--> OfficeSSO
+    end
+
+    subgraph IdentityTier ["2. Microsoft Entra ID Identity Tier"]
+        EntraApp["Entra ID App Registration<br/>(App ID: b990d644-...)"]
+        AppUri["Application ID URI<br/>api://gemini-frontend-...run.app/b990d644-..."]
+        PreAuthApps["Pre-Authorized Office Clients<br/>• Web: ea5a67f6..., d3590ed6...<br/>• Desktop: 00000002-..."]
+        
+        OfficeSSO -->|1. Silent SSO Token Request| EntraApp
+        EntraApp -->|2. Signed Microsoft JWT| OfficeSSO
+    end
+
+    subgraph GCPInfrastructure ["3. Google Cloud Platform (Project: agentspace-452714)"]
+        FrontendRun["gemini-frontend (Cloud Run)<br/>Nginx Static Assets & Taskpane<br/>(Public HTTPS)"]
+        
+        subgraph AuthGatewayTier ["Auth & Token Translation Gateway"]
+            AuthProxy["auth-proxy (Cloud Run)<br/>Python 3.11 / FastAPI<br/>Runtime SA: auth-proxy-sa"]
+            IdpDiscovery["Dynamic IdP Auto-Discovery<br/>GET /v1/.../aclConfig"]
+        end
+        
+        subgraph PrivateBackendTier ["Private Core Inference Backend (Private S2S Only)"]
+            BackendProxy["askgemini-proxy (Cloud Run)<br/>Node.js 20 Express Microservice<br/>(--no-allow-unauthenticated)"]
+        end
+        
+        TaskpaneUI -->|Loads Static Assets| FrontendRun
+        TaskpaneUI -->|3. POST /askGeminiEnterprise + Entra Bearer JWT| AuthProxy
+        AuthProxy <-->|4. Discovers IdP Type (GSUITE vs THIRD_PARTY)| IdpDiscovery
+        AuthProxy -->|5. Forward Request + Google S2S IAM Token + User Claims| BackendProxy
+    end
+
+    subgraph GeminiEnterpriseTier ["4. Google Cloud Discovery Engine / Gemini Enterprise"]
+        StreamAssist["Discovery Engine API<br/>POST /v1/.../engines/test1-agentspace/servingConfigs/default_search:streamAssist"]
+        EnterpriseCorpus["Enterprise Grounding Corpus<br/>(Google Drive, GCS, Spanner, BigQuery)"]
+        
+        BackendProxy -->|6. StreamAssist Request with User Context| StreamAssist
+        StreamAssist <-->|7. Semantic Grounding & Chunk Retrieval| EnterpriseCorpus
+        StreamAssist -->>|8. Server-Sent Events (SSE) Stream| BackendProxy
+        BackendProxy -->>|9. SSE Chunks| AuthProxy
+        AuthProxy -->>|10. Stream to Client| TaskpaneUI
+    end
+
+    style OfficeClientTier fill:#e8f0fe,stroke:#1a73e8,stroke-width:2px;
+    style IdentityTier fill:#f3e8fd,stroke:#7b1fa2,stroke-width:2px;
+    style GCPInfrastructure fill:#e6f4ea,stroke:#137333,stroke-width:2px;
+    style AuthGatewayTier fill:#e0f2f1,stroke:#00796b,stroke-width:2px;
+    style PrivateBackendTier fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+    style GeminiEnterpriseTier fill:#fef7e0,stroke:#f9ab00,stroke-width:2px;
+```
+
+---
+
+## 🔄 Clean End-to-End Flow
+
+The sequence below illustrates the complete token acquisition, validation, service-to-service IAM minting, and streaming grounding lifecycle:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Enterprise User (AlexW@...)
+    participant PPT as Microsoft Office Client (PowerPoint/Word/Excel)
+    participant FE as gemini-frontend (Cloud Run)
+    participant Entra as Microsoft Entra ID (IdP)
+    participant AP as auth-proxy Gateway (Cloud Run)
+    participant DiscEng as Discovery Engine aclConfig
+    participant GP as askgemini-proxy (Private Cloud Run)
+    participant GE as Gemini Enterprise (streamAssist)
+
+    User->>PPT: Opens 'Gemini Assistant' in Office Ribbon
+    PPT->>FE: Fetches taskpane.html, JS bundles & assets
+    FE-->>PPT: Renders Taskpane UI (Status: Connecting...)
+    
+    rect rgb(240, 244, 255)
+        Note over PPT,Entra: Phase 1: Microsoft 365 Office SSO Token Acquisition
+        PPT->>PPT: Office.auth.getAccessToken({ forMSGraphAccess: false })
+        PPT->>PPT: Validates SourceLocation domain == Resource URI domain (gemini-frontend...)
+        PPT->>Entra: Requests access token for api://gemini-frontend-.../b990d644-...
+        Entra-->>PPT: Returns signed Microsoft Entra ID JWT (claims: upn, email, tid, aud)
+        PPT->>PPT: Updates UI header: AlexW@5m4qby.onmicrosoft.com [Logged in]
+    end
+
+    User->>PPT: Submits prompt: "What are our Q3 revenue targets?"
+    
+    rect rgb(240, 255, 240)
+        Note over PPT,AP: Phase 2: Gateway Verification & IdP Auto-Discovery
+        PPT->>AP: POST /askGeminiEnterprise with "Authorization: Bearer <Entra_JWT>"
+        AP->>AP: Verifies Microsoft signature via JWKS & validates aud/tid
+        AP->>DiscEng: GET /v1/projects/.../locations/global/aclConfig (cached)
+        DiscEng-->>AP: Returns { idpConfig: { idpType: "GSUITE" } }
+        AP->>AP: Attaches X-End-User-Email and X-End-User-ID claims
+    end
+
+    rect rgb(255, 248, 240)
+        Note over AP,GP: Phase 3: Service-to-Service Google IAM Authentication
+        AP->>AP: Fetches Google OIDC ID token for audience: https://askgemini-proxy...
+        AP->>GP: POST /askGeminiEnterprise (Headers: Authorization: Bearer <Google_IAM_Token>)
+        GP->>GP: Cloud Run IAM validates auth-proxy-sa has roles/run.invoker
+    end
+
+    rect rgb(255, 255, 240)
+        Note over GP,GE: Phase 4: Gemini Enterprise Grounded Stream
+        GP->>GE: POST /v1/.../servingConfigs/default_search:streamAssist (with user context)
+        GE->>GE: Grounded retrieval across enterprise datastores
+        GE-->>GP: Streams SSE chunks with answers, citations, and grounding references
+        GP-->>AP: Streams SSE response
+        AP-->>PPT: Streams SSE response
+    end
+
+    PPT->>PPT: Renders answer incrementally in Taskpane UI
+    PPT->>User: Displays formatted markdown, citations, and Insert Slide action buttons
+```
+
+---
+
+## 🔒 Key Architectural Principles & Invariants
+
+### 1. The Office.js SSO Domain-Matching Rule
+Microsoft Office Add-in SSO requires that the **`<SourceLocation>`** domain, the **`<WebApplicationInfo><Resource>`**, and the **Entra ID Application ID URI** match identically:
+$$\text{Domain in } \langle\text{SourceLocation}\rangle \equiv \text{Domain in } \langle\text{Resource}\rangle \equiv \text{Entra ID Application ID URI}$$
+
+* **Frontend Hosting URL:** `https://gemini-frontend-16933400417.us-central1.run.app/taskpane.html`
+* **Manifest `<Resource>`:** `api://gemini-frontend-16933400417.us-central1.run.app/b990d644-e47b-4575-97b3-2067c488042b`
+* **Entra ID Application ID URI:** `api://gemini-frontend-16933400417.us-central1.run.app/b990d644-e47b-4575-97b3-2067c488042b`
+
+If the Application ID URI points to a backend or proxy domain (`auth-proxy`), Office detects a domain mismatch and immediately triggers **Office SSO Error 13007: Invalid resource Url specified in the manifest**.
+
+### 2. Pre-Authorized Client Applications in Entra ID
+To enable silent SSO without consent prompts across all Office platforms, the following 3 client IDs must be pre-authorized under **Expose an API**:
+1. `ea5a67f6-b6f3-4338-b240-c655ddc3cc8e` (Microsoft Office on the Web - Word/PPT/Excel Online)
+2. `d3590ed6-52b3-4102-aeff-aad2292ab01c` (Office on the Web Companion / Outlook)
+3. `00000002-0000-0ff1-ce00-000000000000` (Microsoft Office Desktop Client across macOS & Windows)
+
+### 3. Decoupled Token Translation & Least Privilege
+* **No Direct Internet Access to Core Backend:** `askgemini-proxy` is locked down with `--no-allow-unauthenticated`.
+* **Runtime Service Account Identity:** `auth-proxy` runs as `auth-proxy-sa@agentspace-452714.iam.gserviceaccount.com` and only holds:
+  - `roles/logging.logWriter` (Structured Cloud Logging)
+  - `roles/discoveryengine.viewer` (Dynamic `aclConfig` auto-discovery)
+  - `roles/run.invoker` on Cloud Run service `askgemini-proxy` (Private S2S communication)
+
+---
 
 ```mermaid
 graph TB

@@ -6,6 +6,9 @@ package-lock.json
 dist/
 build/
 *.zip
+scratch/
+*/scratch/
+microsoft-addin/manifest-ca.xml
 
 # Environment & Secrets
 .env

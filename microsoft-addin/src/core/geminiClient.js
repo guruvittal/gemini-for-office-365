@@ -4,6 +4,11 @@
  * @author Sathya AG, Principal Architect, Google
  */
 
+import { getOfficeAuthToken, getUserProfile } from './authService.js';
+
+// Default endpoint points directly to the secure auth-proxy gateway
+const DEFAULT_AUTH_PROXY_URL = 'https://auth-proxy-16933400417.us-central1.run.app/askGeminiEnterprise';
+
 export function getActiveProxyUrl() {
   if (typeof window !== 'undefined' && window.localStorage) {
     const override = window.localStorage.getItem('gemini_proxy_url');
@@ -12,13 +17,7 @@ export function getActiveProxyUrl() {
   if (typeof process !== 'undefined' && process.env && process.env.GEMINI_PROXY_URL) {
     return process.env.GEMINI_PROXY_URL;
   }
-  if (typeof window !== 'undefined' && window.location) {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('backend') === 'streamassist') {
-      return 'https://askgemini-proxy-mriilnqopa-uc.a.run.app/askGeminiEnterprise';
-    }
-  }
-  return 'https://askgemini-proxy-mriilnqopa-uc.a.run.app/askGeminiEnterprise';
+  return DEFAULT_AUTH_PROXY_URL;
 }
 
 export function setProxyUrlOverride(url) {
@@ -31,54 +30,46 @@ export function setProxyUrlOverride(url) {
   }
 }
 
-function getOfficeUserId() {
-  try {
-    if (typeof Office !== 'undefined' && Office.context) {
-      if (Office.context.user && Office.context.user.email) {
-        return Office.context.user.email;
-      }
-      if (Office.context.mailbox && Office.context.mailbox.userProfile && Office.context.mailbox.userProfile.emailAddress) {
-        return Office.context.mailbox.userProfile.emailAddress;
-      }
-    }
-  } catch (e) {
-    console.warn('Could not read Office user context:', e);
-  }
-  if (typeof window !== 'undefined' && window.localStorage) {
-    let localUserId = window.localStorage.getItem('gemini_user_pseudo_id');
-    if (!localUserId) {
-      localUserId = 'office_user_' + Math.random().toString(36).substring(2, 10);
-      window.localStorage.setItem('gemini_user_pseudo_id', localUserId);
-    }
-    return localUserId;
-  }
-  return 'office_365_user';
-}
-
 export async function askGeminiEnterprise(prompt, history = [], sessionId = null, enableGrounding = true) {
   const functionUrl = getActiveProxyUrl();
+  const userProfile = getUserProfile();
+
+  // 1. Acquire Microsoft Entra ID SSO token
+  let authToken = null;
+  try {
+    authToken = await getOfficeAuthToken();
+  } catch (authErr) {
+    console.warn('Proceeding without SSO token (server may reject if REQUIRE_ENTRA_AUTH=true):', authErr);
+  }
 
   const payload = { 
     prompt: prompt,
     history: history,
     enableGrounding: enableGrounding,
-    userPseudoId: getOfficeUserId()
+    userPseudoId: userProfile.email || userProfile.user_id || 'office_365_user'
   };
   if (sessionId) {
     payload.sessionId = sessionId;
   }
 
-  console.log(`Sending request to proxy endpoint: ${functionUrl}`);
+  const headers = { 
+    'Content-Type': 'application/json' 
+  };
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+
+  console.log(`Sending authenticated request to proxy endpoint: ${functionUrl}`);
 
   const response = await fetch(functionUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: headers,
     body: JSON.stringify(payload)
   });
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.details || errorData.error || `Server returned status ${response.status}`);
+    throw new Error(errorData.detail || errorData.details || errorData.error || `Server returned status ${response.status}`);
   }
 
   return await response.json();
