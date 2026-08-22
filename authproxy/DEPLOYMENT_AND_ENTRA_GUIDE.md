@@ -321,7 +321,36 @@ To enable seamless Single Sign-On (SSO) and prevent Office from presenting conse
 
 ---
 
-## 6. Phase 4: Verification & Manual Testing
+## 6. Phase 4: Update the Office Add-in Manifest (XML)
+
+Once your Entra ID App Registration is fully configured, you must link the Microsoft Office client to it by modifying your Add-in's XML manifest file (e.g., `manifest-ca.xml`).
+
+1. Open `manifest-ca.xml` in your code editor.
+2. Locate the `<WebApplicationInfo>` section near the bottom of the file.
+3. Update the `<Id>` tag with your Entra ID Application (client) ID.
+4. Update the `<Resource>` tag with the Application ID URI you set in Step 5.1.
+
+**Example Modification:**
+```xml
+    <WebApplicationInfo>
+      <!-- Replace with your Microsoft Entra ID Client ID -->
+      <Id>85fb5428-6249-4131-9eeb-f2436d5d4d8c</Id>
+      
+      <!-- Replace with your Application ID URI (must exactly match Entra ID) -->
+      <Resource>api://gemini-frontend-16933400417.us-central1.run.app/85fb5428-6249-4131-9eeb-f2436d5d4d8c</Resource>
+      
+      <Scopes>
+        <Scope>access_as_user</Scope>
+      </Scopes>
+    </WebApplicationInfo>
+```
+
+> [!NOTE]
+> If the `Id` and `Resource` in the XML do not perfectly match the Microsoft Entra ID configuration, the silent SSO call `Office.auth.getAccessToken()` will fail with error 13003 or 13005.
+
+---
+
+## 7. Phase 5: Verification & Manual Testing
 
 ### Test 1: Verify Cloud Run Health
 ```bash
