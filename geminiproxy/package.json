@@ -10,7 +10,14 @@
     "start": "functions-framework --target=askGemini",
     "start:enterprise": "functions-framework --target=askGeminiEnterprise"
   },
-  "keywords": ["gemini", "vertex-ai", "office365", "powerpoint", "word", "excel"],
+  "keywords": [
+    "gemini",
+    "vertex-ai",
+    "office365",
+    "powerpoint",
+    "word",
+    "excel"
+  ],
   "author": "Sathya AG, Principal Architect, Google",
   "license": "Apache-2.0",
   "description": "Vertex AI Gemini 2.5 Flash & Multimodal Visual Proxy for Microsoft 365 (Word, PowerPoint, Excel)",
@@ -22,6 +29,6 @@
     "@google/genai": "^1.7.0",
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "google-auth-library": "^9.15.0"
+    "google-auth-library": "^9.15.1"
   }
 }

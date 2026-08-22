@@ -144,8 +144,8 @@
     </Hosts>
 
     <WebApplicationInfo>
-      <Id>b990d644-e47b-4575-97b3-2067c488042b</Id>
-      <Resource>api://gemini-frontend-16933400417.us-central1.run.app/b990d644-e47b-4575-97b3-2067c488042b</Resource>
+      <Id>85fb5428-6249-4131-9eeb-f2436d5d4d8c</Id>
+      <Resource>api://gemini-frontend-16933400417.us-central1.run.app/85fb5428-6249-4131-9eeb-f2436d5d4d8c</Resource>
       <Scopes>
         <Scope>access_as_user</Scope>
       </Scopes>

@@ -16,13 +16,13 @@
 - **Health Endpoint:** `https://auth-proxy-16933400417.us-central1.run.app/health`
 - **Interactive Swagger Docs:** `https://auth-proxy-16933400417.us-central1.run.app/docs`
 - **Office 365 Add-in Endpoint:** `https://auth-proxy-16933400417.us-central1.run.app/askGeminiEnterprise`
-- **Dedicated Service Account:** `auth-proxy-sa@agentspace-452714.iam.gserviceaccount.com`
+- **Dedicated Service Account:** `gemini-office365-sa@agentspace-452714.iam.gserviceaccount.com`
 - **Assigned IAM Roles:**
   - `roles/logging.logWriter` on Project `agentspace-452714` (Cloud Logging)
-  - `roles/discoveryengine.viewer` on Project `agentspace-452714` (Auto-discovery of Gemini Enterprise / Discovery Engine IdP aclConfig)
-  - `roles/run.invoker` on Cloud Run Service `askgemini-proxy` (Private S2S invocation)
-- **Entra ID App ID:** `b990d644-e47b-4575-97b3-2067c488042b`
-- **Application ID URI:** `api://gemini-frontend-16933400417.us-central1.run.app/b990d644-e47b-4575-97b3-2067c488042b`
+  - `roles/run.invoker` on Project `agentspace-452714` (Cloud Run invocation)
+  - `roles/discoveryengine.editor` on Project `agentspace-wif` (Cross-project Discovery Engine access & ACL inspection)
+- **Entra ID App ID (WIF Client ID):** `85fb5428-6249-4131-9eeb-f2436d5d4d8c`
+- **Application ID URI:** `api://gemini-frontend-16933400417.us-central1.run.app/85fb5428-6249-4131-9eeb-f2436d5d4d8c`
 - **Authorized Client Applications:**
   - `ea5a67f6-b6f3-4338-b240-c655ddc3cc8e` (Office on the Web)
   - `d3590ed6-52b3-4102-aeff-aad2292ab01c` (Office on the Web)
@@ -36,22 +36,24 @@
 ### 2. Backend Proxy (`geminiproxy`)
 - **Cloud Run Service Name:** `askgemini-proxy`
 - **Base URL:** [https://askgemini-proxy-16933400417.us-central1.run.app](https://askgemini-proxy-16933400417.us-central1.run.app)
-- **Security Posture:** Locked down with `--no-allow-unauthenticated` (Private S2S only; invokable exclusively by `auth-proxy-sa`)
+- **Dedicated Service Account:** `gemini-office365-sa@agentspace-452714.iam.gserviceaccount.com`
+- **Security Posture:** Locked down with `--no-allow-unauthenticated` (Private S2S only; invokable by `gemini-office365-sa`)
 - **Primary StreamAssist Endpoint:** `https://askgemini-proxy-16933400417.us-central1.run.app/askGeminiEnterprise`
+- **Dynamic Grounding:** Automatically queries all datastores attached to the target Engine using the `toolsSpec.vertexAiSearchSpec: {}` payload wildcard workaround.
 - **Direct Vertex AI Endpoint:** `https://askgemini-proxy-16933400417.us-central1.run.app/askGemini`
 - **Health Check:** `https://askgemini-proxy-16933400417.us-central1.run.app/`
 
 #### Environment Variables Configured:
 | Variable | Value | Description |
 | :--- | :--- | :--- |
-| `GCP_PROJECT_ID` | `agentspace-452714` | Target GCP project |
+| `GCP_PROJECT_ID` | `agentspace-wif` | Target GCP project hosting Gemini Enterprise instance |
 | `GCP_REGION` | `us-central1` | Cloud Run execution region |
 | `BACKEND_MODE` | `streamassist` | Enables Gemini Enterprise multi-source grounding |
-| `GEMINI_ENTERPRISE_APP_ID` | `test1-agentspace_1741135345115` | Gemini Enterprise App / Engine ID |
+| `GEMINI_ENTERPRISE_APP_ID` | `instance-demos1_1774616568648` | Gemini Enterprise App / Engine ID in `agentspace-wif` |
 | `GCP_LOCATION` | `global` | Discovery Engine collection location |
 | `ENTERPRISE_COLLECTION_ID` | `default_collection` | Discovery Engine collection |
 | `ENTERPRISE_ASSISTANT_ID` | `default_assistant` | Assistant ID with actions & connectors |
-| `ALLOW_SERVICE_ACCOUNT_FALLBACK` | `true` | Allows fallback to Service Account ADC when user token is absent while emitting structured GCP warning logs |
+| `ALLOW_SERVICE_ACCOUNT_FALLBACK` | `true` | Allows fallback when user token is absent while emitting structured warning logs |
 
 ---
 
@@ -76,6 +78,17 @@
 2. **Workforce Identity Federation Mode (`THIRD_PARTY`)**:
    - Discovered on project `agentspace-wif` (`workforcePoolName: locations/global/workforcePools/ca-entra-id-oidc-pool`).
    - Dynamically exchanges the Microsoft Entra ID JWT with Google STS (`https://sts.googleapis.com/v1/token`) for a federated Google OAuth access token (`ya29.s...`) and passes it in `Authorization: Bearer <token>` to Discovery Engine `streamAssist`.
+   - **Configured WIF Pool Providers**:
+     - `entra-id-oidc-pool-provider`: Client ID `85fb5428-6249-4131-9eeb-f2436d5d4d8c` (General web SSO audience)
+   - **Finding the WIF Client ID**:
+     - You do **not** need to create a new App Registration. Modify the existing WIF App Registration.
+     - Find the ID using the GCP Console: Go to **IAM & Admin** > **Workforce Identity Federation** > Select your pool > Select your provider > Find the **Client ID** under OIDC Settings.
+     - Or using `gcloud`: `gcloud iam workforce-pools providers describe entra-id-oidc-pool-provider --workforce-pool="ca-entra-id-oidc-pool" --location="global" --format="value(oidc.clientId)"`
+   - **Entra ID Manifest Configuration**:
+     - Configure the WIF App Registration to trust the Office Add-in.
+     - Application ID URI must match the `gemini-frontend` domain (e.g., `api://gemini-frontend-16933400417.us-central1.run.app/85fb5428-6249-4131-9eeb-f2436d5d4d8c`).
+     - `"requestedAccessTokenVersion": 2` under `"api"` section in the Entra ID App Registration is required so Microsoft Entra ID emits v2.0 tokens matching Google STS requirements.
+     - Add `email`, `upn`, and `preferred_username` as optional claims to the Access Token so Google WIF can map `google.subject`.
 3. **Service Account Fallback & Licensing Enforcement**:
    - If an end user is unlicensed, Discovery Engine returns `HTTP 403 Permission Denied`.
    - If `ALLOW_SERVICE_ACCOUNT_FALLBACK=true`, `askgemini-proxy` logs a structured warning and uses Service Account credentials when user token is not supplied.
@@ -167,9 +180,9 @@ gcloud run deploy auth-proxy \
   --service-account auth-proxy-sa@agentspace-452714.iam.gserviceaccount.com \
   --allow-unauthenticated \
   --set-env-vars "\
-MICROSOFT_ENTRA_APP_ID=b990d644-e47b-4575-97b3-2067c488042b,\
+MICROSOFT_ENTRA_APP_ID=85fb5428-6249-4131-9eeb-f2436d5d4d8c,\
 DOWNSTREAM_BACKEND_URL=https://askgemini-proxy-16933400417.us-central1.run.app,\
-GCP_PROJECT_ID=agentspace-452714,\
+GCP_PROJECT_ID=agentspace-wif,\
 GCP_LOCATION=global,\
 USER_AUTH_MODE=auto,\
 REQUIRE_ENTRA_AUTH=true,\

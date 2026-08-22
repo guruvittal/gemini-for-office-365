@@ -284,6 +284,40 @@ To enable seamless Single Sign-On (SSO) and prevent Office from presenting conse
 > | **Word (Desktop Mac & Windows)** | ✅ **Yes** | Covered by `00000002-0000-0ff1-ce00-000000000000`. Silent SSO supported. |
 > | **Office on the Web (office.com)** | ✅ **Yes** | Covered by `ea5a67f6-b6f3-4338-b240-c655ddc3cc8e` and `d3590ed6-52b3-4102-aeff-aad2292ab01c`. |
 > | **New Outlook (Windows, Mac, & Web)** | ✅ **Yes** | Modern Outlook client uses unified Office runtime. |
+> 
+> ---
+> 
+> ### Step 5.4: Enforce Token Version 2 in Entra ID Manifest (CRITICAL for Google STS / WIF)
+> By default, Microsoft Entra ID issues v1.0 tokens (`iss: https://sts.windows.net/{tenant_id}/`). When using Google Cloud Workforce Identity Federation (WIF) or Google STS, Google strictly verifies OIDC tokens against the v2.0 endpoint (`iss: https://login.microsoftonline.com/{tenant_id}/v2.0`).
+> 
+> To configure Entra ID to emit v2.0 tokens for the Office Add-in:
+> 
+> 1. In the Entra ID App Registration sidebar, click **Manifest**.
+> 2. Locate the `"api"` section and set `"requestedAccessTokenVersion"` to **`2`**:
+>    ```json
+>    "api": {
+>        "acceptMappedClaims": null,
+>        "knownClientApplications": [],
+>        "requestedAccessTokenVersion": 2,
+>        "oauth2PermissionScopes": [ ... ],
+>        "preAuthorizedApplications": [ ... ]
+>    }
+>    ```
+>    *(Alternatively, in older manifest schemas, locate top-level `"accessTokenAcceptedVersion"` and set to `2`).*
+> 3. Click **Save**.
+> 
+> > [!IMPORTANT]
+> > If `"requestedAccessTokenVersion"` is left as `null` or `1`, Google STS will reject token exchange with HTTP 400: `invalid_grant: The issuer in ID Token https://sts.windows.net/... does not match the expected ones: https://login.microsoftonline.com/.../v2.0`. Setting this property to `2` ensures immediate compatibility with Google STS and Gemini Enterprise licensing.
+>
+> ---
+>
+> ### Step 5.5: Add Optional Claims to the Access Token (Required for Identity Mapping)
+> The Google Cloud WIF Pool is configured to extract the user's identity from the `email` claim in the Microsoft token to map to `google.subject`. Microsoft Entra ID does not include this claim in access tokens by default.
+> 1. Navigate to **Token configuration** in the left menu.
+> 2. Click **Add optional claim**.
+> 3. Select **Access** as the token type.
+> 4. Check the boxes for **email**, **upn**, and **preferred_username**.
+> 5. Click **Add**. (If prompted to turn on Microsoft Graph email permissions, accept).
 
 ---
 

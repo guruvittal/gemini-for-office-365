@@ -556,12 +556,18 @@ async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, us
     }
   }
 
-  const endpointUrl = `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1/projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/engines/${ENTERPRISE_APP_ID}/assistants/${ENTERPRISE_ASSISTANT_ID}:streamAssist`;
+  const endpointUrl = `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1alpha/projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/engines/${ENTERPRISE_APP_ID}/assistants/${ENTERPRISE_ASSISTANT_ID}:streamAssist`;
+  // Upgraded to v1alpha for full toolsSpec/grounding support
 
   const requestBody = {
     query: {
       text: prompt
     }
+  };
+
+  // Use empty vertexAiSearchSpec to dynamically use all engine-attached datastores
+  requestBody.toolsSpec = {
+    vertexAiSearchSpec: {}
   };
 
   if (sessionId) {
@@ -704,29 +710,18 @@ async function handleGeminiEnterpriseRequest(req, res) {
           });
         } catch (streamAssistErr) {
           console.error('StreamAssist execution failed:', streamAssistErr.message);
-          // If auth or licensing failed (403), return error directly to caller
-          if (streamAssistErr.statusCode === 403) {
-            return res.status(403).json({
-              error: 'Gemini Enterprise License / Access Denied',
-              details: streamAssistErr.message,
-              statusCode: 403
-            });
-          }
-          // If fallback to direct Vertex AI is desired only on non-auth backend failures:
-          if (ALLOW_SERVICE_ACCOUNT_FALLBACK) {
-            console.warn('Falling back to direct Vertex AI model due to backend error...');
-          } else {
-            return res.status(streamAssistErr.statusCode || 500).json({
-              error: 'Gemini Enterprise StreamAssist failed',
-              details: streamAssistErr.message,
-              statusCode: streamAssistErr.statusCode || 500
-            });
-          }
+          return res.status(streamAssistErr.statusCode || 500).json({
+            error: 'Gemini Enterprise StreamAssist failed',
+            details: streamAssistErr.message,
+            statusCode: streamAssistErr.statusCode || 500
+          });
         }
       }
 
-      // Fallback to direct Vertex AI
-      return handleGeminiRequest(req, res);
+      return res.status(400).json({
+        error: 'Invalid Configuration',
+        details: 'BACKEND_MODE must be streamassist and GEMINI_ENTERPRISE_APP_ID must be configured.'
+      });
     } catch (error) {
       console.error('Error in Gemini Enterprise handler:', error);
       return res.status(500).json({

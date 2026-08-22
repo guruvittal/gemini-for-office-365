@@ -217,66 +217,82 @@ def exchange_entra_jwt_for_wif_token(
     if not entra_jwt:
         return None
 
-    # Construct STS Audience URI
+    clean_pool = workforce_pool_name.lstrip("/")
+    
+    # Candidate providers to attempt
     if WIF_AUDIENCE:
-        audience = WIF_AUDIENCE
+        candidate_audiences = [WIF_AUDIENCE]
+    elif provider_name:
+        candidate_audiences = [f"//iam.googleapis.com/{clean_pool}/providers/{provider_name}"]
     else:
-        clean_pool = workforce_pool_name.lstrip("/")
-        provider = provider_name or WIF_PROVIDER_NAME
-        audience = f"//iam.googleapis.com/{clean_pool}/providers/{provider}"
+        # Try default pool provider
+        candidate_providers = [
+            WIF_PROVIDER_NAME,
+            "entra-id-oidc-pool-provider"
+        ]
+        # Deduplicate while preserving order
+        seen = set()
+        deduped_providers = []
+        for p in candidate_providers:
+            if p and p not in seen:
+                seen.add(p)
+                deduped_providers.append(p)
+        candidate_audiences = [f"//iam.googleapis.com/{clean_pool}/providers/{p}" for p in deduped_providers]
 
     sts_url = "https://sts.googleapis.com/v1/token"
-    sts_payload = {
-        "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
-        "audience": audience,
-        "scope": "https://www.googleapis.com/auth/cloud-platform",
-        "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
-        "subject_token": entra_jwt,
-        "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
-    }
-
     start_t = time.time()
-    try:
-        res = requests.post(
-            sts_url,
-            data=sts_payload,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=8
-        )
-        latency_ms = round((time.time() - start_t) * 1000, 2)
 
-        if res.status_code == 200:
-            token_data = res.json()
-            access_token = token_data.get("access_token")
-            logger.info(
-                f"Successfully exchanged Entra ID token for Google WIF access token ({latency_ms}ms)",
-                extra={
-                    "sts_status": 200,
-                    "sts_audience": audience,
-                    "token_type": token_data.get("token_type"),
-                    "expires_in": token_data.get("expires_in"),
-                    "latency_ms": latency_ms
-                }
+    for audience in candidate_audiences:
+        sts_payload = {
+            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+            "audience": audience,
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
+            "subject_token": entra_jwt,
+            "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
+        }
+
+        try:
+            res = requests.post(
+                sts_url,
+                data=sts_payload,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=8
             )
-            return access_token
-        else:
+            latency_ms = round((time.time() - start_t) * 1000, 2)
+
+            if res.status_code == 200:
+                token_data = res.json()
+                access_token = token_data.get("access_token")
+                logger.info(
+                    f"Successfully exchanged Entra ID token for Google WIF access token ({latency_ms}ms) via {audience}",
+                    extra={
+                        "sts_status": 200,
+                        "sts_audience": audience,
+                        "token_type": token_data.get("token_type"),
+                        "expires_in": token_data.get("expires_in"),
+                        "latency_ms": latency_ms
+                    }
+                )
+                return access_token
+            else:
+                logger.warning(
+                    f"Google STS token exchange failed for audience '{audience}' (HTTP {res.status_code}): {res.text}",
+                    extra={
+                        "sts_status": res.status_code,
+                        "sts_audience": audience,
+                        "sts_error": res.text[:500],
+                        "latency_ms": latency_ms
+                    }
+                )
+        except Exception as e:
             logger.error(
-                f"Google STS token exchange failed (HTTP {res.status_code}): {res.text}",
-                extra={
-                    "sts_status": res.status_code,
-                    "sts_audience": audience,
-                    "sts_error": res.text[:500],
-                    "latency_ms": latency_ms
-                }
+                f"Exception during Google STS token exchange for audience '{audience}': {e}",
+                extra={"error": str(e), "sts_audience": audience},
+                exc_info=True
             )
-            return None
-    except Exception as e:
-        logger.error(
-            f"Exception during Google STS token exchange: {e}",
-            extra={"error": str(e), "sts_audience": audience},
-            exc_info=True
-        )
-        return None
+
+    return None
 
 
 def resolve_end_user_google_token(
@@ -488,7 +504,7 @@ async def verify_entra_token(
             }
         )
 
-        # Audience validation: Check if aud matches client GUID or ends with /{ENTRA_APP_ID}
+        # Audience validation: Check if aud matches client GUID or ends with any configured app ID
         aud = payload.get("aud")
         if not aud:
             logger.error(
@@ -497,29 +513,36 @@ async def verify_entra_token(
             )
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token is missing audience claim.")
 
-        app_id_clean = ENTRA_APP_ID.strip()
-        aud_valid = (
-            aud == app_id_clean or 
-            (isinstance(aud, str) and (
-                aud.endswith(f"/{app_id_clean}") or 
-                aud.endswith(f":{app_id_clean}") or 
-                aud == f"api://{app_id_clean}"
-            ))
-        )
+        allowed_app_ids = [aid.strip() for aid in ENTRA_APP_ID.split(",") if aid.strip()]
+        if not allowed_app_ids:
+            allowed_app_ids = ["b990d644-e47b-4575-97b3-2067c488042b", "85fb5428-6249-4131-9eeb-f2436d5d4d8c"]
+
+        aud_valid = False
+        for app_id in allowed_app_ids:
+            if (
+                aud == app_id or 
+                (isinstance(aud, str) and (
+                    aud.endswith(f"/{app_id}") or 
+                    aud.endswith(f":{app_id}") or 
+                    aud == f"api://{app_id}"
+                ))
+            ):
+                aud_valid = True
+                break
 
         if not aud_valid:
             logger.error(
-                f"Token audience mismatch. Expected client ID or URI containing '{app_id_clean}', received '{aud}'",
+                f"Token audience mismatch. Expected client ID or URI matching one of {allowed_app_ids}, received '{aud}'",
                 extra={
                     "error_code": "AUDIENCE_MISMATCH",
-                    "expected_app_id": app_id_clean,
+                    "expected_app_ids": allowed_app_ids,
                     "received_aud": aud,
                     "token_kid": token_kid
                 }
             )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Token audience mismatch. Expected client ID or URI matching '{app_id_clean}'."
+                detail=f"Token audience mismatch. Expected client ID or URI matching one of {allowed_app_ids}."
             )
 
         user = extract_user_from_payload(payload, raw_token=token)

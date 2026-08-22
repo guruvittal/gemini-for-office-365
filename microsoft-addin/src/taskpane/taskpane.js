@@ -102,8 +102,8 @@ Office.onReady((info) => {
       console.warn("Explicit sign-in attempt did not yield token:", lastErr);
       if (lastErr.code === 13007) {
         alert("Office SSO Error 13007: Application ID URI mismatch or client app not authorized in Entra ID.\n\n" +
-              "1. In Entra ID App 'b990d644-e47b-4575-97b3-2067c488042b' -> Expose an API:\n" +
-              "   Set App ID URI: api://gemini-frontend-16933400417.us-central1.run.app/b990d644-e47b-4575-97b3-2067c488042b\n" +
+              "1. In Entra ID App '85fb5428-6249-4131-9eeb-f2436d5d4d8c' -> Expose an API:\n" +
+              "   Set App ID URI: api://gemini-frontend-16933400417.us-central1.run.app/85fb5428-6249-4131-9eeb-f2436d5d4d8c\n" +
               "   Authorized Client IDs:\n" +
               "   - 00000002-0000-0ff1-ce00-000000000000 (Office Desktop)\n" +
               "   - ea5a67f6-b6f3-4338-b240-c655ddc3cc8e (Office Web)\n" +
