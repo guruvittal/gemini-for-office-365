@@ -83,12 +83,8 @@ gcloud run deploy gemini-frontend \
   --source dist \
   --region us-central1 \
   --port 80 \
-  --no-allow-unauthenticated \
-  --project YOUR_GCP_PROJECT_ID
-
-gcloud run services update gemini-frontend \
-  --region us-central1 \
-  --no-invoker-iam-check \
+  --allow-unauthenticated \
+  --service-account gemini-office365-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com \
   --project YOUR_GCP_PROJECT_ID
 ```
 

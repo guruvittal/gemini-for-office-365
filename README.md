@@ -135,6 +135,7 @@ gcloud run deploy askgemini-proxy \
   --source . \
   --project YOUR_GCP_PROJECT_ID \
   --region us-central1 \
+  --service-account gemini-office365-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com \
   --no-allow-unauthenticated \
   --set-env-vars "\
 GCP_PROJECT_ID=YOUR_GCP_PROJECT_ID,\
@@ -175,6 +176,7 @@ gcloud run deploy gemini-frontend \
   --source . \
   --region us-central1 \
   --project YOUR_GCP_PROJECT_ID \
+  --service-account gemini-office365-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com \
   --allow-unauthenticated
 ```
 

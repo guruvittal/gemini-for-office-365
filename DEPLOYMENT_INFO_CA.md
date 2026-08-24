@@ -177,6 +177,7 @@ gcloud run deploy askgemini-proxy \
   --source . \
   --project agentspace-452714 \
   --region us-central1 \
+  --service-account gemini-office365-sa@agentspace-452714.iam.gserviceaccount.com \
   --no-allow-unauthenticated \
   --set-env-vars "\
 GCP_PROJECT_ID=agentspace-452714,\
@@ -214,6 +215,7 @@ gcloud run deploy gemini-frontend \
   --source . \
   --region us-central1 \
   --project agentspace-452714 \
+  --service-account gemini-office365-sa@agentspace-452714.iam.gserviceaccount.com \
   --allow-unauthenticated \
   --set-env-vars GEMINI_PROXY_URL=https://auth-proxy-16933400417.us-central1.run.app/askGeminiEnterprise
 ```
