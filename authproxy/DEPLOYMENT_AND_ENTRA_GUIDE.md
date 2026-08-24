@@ -194,15 +194,15 @@ ALLOW_SERVICE_ACCOUNT_FALLBACK=true"
 
 #### `askgemini-proxy` Environment Variable Reference
 
-| Parameter | Type | Default | Description |
-| :--- | :---: | :---: | :--- |
-| `GCP_PROJECT_ID` | String | *Required* | Google Cloud Project ID hosting Discovery Engine & Vertex AI. |
-| `GEMINI_ENTERPRISE_APP_ID` | String | *Required* | Gemini Enterprise Search / Assist Engine ID. |
-| `BACKEND_MODE` | String | `streamassist` | Execution mode (`streamassist` for Discovery Engine, `vertex` for direct Vertex AI). |
-| `GCP_LOCATION` | String | `global` | Discovery Engine collection/engine location. |
-| `ENTERPRISE_COLLECTION_ID` | String | `default_collection` | Discovery Engine collection name. |
-| `ENTERPRISE_ASSISTANT_ID` | String | `default_assistant` | Discovery Engine assistant resource ID. |
-| `ALLOW_SERVICE_ACCOUNT_FALLBACK` | Boolean | `false` | When `true`, falls back to Service Account ADC if user token is absent, logging a prominent GCP `WARNING`. When `false`, strictly enforces end-user tokens (HTTP 403 on missing token). |
+| Parameter | Type | Required / Optional | Default | Description |
+| :--- | :---: | :---: | :---: | :--- |
+| `GCP_PROJECT_ID` | String | **Required** | *None* | Google Cloud Project ID hosting Discovery Engine & Vertex AI. |
+| `GEMINI_ENTERPRISE_APP_ID` | String | **Required** | *None* | Gemini Enterprise Search / Assist Engine ID. |
+| `BACKEND_MODE` | String | Optional | `streamassist` | Execution mode (`streamassist` for Discovery Engine, `vertex` for direct Vertex AI). |
+| `GCP_LOCATION` | String | Optional | `global` | Discovery Engine collection/engine location. |
+| `ENTERPRISE_COLLECTION_ID` | String | Optional | `default_collection` | Discovery Engine collection name. |
+| `ENTERPRISE_ASSISTANT_ID` | String | Optional | `default_assistant` | Discovery Engine assistant resource ID. |
+| `ALLOW_SERVICE_ACCOUNT_FALLBACK` | Boolean | Optional | `false` | When `true`, falls back to Service Account ADC if user token is absent, logging a prominent GCP `WARNING`. When `false`, strictly enforces end-user tokens (HTTP 403 on missing token). |
 
 ---
 
@@ -230,17 +230,17 @@ VERBOSE_LOGGING=true"
 
 #### `auth-proxy` Environment Variable Reference
 
-| Parameter | Type | Default | Description |
-| :--- | :---: | :---: | :--- |
-| `MICROSOFT_ENTRA_APP_ID` | String | *Required* | Entra ID (Azure AD) Application / Client ID. |
-| `DOWNSTREAM_BACKEND_URL` | URL | `""` | HTTPS URL of the private `askgemini-proxy` Cloud Run service from Step 4.2. |
-| `GCP_PROJECT_ID` | String | *Required* | Target GCP project containing the Gemini Enterprise engine. |
-| `GCP_LOCATION` | String | `global` | Location of Discovery Engine resources (`global`, `us`, `eu`). |
-| `USER_AUTH_MODE` | String | `auto` | Token pass-through strategy: `auto` (inspects `aclConfig`), `cloud_identity`, `wif`, or `none`. |
-| `WIF_AUDIENCE` | String | `""` | Explicit STS audience override (auto-discovered from `aclConfig` if left blank). |
-| `WIF_PROVIDER_NAME` | String | `entra-id-oidc-pool-provider` | Workforce Identity Federation provider ID inside the workforce pool. |
-| `REQUIRE_ENTRA_AUTH` | Boolean | `true` | When `true`, rejects unauthenticated requests with HTTP 401. Set `false` only for local dev. |
-| `VERBOSE_LOGGING` | Boolean | `false` | When `true`, emits deep diagnostic JSON payload logs to Cloud Logging. |
+| Parameter | Type | Required / Optional | Default | Description |
+| :--- | :---: | :---: | :---: | :--- |
+| `MICROSOFT_ENTRA_APP_ID` | String | **Required** | *None* | Entra ID (Azure AD) Application / Client ID. |
+| `DOWNSTREAM_BACKEND_URL` | URL | **Required** | `""` | HTTPS URL of the private `askgemini-proxy` Cloud Run service from Step 4.2. |
+| `GCP_PROJECT_ID` | String | **Required** | *None* | Target GCP project containing the Gemini Enterprise engine. |
+| `GCP_LOCATION` | String | Optional | `global` | Location of Discovery Engine resources (`global`, `us`, `eu`). |
+| `USER_AUTH_MODE` | String | Optional | `auto` | Token pass-through strategy: `auto` (auto-detects `GSUITE` vs `THIRD_PARTY` from `aclConfig`), `cloud_identity`, `wif`, or `none`. |
+| `WIF_AUDIENCE` | String | Optional *(WIF only)* | `""` | Explicit STS audience override URL. Leave empty for Cloud Identity. In WIF mode, auto-discovered from `aclConfig` if left blank. |
+| `WIF_PROVIDER_NAME` | String | Optional *(WIF only)* | `entra-id-oidc-pool-provider` | Workforce Identity Federation provider ID inside the workforce pool. Not used for Cloud Identity. |
+| `REQUIRE_ENTRA_AUTH` | Boolean | Optional | `true` | When `true`, rejects unauthenticated requests with HTTP 401. Set `false` only for local dev. |
+| `VERBOSE_LOGGING` | Boolean | Optional | `false` | When `true`, emits deep diagnostic JSON payload logs to Cloud Logging. |
 
 ---
 
@@ -574,14 +574,20 @@ FastAPI provides built-in interactive OpenAPI Swagger documentation for all rout
 
 ## 8. Configuration Reference
 
-| Variable | Required | Default | Description |
-| :--- | :---: | :---: | :--- |
-| `MICROSOFT_ENTRA_APP_ID` | **Yes** | *None* | Entra ID Client ID (GUID) |
-| `REQUIRE_ENTRA_AUTH` | No | `false` | When `true`, strictly validates JWT on all requests |
-| `VERBOSE_LOGGING` | No | `false` | When `true`, logs detailed request contexts, latency, and full decoded user claims payloads |
-| `ENTRA_JWKS_URL` | No | `https://login.microsoftonline.com/common/discovery/v2.0/keys` | Microsoft Public Key Endpoint |
-| `PORT` | No | `8080` | Port for Cloud Run / HTTP server |
-| `LOG_LEVEL` | No | `INFO` *(or `DEBUG` if `VERBOSE_LOGGING=true`)* | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| Variable | Type | Required / Optional | Default | Description |
+| :--- | :---: | :---: | :---: | :--- |
+| `MICROSOFT_ENTRA_APP_ID` | String | **Required** | *None* | Entra ID (Azure AD) Client Application GUID. |
+| `DOWNSTREAM_BACKEND_URL` | URL | **Required** | `""` | HTTPS endpoint of the downstream `askgemini-proxy` Cloud Run service. |
+| `GCP_PROJECT_ID` | String | **Required** | *None* | Target GCP project containing the Discovery Engine instance. |
+| `GCP_LOCATION` | String | Optional | `global` | Discovery Engine collection/engine location (`global`, `us`, `eu`). |
+| `USER_AUTH_MODE` | String | Optional | `auto` | Identity strategy: `auto` (detects `GSUITE` vs `THIRD_PARTY`), `cloud_identity`, `wif`, or `none`. |
+| `WIF_AUDIENCE` | String | Optional *(WIF only)* | `""` | Explicit STS audience override URL. Leave blank in WIF mode to auto-discover via `aclConfig`. Not used for Cloud Identity. |
+| `WIF_PROVIDER_NAME` | String | Optional *(WIF only)* | `entra-id-oidc-pool-provider` | Workforce pool provider ID name. Not used for Cloud Identity. |
+| `REQUIRE_ENTRA_AUTH` | Boolean | Optional | `true` | When `true`, strictly enforces Entra ID JWT validation (returns 401 on missing/invalid token). |
+| `VERBOSE_LOGGING` | Boolean | Optional | `false` | When `true`, logs detailed request contexts, latency, and full decoded user claims payloads. |
+| `ENTRA_JWKS_URL` | URL | Optional | `https://login.microsoftonline.com/common/discovery/v2.0/keys` | Microsoft Public Key Endpoint for JWKS verification. |
+| `PORT` | Integer | Optional | `8080` | Port for Cloud Run / HTTP server. |
+| `LOG_LEVEL` | String | Optional | `INFO` *(or `DEBUG` if `VERBOSE_LOGGING=true`)* | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 
 ---
 
