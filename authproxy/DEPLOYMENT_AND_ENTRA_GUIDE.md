@@ -58,20 +58,33 @@ Step 4: Verify & Test with cURL / Health probes
 
 ---
 
-## 3. Phase 1: Microsoft Entra ID - Initial App Registration
+## 3. Phase 1: Microsoft Entra ID App Registration Strategy
 
-### Step 3.1: Register New Application
-1. Navigate to the **[Microsoft Entra Admin Center](https://entra.microsoft.com/)** (or Azure Portal -> **Microsoft Entra ID** -> **App registrations**).
+Depending on how your organization synchronizes or federates identity with Google Cloud, your Entra ID App Registration strategy for this Office Add-in will differ.
+
+### Path A: Google Cloud Identity / Google Workspace (Domain-Wide Delegation)
+If your organization synchronizes Microsoft Entra ID users into Google Cloud Identity or Google Workspace (e.g., via Google Cloud Directory Sync), **you must create a new, dedicated App Registration** for the Office Add-in.
+
+1. Navigate to the **[Microsoft Entra Admin Center](https://entra.microsoft.com/)** -> **App registrations**.
 2. Click **+ New registration**:
    - **Name**: `GE Office 365 Assistant Add-On`
-   - **Supported account types**: 
-     - Select **`Multiple Entra ID tenants`** from the dropdown.
-     - Select the radio button **`Allow all tenants`** *(ensures users across any organizational tenant can access the service without manual per-tenant whitelisting)*.
-   - **Redirect URI**: Select **Single-page application (SPA)** and leave the URL blank for now.
+   - **Supported account types**: Select **`Multiple Entra ID tenants`** and choose **`Allow all tenants`**.
+   - **Redirect URI**: Select **Single-page application (SPA)** and leave the URL blank.
 3. Click **Register**.
-4. **Capture Credentials**: From the Overview page, copy the **Application (client) ID** (e.g., `dc1eb951-0ad7-4147-9af6-5d7c7f853447`). You will use this as `YOUR_MICROSOFT_ENTRA_CLIENT_ID`.
+4. **Capture Credentials**: Copy the **Application (client) ID**. You will use this as `YOUR_MICROSOFT_ENTRA_CLIENT_ID`.
+5. *Continue to Step 3.2 below.*
 
-### Step 3.2: Configure Basic API Permissions
+### Path B: Google Cloud Workforce Identity Federation (WIF)
+If your organization uses Google Cloud WIF to federate identities without syncing them to Cloud Identity, **you DO NOT need to create a new App Registration.** Instead, you will modify the existing App Registration that is already tied to your Google WIF Pool.
+
+1. Navigate to the **[Microsoft Entra Admin Center](https://entra.microsoft.com/)** -> **App registrations**.
+2. Locate and open the App Registration currently used by your Google WIF configuration.
+3. **Capture Credentials**: Copy the **Application (client) ID**. You will use this as `YOUR_MICROSOFT_ENTRA_CLIENT_ID`.
+4. *Continue to Step 3.2 below.*
+
+---
+
+### Step 3.2: Configure Basic API Permissions (For Both Paths)
 1. Under the app's sidebar, click **API permissions**.
 2. Click **+ Add a permission** -> **Microsoft Graph** -> **Delegated permissions**.
 3. Ensure the following basic delegated permissions are added:
