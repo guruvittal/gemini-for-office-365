@@ -16,8 +16,8 @@
 4. [Deep Dive: Auth-Proxy Microservice (`authproxy/`)](#4-deep-dive-auth-proxy-microservice-authproxy)
 5. [Service Account & IAM Security Posture](#5-service-account--iam-security-posture)
 6. [Comprehensive Code Changes & File Inventory](#6-comprehensive-code-changes--file-inventory)
-7. [Implementation Blueprint: Milestone 2 (Frontend SSO Integration)](#7-implementation-blueprint-milestone-2-frontend-sso-integration)
-8. [Implementation Blueprint: Milestone 3 (Sideloading & Enterprise Rollout)](#8-implementation-blueprint-milestone-3-sideloading--enterprise-rollout)
+7. [Frontend SSO Integration Architecture (`microsoft-addin/`)](#7-frontend-sso-integration-architecture-microsoft-addin)
+8. [Manifest Architecture, Sideloading & Enterprise Rollout](#8-manifest-architecture-sideloading--enterprise-rollout)
 9. [Developer Runbook, Logging & Troubleshooting](#9-developer-runbook-logging--troubleshooting)
 
 ---
@@ -376,31 +376,31 @@ retail-gemini-for-office-365/
 
 ---
 
-## 7. Implementation Blueprint: Milestone 2 (Frontend SSO Integration)
+## 7. Frontend SSO Integration Architecture (`microsoft-addin/`)
 
-When advancing to **Milestone 2**, the frontend add-in (`microsoft-addin/`) will be updated to acquire Microsoft Entra ID SSO tokens directly within Microsoft Office using `Office.auth.getAccessToken()`.
+The frontend Office 365 add-in (`microsoft-addin/`) integrates directly with Microsoft Office's native Single Sign-On (SSO) engine using `Office.auth.getAccessToken()`. It acquires an Entra ID access token for the signed-in corporate user, attaches it as a Bearer token in the `Authorization` header, and sends queries to the `auth-proxy` gateway.
 
-### 7.1 Files to Modify in Milestone 2
+### 7.1 Frontend Architecture & Key Components
 
 ```
 microsoft-addin/
 ├── src/
 │   ├── core/
-│   │   ├── authService.js         # [CREATE] Helper to call Office.auth.getAccessToken() with retry & fallback
-│   │   └── geminiClient.js        # [MODIFY] Point endpoint to auth-proxy and attach Bearer token
+│   │   ├── authService.js         # Silent Office.auth.getAccessToken() helper, token cache & JWT parser
+│   │   └── geminiClient.js        # Dispatches queries to auth-proxy with Authorization: Bearer <token>
 │   ├── taskpane/
-│   │   ├── taskpane.js            # [MODIFY] Display signed-in user name & handle login status
-│   │   └── taskpane.html          # [MODIFY] Add user profile indicator / status badge
+│   │   ├── taskpane.js            # Orchestrates user interactions, host app context, and streaming response UI
+│   │   └── taskpane.html          # Office Fluent UI taskpane interface and authenticated user badge
 │   └── adapters/
-│       └── HostAdapterFactory.js  # [MODIFY] Ensure user context is propagated across Word/PPT/Excel
-└── webpack.config.js              # [VERIFY] Ensure environment variables (AUTH_PROXY_URL) are injected
+│       └── HostAdapterFactory.js  # Dispatches document operations to WordAdapter, PPTAdapter, or ExcelAdapter
+└── webpack.config.js              # Injects backend endpoint (AUTH_PROXY_URL) and builds production bundle
 ```
 
 ---
 
-### 7.2 Code Implementation Reference for Milestone 2
+### 7.2 Frontend Code Implementation Reference
 
-#### Step A: Create `microsoft-addin/src/core/authService.js`
+#### Component A: Token Acquisition & Caching (`microsoft-addin/src/core/authService.js`)
 ```javascript
 /**
  * Authentication Service for Microsoft Office Add-in SSO
@@ -513,9 +513,9 @@ export async function askGeminiEnterprise(prompt, history = [], sessionId = null
 
 ---
 
-## 8. Implementation Blueprint: Milestone 3 (Sideloading & Enterprise Rollout)
+## 8. Manifest Architecture, Sideloading & Enterprise Rollout
 
-When advancing to **Milestone 3**, the focus shifts to testing, manifest distribution, and tenant-wide deployment.
+The deployment lifecycle comprises manifest configuration, testing via sideloading across Office hosts, and tenant-wide distribution.
 
 ### 8.1 Manifest Configuration Check
 Ensure [`manifest-ca.xml`](manifest-ca.xml) has the correct `<WebApplicationInfo>` block configured at the bottom:
