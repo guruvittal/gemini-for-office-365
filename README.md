@@ -45,8 +45,8 @@ graph TB
         FrontendRun["Cloud Run: gemini-frontend<br/>(Nginx Container / Port 80)"]
         ProxyFunction["Cloud Function Gen 2: askGemini<br/>(Node.js 20 Microservice)"]
         
-        TaskpaneUI -->|1. Loads Static Assets & JS Bundle| FrontendRun
-        TaskpaneUI -->|2. HTTPS POST /askGemini JSON| ProxyFunction
+        TaskpaneUI -->|"1. Loads Static Assets & JS Bundle"| FrontendRun
+        TaskpaneUI -->|"2. HTTPS POST /askGemini JSON"| ProxyFunction
     end
 
     subgraph VertexAIEngine ["Google Cloud Vertex AI Enterprise Backend"]
@@ -54,9 +54,9 @@ graph TB
         FlashModel["Gemini 2.5 Flash<br/>(Grounded Generative Text Model)"]
         ImageModel["Gemini 2.5 Flash Image<br/>(Nano Banana Visual Chart Generator)"]
         
-        ProxyFunction -->|A. Grounded RAG Query| FlashModel
-        FlashModel <-->|B. Semantic Retrieval & Citations| SearchDS
-        ProxyFunction -->|C. Balanced Regex Extractor| ImageModel
+        ProxyFunction -->|"A. Grounded RAG Query"| FlashModel
+        FlashModel ---|"B. Semantic Retrieval & Citations"| SearchDS
+        ProxyFunction -->|"C. Balanced Regex Extractor"| ImageModel
     end
 
     subgraph OutputPipeline ["Client Rendering & Document Injection"]

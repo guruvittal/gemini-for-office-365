@@ -58,21 +58,21 @@ graph TB
             BackendProxy["askgemini-proxy (Cloud Run)<br/>Node.js 20 Express Microservice<br/>(--no-allow-unauthenticated)"]
         end
         
-        TaskpaneUI -->|Loads Static Assets| FrontendRun
-        TaskpaneUI -->|3. POST /askGeminiEnterprise + Entra Bearer JWT| AuthProxy
-        AuthProxy <-->|4. Discovers IdP Type (GSUITE vs THIRD_PARTY)| IdpDiscovery
-        AuthProxy -->|5. Forward Request + Google S2S IAM Token + User Claims| BackendProxy
+        TaskpaneUI -->|"Loads Static Assets"| FrontendRun
+        TaskpaneUI -->|"3. POST /askGeminiEnterprise + Entra Bearer JWT"| AuthProxy
+        AuthProxy ---|"4. Discovers IdP Type (GSUITE vs THIRD_PARTY)"| IdpDiscovery
+        AuthProxy -->|"5. Forward Request + Google S2S IAM Token + User Claims"| BackendProxy
     end
 
     subgraph GeminiEnterpriseTier ["4. Google Cloud Discovery Engine / Gemini Enterprise"]
         StreamAssist["Discovery Engine API<br/>POST /v1/.../engines/test1-agentspace/servingConfigs/default_search:streamAssist"]
         EnterpriseCorpus["Enterprise Grounding Corpus<br/>(Google Drive, GCS, Spanner, BigQuery)"]
         
-        BackendProxy -->|6. StreamAssist Request with User Context| StreamAssist
-        StreamAssist <-->|7. Semantic Grounding & Chunk Retrieval| EnterpriseCorpus
-        StreamAssist -->>|8. Server-Sent Events (SSE) Stream| BackendProxy
-        BackendProxy -->>|9. SSE Chunks| AuthProxy
-        AuthProxy -->>|10. Stream to Client| TaskpaneUI
+        BackendProxy -->|"6. StreamAssist Request with User Context"| StreamAssist
+        StreamAssist ---|"7. Semantic Grounding & Chunk Retrieval"| EnterpriseCorpus
+        StreamAssist -->>|"8. Server-Sent Events (SSE) Stream"| BackendProxy
+        BackendProxy -->>|"9. SSE Chunks"| AuthProxy
+        AuthProxy -->>|"10. Stream to Client"| TaskpaneUI
     end
 
     style OfficeClientTier fill:#e8f0fe,stroke:#1a73e8,stroke-width:2px;
@@ -200,9 +200,9 @@ graph TB
         FlashModel["Gemini 2.5 Flash<br/>(Grounded Generative Text Model)"]
         ImageModel["Gemini 2.5 Flash Image<br/>(Nano Banana Visual Chart Generator)"]
         
-        ProxyFunction -->|A. Grounded RAG Query| FlashModel
-        FlashModel <-->|B. Semantic Retrieval & Citations| SearchDS
-        ProxyFunction -->|C. Balanced Regex Extractor| ImageModel
+        ProxyFunction -->|"A. Grounded RAG Query"| FlashModel
+        FlashModel ---|"B. Semantic Retrieval & Citations"| SearchDS
+        ProxyFunction -->|"C. Balanced Regex Extractor"| ImageModel
     end
 
     subgraph OutputPipeline ["Client Rendering & Document Injection"]

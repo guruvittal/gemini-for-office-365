@@ -76,17 +76,17 @@ graph TB
         AuthProxy["Cloud Run: auth-proxy<br/>(Python 3.11 / FastAPI)<br/><b>SA: gemini-office365-sa</b>"]
         EntraID["Microsoft Entra ID<br/>(login.microsoftonline.com)"]
         
-        TaskpaneUI -->|1. Acquire SSO Token| EntraID
-        TaskpaneUI -->|2. HTTPS POST /askGeminiEnterprise<br/>Authorization: Bearer <Entra_JWT>| AuthProxy
-        AuthProxy <-->|3. Fetch Signing Keys (JWKS)| EntraID
+        TaskpaneUI -->|"1. Acquire SSO Token"| EntraID
+        TaskpaneUI -->|"2. HTTPS POST /askGeminiEnterprise<br/>Authorization: Bearer [Entra_JWT]"| AuthProxy
+        AuthProxy ---|"3. Fetch Signing Keys (JWKS)"| EntraID
     end
 
     subgraph BackendTier ["Google Cloud Platform: Private Backend Tier (No Public Access)"]
         GeminiProxy["Cloud Run: askgemini-proxy<br/>(Node.js 20 / Express)<br/><b>--no-allow-unauthenticated</b>"]
         MetadataServer["Cloud Run Metadata Server<br/>(http://metadata.google.internal)"]
         
-        AuthProxy -->|4. Request S2S ID Token| MetadataServer
-        AuthProxy -->|5. Forward with Google IAM Bearer<br/>+ X-End-User-* Headers| GeminiProxy
+        AuthProxy -->|"4. Request S2S ID Token"| MetadataServer
+        AuthProxy -->|"5. Forward with Google IAM Bearer<br/>+ X-End-User-* Headers"| GeminiProxy
     end
 
     subgraph AIEngineTier ["Google Cloud AI & Enterprise Knowledge Tier"]
@@ -94,15 +94,15 @@ graph TB
         VertexAI["Vertex AI API<br/>(Gemini 2.5 Flash / Flash Image)"]
         GCSDocStore["Enterprise Datastore<br/>(10-K/10-Q & Internal Docs)"]
         
-        GeminiProxy -->|6. Grounded Query (Attributed User)| StreamAssist
-        StreamAssist <-->|7. Semantic Search| GCSDocStore
-        GeminiProxy -->|8. Generative Synthesis| VertexAI
+        GeminiProxy -->|"6. Grounded Query (Attributed User)"| StreamAssist
+        StreamAssist ---|"7. Semantic Search"| GCSDocStore
+        GeminiProxy -->|"8. Generative Synthesis"| VertexAI
     end
 
     subgraph LoggingTier ["Observability & Monitoring"]
         CloudLogging["Google Cloud Logging<br/>(Logs Explorer)"]
-        AuthProxy -.->|Native Structured JSON Logs| CloudLogging
-        GeminiProxy -.->|App Logs| CloudLogging
+        AuthProxy -.->|"Native Structured JSON Logs"| CloudLogging
+        GeminiProxy -.->|"App Logs"| CloudLogging
     end
 
     style ClientTier fill:#e8f0fe,stroke:#1a73e8,stroke-width:2px;
@@ -130,24 +130,24 @@ sequenceDiagram
     User->>Office: Submits prompt: "Summarize Q3 earnings"
     
     rect rgb(240, 248, 255)
-        Note over Office,Entra: Phase A: Client Token Acquisition (Milestone 2)
+        Note over Office,Entra: Phase A: Client Token Acquisition
         Office->>Entra: Office.auth.getAccessToken({ forMSGraphAccess: false })
         Entra-->>Office: Returns Microsoft Entra ID JWT Bearer Token
     end
 
     rect rgb(255, 250, 235)
-        Note over Office,Auth: Phase B: Auth Gateway Validation (Milestone 1)
-        Office->>Auth: POST /askGeminiEnterprise<br/>Authorization: Bearer <Entra_JWT><br/>Body: { prompt, history, sessionId }
+        Note over Office,Auth: Phase B: Auth Gateway Validation
+        Office->>Auth: POST /askGeminiEnterprise<br/>Authorization: Bearer [Entra_JWT]<br/>Body: { prompt, history, sessionId }
         Auth->>Entra: Fetch/Match RS256 Public Key via JWKS cache
         Auth->>Auth: Verify signature, expiration (exp), audience (aud), tenant (tid)
         Auth->>Auth: Extract claims (user_id, email, name, tenant_id, oid)
     end
 
     rect rgb(235, 255, 235)
-        Note over Auth,Backend: Phase C: Google S2S IAM Token Exchange & Forwarding (Milestone 1)
+        Note over Auth,Backend: Phase C: Google S2S IAM Token Exchange & Forwarding
         Auth->>Meta: GET /instance/service-accounts/default/identity?audience=https://askgemini-proxy-...
         Meta-->>Auth: Returns short-lived Google OIDC ID Token
-        Auth->>Backend: POST /askGeminiEnterprise<br/>Authorization: Bearer <Google_ID_Token><br/>Headers: X-End-User-Id, X-End-User-Email, X-End-User-Name<br/>Body: { prompt, sessionId, userPseudoId, authenticatedUser }
+        Auth->>Backend: POST /askGeminiEnterprise<br/>Authorization: Bearer [Google_ID_Token]<br/>Headers: X-End-User-Id, X-End-User-Email, X-End-User-Name<br/>Body: { prompt, sessionId, userPseudoId, authenticatedUser }
     end
 
     rect rgb(255, 240, 245)
