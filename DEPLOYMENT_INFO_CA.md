@@ -195,7 +195,7 @@ gcloud run deploy auth-proxy \
   --source . \
   --project agentspace-452714 \
   --region us-central1 \
-  --service-account auth-proxy-sa@agentspace-452714.iam.gserviceaccount.com \
+  --service-account gemini-office365-sa@agentspace-452714.iam.gserviceaccount.com \
   --allow-unauthenticated \
   --set-env-vars "\
 MICROSOFT_ENTRA_APP_ID=85fb5428-6249-4131-9eeb-f2436d5d4d8c,\

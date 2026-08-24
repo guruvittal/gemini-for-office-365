@@ -8,7 +8,7 @@ A decoupled, lightweight **FastAPI Python microservice** running on Google Cloud
 
 - 🔐 **Microsoft Entra ID SSO Validation**: Automatically fetches and caches Microsoft public signing keys via JWKS (`https://login.microsoftonline.com/common/discovery/v2.0/keys`) to cryptographically verify RS256 token signatures and expiration timestamps.
 - 🎯 **Decoupled Architecture**: Independent of any specific Office host application — handles requests uniformly across PowerPoint, Excel, Word, and web clients.
-- 🛡️ **Dedicated Least-Privilege Service Account**: Runs under `auth-proxy-sa`, making authenticated Google Service-to-Service (S2S) IAM calls to private downstream Cloud Run services (`askgemini-proxy`).
+- 🛡️ **Dedicated Least-Privilege Service Account**: Runs under `gemini-office365-sa`, making authenticated Google Service-to-Service (S2S) IAM calls to private downstream Cloud Run services (`askgemini-proxy`).
 - 👤 **End-User Identity Extraction & Forwarding**: Captures `preferred_username`, `email`, `upn`, `tenant_id`, and `oid` and forwards them to downstream engines for auditing, per-user rate limiting, and grounded AI context.
 - 📊 **Native GCP Cloud Logging**: Formats all logs into GCP Structured JSON (`severity`, `message`, `structured_context`, `httpRequest`) for native indexing in Cloud Logging with support for a deep `VERBOSE_LOGGING=true` diagnostic mode.
 - 🚀 **Cloud Run Ready**: Lightweight container built on `python:3.11-slim` with built-in health probes and CORS support.

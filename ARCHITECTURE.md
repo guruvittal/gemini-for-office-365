@@ -50,7 +50,7 @@ graph TB
         FrontendRun["gemini-frontend (Cloud Run)<br/>Nginx Static Assets & Taskpane<br/>(Public HTTPS)"]
         
         subgraph AuthGatewayTier ["Auth & Token Translation Gateway"]
-            AuthProxy["auth-proxy (Cloud Run)<br/>Python 3.11 / FastAPI<br/>Runtime SA: auth-proxy-sa"]
+            AuthProxy["auth-proxy (Cloud Run)<br/>Python 3.11 / FastAPI<br/>Runtime SA: gemini-office365-sa"]
             IdpDiscovery["Dynamic IdP Auto-Discovery<br/>GET /v1/.../aclConfig"]
         end
         
@@ -129,7 +129,7 @@ sequenceDiagram
         Note over AP,GP: Phase 3: Service-to-Service Google IAM Authentication
         AP->>AP: Fetches Google OIDC ID token for audience: https://askgemini-proxy...
         AP->>GP: POST /askGeminiEnterprise (Headers: Authorization: Bearer <Google_IAM_Token>)
-        GP->>GP: Cloud Run IAM validates auth-proxy-sa has roles/run.invoker
+        GP->>GP: Cloud Run IAM validates gemini-office365-sa has roles/run.invoker
     end
 
     rect rgb(255, 255, 240)
@@ -167,7 +167,7 @@ To enable silent SSO without consent prompts across all Office platforms, the fo
 
 ### 3. Decoupled Token Translation & Least Privilege
 * **No Direct Internet Access to Core Backend:** `askgemini-proxy` is locked down with `--no-allow-unauthenticated`.
-* **Runtime Service Account Identity:** `auth-proxy` runs as `auth-proxy-sa@agentspace-452714.iam.gserviceaccount.com` and only holds:
+* **Runtime Service Account Identity:** `auth-proxy` runs as `gemini-office365-sa@agentspace-452714.iam.gserviceaccount.com` and only holds:
   - `roles/logging.logWriter` (Structured Cloud Logging)
   - `roles/discoveryengine.viewer` (Dynamic `aclConfig` auto-discovery)
   - `roles/run.invoker` on Cloud Run service `askgemini-proxy` (Private S2S communication)

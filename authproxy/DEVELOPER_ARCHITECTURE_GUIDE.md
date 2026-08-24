@@ -35,7 +35,7 @@ In the initial implementation of the Gemini for Microsoft 365 platform:
 To solve this, we implemented an **Enterprise Decoupled Authentication Gateway** model (Milestone 1):
 1. **Isolated Auth Gateway (`auth-proxy`)**: A dedicated, ultra-fast Python FastAPI microservice that acts as the sole public-facing gatekeeper. It validates Microsoft Entra ID (Azure AD) Single Sign-On JWT Bearer tokens against Microsoft's public JWKS keys.
 2. **Locked-Down Private Backend (`askgemini-proxy`)**: The generative AI and StreamAssist backend is stripped of public ingress (`--no-allow-unauthenticated`). It can only be invoked by Google Cloud Service Accounts presenting valid Google Cloud OpenID Connect (OIDC) identity tokens.
-3. **Dedicated Service Account (`auth-proxy-sa`)**: `auth-proxy` runs under its own least-privilege service account. Upon authenticating an end user, it fetches a short-lived Google S2S IAM token and proxies the request to `askgemini-proxy`.
+3. **Dedicated Service Account (`gemini-office365-sa`)**: `auth-proxy` runs under its own least-privilege service account. Upon authenticating an end user, it fetches a short-lived Google S2S IAM token and proxies the request to `askgemini-proxy`.
 4. **Verified End-User Context Propagation**: `auth-proxy` extracts authenticated corporate claims (`email`, `user_id`, `name`, `tenant_id`, `oid`) and forwards them via HTTP headers (`X-End-User-*`) to `geminiproxy`, which attaches them to Discovery Engine StreamAssist sessions.
 5. **Native GCP Structured JSON Logging**: All requests, claims, and latencies are formatted as structured JSON natively indexed by Google Cloud Logging, featuring a configurable `VERBOSE_LOGGING=true` diagnostic mode.
 
@@ -45,7 +45,7 @@ To solve this, we implemented an **Enterprise Decoupled Authentication Gateway**
 
 | Dimension | Original Architecture (v1.0) | New Decoupled Architecture (v2.0) |
 | :--- | :--- | :--- |
-| **Backend Ingress Security** | Publicly accessible (`--allow-unauthenticated`). No token validation. | Private Cloud Run (`--no-allow-unauthenticated`). Only invokable by `auth-proxy-sa`. |
+| **Backend Ingress Security** | Publicly accessible (`--allow-unauthenticated`). No token validation. | Private Cloud Run (`--no-allow-unauthenticated`). Only invokable by `gemini-office365-sa`. |
 | **Authentication Perimeter** | None. Any caller on the internet could trigger Gemini API calls. | Microsoft Entra ID SSO JWT verification via RS256 JWKS public key cryptography. |
 | **User Identity Source** | Random string in browser `localStorage` (`office_user_abc123`). | Cryptographically verified claims from corporate Microsoft 365 Entra ID token (`AlexW@contoso.com`). |
 | **Microservice Decoupling** | Monolithic: Each backend service had to handle its own auth or remain open. | Decoupled: `auth-proxy` handles auth once for all present and future backend engines. |
@@ -73,7 +73,7 @@ graph TB
     end
 
     subgraph AuthTier ["Google Cloud Platform: Authentication Gateway Tier"]
-        AuthProxy["Cloud Run: auth-proxy<br/>(Python 3.11 / FastAPI)<br/><b>SA: auth-proxy-sa</b>"]
+        AuthProxy["Cloud Run: auth-proxy<br/>(Python 3.11 / FastAPI)<br/><b>SA: gemini-office365-sa</b>"]
         EntraID["Microsoft Entra ID<br/>(login.microsoftonline.com)"]
         
         TaskpaneUI -->|1. Acquire SSO Token| EntraID
@@ -231,7 +231,7 @@ GET https://{location}-discoveryengine.googleapis.com/v1/projects/{project_id}/l
 ```
 
 > [!NOTE]
-> **Required IAM Role**: To perform this auto-discovery call, the `auth-proxy` runtime identity (`auth-proxy-sa`) requires the `roles/discoveryengine.viewer` IAM role on the target GCP project.
+> **Required IAM Role**: To perform this auto-discovery call, the `auth-proxy` runtime identity (`gemini-office365-sa`) requires the `roles/discoveryengine.viewer` IAM role on the target GCP project.
 
 **Live Response Shapes:**
 - **Google Cloud Identity / Google Workspace (`agentspace-452714`)**:
@@ -308,15 +308,15 @@ In `geminiproxy` (`askgemini-proxy`), if `X-End-User-Google-Token` is absent:
 ### 5.1 Service Account Provisioning
 | Entity | Value |
 | :--- | :--- |
-| **Service Account Name** | `auth-proxy-sa` |
-| **Service Account Email** | `auth-proxy-sa@agentspace-452714.iam.gserviceaccount.com` |
+| **Service Account Name** | `gemini-office365-sa` |
+| **Service Account Email** | `gemini-office365-sa@agentspace-452714.iam.gserviceaccount.com` |
 | **Description** | Dedicated runtime identity for `auth-proxy` to invoke downstream backend services |
 
 ### 5.2 IAM Roles Assigned
 1. **`roles/logging.logWriter`** (Project-level on `agentspace-452714`):
    - Enables `auth-proxy` to emit structured logs directly into Google Cloud Logging.
 2. **`roles/run.invoker`** (Service-level on Cloud Run `askgemini-proxy`):
-   - Grants `auth-proxy-sa` explicit permission to invoke the private `askgemini-proxy` service.
+   - Grants `gemini-office365-sa` explicit permission to invoke the private `askgemini-proxy` service.
 
 ### 5.3 Ingress & Perimeter Rules
 - **`auth-proxy`**: Public ingress (`--allow-unauthenticated`) is enabled at the Cloud Run boundary because the client is an Office 365 webview in Microsoft Word/PowerPoint/Excel. Security enforcement is handled at the application layer by validating Microsoft Entra ID JWT tokens.
@@ -621,7 +621,7 @@ jsonPayload.structured_context.httpRequest.latency:*
 | `401` | `AUTH_EXPIRED` | JWT `exp` timestamp is in the past. | Force token refresh in `authService.js` (`getOfficeAuthToken(true)`). |
 | `401` | `AUTH_INVALID_AUDIENCE` | Token `aud` claim does not match `ENTRA_APP_ID` or Application ID URI. | Verify `manifest-ca.xml` `<Resource>` matches the exact Application ID URI configured in Entra ID. |
 | `401` | `AUTH_KEY_NOT_FOUND` | Token `kid` header not found in Microsoft JWKS endpoint. | Token may have been issued by a different tenant authority or is malformed. |
-| `403` | `Forbidden (Google IAM)` | `auth-proxy` failed to invoke `askgemini-proxy`. | Verify `auth-proxy-sa` has `roles/run.invoker` on `askgemini-proxy`. |
+| `403` | `Forbidden (Google IAM)` | `auth-proxy` failed to invoke `askgemini-proxy`. | Verify `gemini-office365-sa` has `roles/run.invoker` on `askgemini-proxy`. |
 | `502` | `DOWNSTREAM_COMMUNICATION_ERROR` | `askgemini-proxy` timed out or unreachable. | Verify `DOWNSTREAM_BACKEND_URL` environment variable and Cloud Run status. |
 
 ---
@@ -675,22 +675,22 @@ For engineering teams upgrading their existing add-in or backend codebase to thi
    - Fetches Google Cloud OIDC ID tokens via instance metadata server to invoke downstream private Cloud Run services.
    - Forwards normalized user claims: `X-End-User-Email`, `X-End-User-ID`, `X-End-User-Tenant-ID`, and `X-End-User-Auth-Mode`.
 
-2. **IAM Configuration for `auth-proxy-sa`**:
+2. **IAM Configuration for `gemini-office365-sa`**:
    ```bash
    # Logging
    gcloud projects add-iam-policy-binding PROJECT_ID \
-     --member="serviceAccount:auth-proxy-sa@PROJECT_ID.iam.gserviceaccount.com" \
+     --member="serviceAccount:gemini-office365-sa@PROJECT_ID.iam.gserviceaccount.com" \
      --role="roles/logging.logWriter"
 
    # Gemini Enterprise Discovery Engine IdP aclConfig
    gcloud projects add-iam-policy-binding PROJECT_ID \
-     --member="serviceAccount:auth-proxy-sa@PROJECT_ID.iam.gserviceaccount.com" \
+     --member="serviceAccount:gemini-office365-sa@PROJECT_ID.iam.gserviceaccount.com" \
      --role="roles/discoveryengine.viewer"
 
    # Downstream Cloud Run Invocation
    gcloud run services add-iam-policy-binding askgemini-proxy \
      --region=us-central1 \
-     --member="serviceAccount:auth-proxy-sa@PROJECT_ID.iam.gserviceaccount.com" \
+     --member="serviceAccount:gemini-office365-sa@PROJECT_ID.iam.gserviceaccount.com" \
      --role="roles/run.invoker"
    ```
 
@@ -717,8 +717,8 @@ For engineering teams upgrading their existing add-in or backend codebase to thi
 
 ## 11. Production Validation & Handoff Summary
 
-- [x] **Milestone 1 Complete**: `auth-proxy` created, tested, and deployed with dedicated service account `auth-proxy-sa`.
-- [x] **Downstream Hardening Complete**: `askgemini-proxy` locked down with `--no-allow-unauthenticated` and bound to `auth-proxy-sa`.
+- [x] **Milestone 1 Complete**: `auth-proxy` created, tested, and deployed with dedicated service account `gemini-office365-sa`.
+- [x] **Downstream Hardening Complete**: `askgemini-proxy` locked down with `--no-allow-unauthenticated` and bound to `gemini-office365-sa`.
 - [x] **End-User Attribution Complete**: `geminiproxy` extracts `X-End-User-*` headers and tags StreamAssist sessions.
 - [x] **Milestone 2 Complete**: Office.js SSO token acquisition (`Office.auth.getAccessToken()`), Domain Matching resolution, and UI identity indicator verified.
 - [x] **Milestone 3 Complete**: Centralized Microsoft 365 Admin Center deployment guide documented in [`MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md`](file:///Users/caugusto/Documents/antigravity/retail-gemini-for-office-365/MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md).

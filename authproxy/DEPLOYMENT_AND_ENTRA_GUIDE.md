@@ -44,16 +44,18 @@ The `auth-proxy` service acts as an authenticated security gateway between Micro
 
 ## 2. Recommended Deployment Order
 
-Because the Microsoft Entra **Application ID URI** requires the public domain of your Cloud Run service (e.g., `api://auth-proxy-xxxxx-uc.a.run.app/<CLIENT_ID>`), follow this sequence:
+Because `auth-proxy` requires the downstream backend URL of `askgemini-proxy`, and the Microsoft Entra **Application ID URI** requires the public domain of `auth-proxy` (e.g., `api://auth-proxy-xxxxx-uc.a.run.app/<CLIENT_ID>`), follow this sequence:
 
 ```
 Step 1: Register App in Entra ID ➔ Capture Client ID
        │
-Step 2: Deploy auth-proxy to Cloud Run with Client ID ➔ Capture Cloud Run URL
+Step 2: Deploy Backend Proxy (askgemini-proxy) ➔ Capture Backend URL
        │
-Step 3: In Entra ID ➔ Set Application ID URI, Add Scopes & Pre-authorize Office
+Step 3: Deploy auth-proxy to Cloud Run with Client ID & Backend URL ➔ Capture Auth Proxy URL
        │
-Step 4: Verify & Test with cURL / Health probes
+Step 4: In Entra ID ➔ Set Application ID URI, Add Scopes & Pre-authorize Office
+       │
+Step 5: Update Office Manifest (XML) & Verify
 ```
 
 ---
@@ -97,14 +99,14 @@ If your organization uses Google Cloud WIF to federate identities without syncin
 
 ---
 
-## 4. Phase 2: Provision Service Account & Deploy `auth-proxy` to Cloud Run
+## 4. Phase 2: Provision Service Account & Deploy Microservices to Cloud Run
 
-The `auth-proxy` microservice acts as the single decoupled authentication and authorization gateway for all client add-ins. It runs under a dedicated, least-privilege Google Cloud Service Account (`auth-proxy-sa`) and forwards validated requests to the downstream Gemini/StreamAssist backend (`askgemini-proxy`) using Google Service-to-Service (S2S) IAM authentication.
+The microservices run under a unified, least-privilege Google Cloud Service Account (`gemini-office365-sa`). `auth-proxy` acts as the single decoupled authentication and authorization gateway for all client add-ins and forwards validated requests to the downstream Gemini/StreamAssist backend (`askgemini-proxy`) using Google Service-to-Service (S2S) IAM authentication.
 
 ```
 ┌─────────────────────────┐          ┌──────────────────────────────────────┐          ┌───────────────────────────────────────┐
 │  Office 365 Add-in Task │          │         Cloud Run: auth-proxy        │          │       Cloud Run: askgemini-proxy      │
-│  (PowerPoint / Excel)   │          │  (Runtime SA: auth-proxy-sa)         │          │  (--no-allow-unauthenticated)         │
+│  (PowerPoint / Excel)   │          │  (Runtime SA: gemini-office365-sa)   │          │  (--no-allow-unauthenticated)         │
 └────────────┬────────────┘          └──────────────────┬───────────────────┘          └───────────────────┬───────────────────┘
              │                                          │                                                  │
              │ 1. POST /askGeminiEnterprise             │                                                  │
@@ -133,32 +135,32 @@ The `auth-proxy` microservice acts as the single decoupled authentication and au
   ```
 - Enable required Google Cloud APIs:
   ```bash
-  gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com iam.googleapis.com
+  gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com iam.googleapis.com discoveryengine.googleapis.com
   ```
 
 ### Step 4.1: Create Dedicated Service Account & IAM Roles
-Create the dedicated service account and assign least-privilege roles for Cloud Logging and downstream Cloud Run invocation:
+Create the dedicated service account and assign least-privilege roles for Cloud Logging, Discovery Engine, and downstream Cloud Run invocation:
 
 ```bash
 # 1. Create dedicated Service Account
-gcloud iam service-accounts create auth-proxy-sa \
-  --display-name="Auth Proxy Cloud Run Service Account" \
-  --description="Dedicated runtime identity for auth-proxy microservice to invoke backend Cloud Run services securely"
+gcloud iam service-accounts create gemini-office365-sa \
+  --display-name="Gemini Office 365 Unified Service Account" \
+  --description="Dedicated runtime identity for Gemini for Office 365 services"
 
 # 2. Grant Cloud Logging Writer on the project
 gcloud projects add-iam-policy-binding YOUR_GCP_PROJECT_ID \
-  --member="serviceAccount:auth-proxy-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com" \
+  --member="serviceAccount:gemini-office365-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/logging.logWriter"
 
 # 3. Grant Discovery Engine Viewer on the project (Enables auto-discovery of Gemini Enterprise / Discovery Engine IdP aclConfig)
 gcloud projects add-iam-policy-binding YOUR_GCP_PROJECT_ID \
-  --member="serviceAccount:auth-proxy-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com" \
+  --member="serviceAccount:gemini-office365-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/discoveryengine.viewer"
 
 # 4. Grant Cloud Run Invoker on downstream askgemini-proxy
 gcloud run services add-iam-policy-binding askgemini-proxy \
   --region=us-central1 \
-  --member="serviceAccount:auth-proxy-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com" \
+  --member="serviceAccount:gemini-office365-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/run.invoker"
 
 # 5. Lock down downstream askgemini-proxy to private S2S traffic only
@@ -167,61 +169,28 @@ gcloud run services update askgemini-proxy \
   --no-allow-unauthenticated
 ```
 
-### Step 4.2: Deploy `auth-proxy` with Dedicated Service Account
-From within the `authproxy/` directory:
-
-```bash
-gcloud run deploy auth-proxy \
-  --source . \
-  --project YOUR_GCP_PROJECT_ID \
-  --region us-central1 \
-  --platform managed \
-  --allow-unauthenticated \
-  --service-account auth-proxy-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com \
-  --set-env-vars "\
-MICROSOFT_ENTRA_APP_ID=YOUR_MICROSOFT_ENTRA_CLIENT_ID,\
-DOWNSTREAM_BACKEND_URL=https://askgemini-proxy-16933400417.us-central1.run.app,\
-GCP_PROJECT_ID=YOUR_GCP_PROJECT_ID,\
-GCP_LOCATION=global,\
-USER_AUTH_MODE=auto,\
-REQUIRE_ENTRA_AUTH=true,\
-VERBOSE_LOGGING=true"
-```
-
-#### `auth-proxy` Environment Variable Reference
-
-| Parameter | Type | Default | Description |
-| :--- | :---: | :---: | :--- |
-| `MICROSOFT_ENTRA_APP_ID` | String | *Required* | Entra ID (Azure AD) Application / Client ID (`b990d644-...`). |
-| `DOWNSTREAM_BACKEND_URL` | URL | `""` | HTTPS URL of the private `askgemini-proxy` Cloud Run service. |
-| `GCP_PROJECT_ID` | String | `agentspace-452714` | Target GCP project containing the Gemini Enterprise engine. |
-| `GCP_LOCATION` | String | `global` | Location of Discovery Engine resources (`global`, `us`, `eu`). |
-| `USER_AUTH_MODE` | String | `auto` | Token pass-through strategy: `auto` (inspects `aclConfig`), `cloud_identity`, `wif`, or `none`. |
-| `WIF_AUDIENCE` | String | `""` | Explicit STS audience override (auto-discovered from `aclConfig` if left blank). |
-| `WIF_PROVIDER_NAME` | String | `entra-id-oidc-pool-provider` | Workforce Identity Federation provider ID inside the workforce pool. |
-| `REQUIRE_ENTRA_AUTH` | Boolean | `true` | When `true`, rejects unauthenticated requests with HTTP 401. Set `false` only for local dev. |
-| `VERBOSE_LOGGING` | Boolean | `false` | When `true`, emits deep diagnostic JSON payload logs to Cloud Logging. |
-
----
-
-### Step 4.3: Deploy `askgemini-proxy` Backend
+### Step 4.2: Deploy `askgemini-proxy` Backend First
 From within the `geminiproxy/` directory:
 
 ```bash
+cd geminiproxy
 gcloud run deploy askgemini-proxy \
   --source . \
   --project YOUR_GCP_PROJECT_ID \
   --region us-central1 \
+  --service-account gemini-office365-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com \
   --no-allow-unauthenticated \
   --set-env-vars "\
 GCP_PROJECT_ID=YOUR_GCP_PROJECT_ID,\
-GEMINI_ENTERPRISE_APP_ID=test1-agentspace_1741135345115,\
+GEMINI_ENTERPRISE_APP_ID=YOUR_GEMINI_ENTERPRISE_APP_ID,\
 BACKEND_MODE=streamassist,\
 GCP_LOCATION=global,\
 ENTERPRISE_COLLECTION_ID=default_collection,\
 ENTERPRISE_ASSISTANT_ID=default_assistant,\
 ALLOW_SERVICE_ACCOUNT_FALLBACK=true"
 ```
+
+> **Capture Backend URL**: Once deployed, copy the backend URL (e.g. `https://askgemini-proxy-XXXXXXXX.us-central1.run.app`) to supply as `DOWNSTREAM_BACKEND_URL` in the next step.
 
 #### `askgemini-proxy` Environment Variable Reference
 
@@ -237,7 +206,45 @@ ALLOW_SERVICE_ACCOUNT_FALLBACK=true"
 
 ---
 
-### Step 4.4: Capture Your Cloud Run Service URL
+### Step 4.3: Deploy `auth-proxy` with Dedicated Service Account
+From within the `authproxy/` directory:
+
+```bash
+cd ../authproxy
+gcloud run deploy auth-proxy \
+  --source . \
+  --project YOUR_GCP_PROJECT_ID \
+  --region us-central1 \
+  --platform managed \
+  --allow-unauthenticated \
+  --service-account gemini-office365-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com \
+  --set-env-vars "\
+MICROSOFT_ENTRA_APP_ID=YOUR_MICROSOFT_ENTRA_CLIENT_ID,\
+DOWNSTREAM_BACKEND_URL=https://askgemini-proxy-XXXXXXXX.us-central1.run.app,\
+GCP_PROJECT_ID=YOUR_GCP_PROJECT_ID,\
+GCP_LOCATION=global,\
+USER_AUTH_MODE=auto,\
+REQUIRE_ENTRA_AUTH=true,\
+VERBOSE_LOGGING=true"
+```
+
+#### `auth-proxy` Environment Variable Reference
+
+| Parameter | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `MICROSOFT_ENTRA_APP_ID` | String | *Required* | Entra ID (Azure AD) Application / Client ID. |
+| `DOWNSTREAM_BACKEND_URL` | URL | `""` | HTTPS URL of the private `askgemini-proxy` Cloud Run service from Step 4.2. |
+| `GCP_PROJECT_ID` | String | *Required* | Target GCP project containing the Gemini Enterprise engine. |
+| `GCP_LOCATION` | String | `global` | Location of Discovery Engine resources (`global`, `us`, `eu`). |
+| `USER_AUTH_MODE` | String | `auto` | Token pass-through strategy: `auto` (inspects `aclConfig`), `cloud_identity`, `wif`, or `none`. |
+| `WIF_AUDIENCE` | String | `""` | Explicit STS audience override (auto-discovered from `aclConfig` if left blank). |
+| `WIF_PROVIDER_NAME` | String | `entra-id-oidc-pool-provider` | Workforce Identity Federation provider ID inside the workforce pool. |
+| `REQUIRE_ENTRA_AUTH` | Boolean | `true` | When `true`, rejects unauthenticated requests with HTTP 401. Set `false` only for local dev. |
+| `VERBOSE_LOGGING` | Boolean | `false` | When `true`, emits deep diagnostic JSON payload logs to Cloud Logging. |
+
+---
+
+### Step 4.4: Capture Your Auth Proxy Cloud Run Service URL
 Once deployment completes, copy the Service URL provided in the output:
 `https://auth-proxy-xxxxxxxxxx-uc.a.run.app`
 

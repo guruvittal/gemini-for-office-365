@@ -154,7 +154,7 @@ gcloud run deploy auth-proxy \
   --project YOUR_GCP_PROJECT_ID \
   --region us-central1 \
   --allow-unauthenticated \
-  --service-account auth-proxy-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com \
+  --service-account gemini-office365-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com \
   --set-env-vars "\
 MICROSOFT_ENTRA_APP_ID=YOUR_MICROSOFT_ENTRA_CLIENT_ID,\
 DOWNSTREAM_BACKEND_URL=https://askgemini-proxy-XXXXXXXX.us-central1.run.app,\
