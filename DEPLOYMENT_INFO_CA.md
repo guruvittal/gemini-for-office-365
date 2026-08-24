@@ -170,25 +170,6 @@ To roll out the Gemini Enterprise add-in to all employees or specific security g
 
 ## 🛠️ Redeployment & Maintenance Commands
 
-### To Re-deploy Auth Proxy:
-```bash
-cd authproxy
-gcloud run deploy auth-proxy \
-  --source . \
-  --project agentspace-452714 \
-  --region us-central1 \
-  --service-account auth-proxy-sa@agentspace-452714.iam.gserviceaccount.com \
-  --allow-unauthenticated \
-  --set-env-vars "\
-MICROSOFT_ENTRA_APP_ID=85fb5428-6249-4131-9eeb-f2436d5d4d8c,\
-DOWNSTREAM_BACKEND_URL=https://askgemini-proxy-16933400417.us-central1.run.app,\
-GCP_PROJECT_ID=agentspace-wif,\
-GCP_LOCATION=global,\
-USER_AUTH_MODE=auto,\
-REQUIRE_ENTRA_AUTH=true,\
-VERBOSE_LOGGING=true"
-```
-
 ### To Re-deploy Backend Proxy:
 ```bash
 cd geminiproxy
@@ -205,6 +186,25 @@ GCP_LOCATION=global,\
 ENTERPRISE_COLLECTION_ID=default_collection,\
 ENTERPRISE_ASSISTANT_ID=default_assistant,\
 ALLOW_SERVICE_ACCOUNT_FALLBACK=true"
+```
+
+### To Re-deploy Auth Proxy:
+```bash
+cd ../authproxy
+gcloud run deploy auth-proxy \
+  --source . \
+  --project agentspace-452714 \
+  --region us-central1 \
+  --service-account auth-proxy-sa@agentspace-452714.iam.gserviceaccount.com \
+  --allow-unauthenticated \
+  --set-env-vars "\
+MICROSOFT_ENTRA_APP_ID=85fb5428-6249-4131-9eeb-f2436d5d4d8c,\
+DOWNSTREAM_BACKEND_URL=https://askgemini-proxy-16933400417.us-central1.run.app,\
+GCP_PROJECT_ID=agentspace-wif,\
+GCP_LOCATION=global,\
+USER_AUTH_MODE=auto,\
+REQUIRE_ENTRA_AUTH=true,\
+VERBOSE_LOGGING=true"
 ```
 
 ### To Re-deploy Frontend Add-in:

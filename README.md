@@ -128,9 +128,27 @@ For complete, detailed instructions on setting up Microsoft Entra ID, Google Clo
 - 🏢 [MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md](MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md)
 - 📋 [DEPLOYMENT_INFO_CA.md](DEPLOYMENT_INFO_CA.md)
 
-### 1. Deploy Auth Gateway Proxy (`authproxy/`)
+### 1. Deploy Backend Proxy (`geminiproxy/`)
 ```bash
-cd authproxy
+cd geminiproxy
+gcloud run deploy askgemini-proxy \
+  --source . \
+  --project YOUR_GCP_PROJECT_ID \
+  --region us-central1 \
+  --no-allow-unauthenticated \
+  --set-env-vars "\
+GCP_PROJECT_ID=YOUR_GCP_PROJECT_ID,\
+GEMINI_ENTERPRISE_APP_ID=YOUR_GEMINI_ENTERPRISE_APP_ID,\
+BACKEND_MODE=streamassist,\
+GCP_LOCATION=global,\
+ENTERPRISE_COLLECTION_ID=default_collection,\
+ENTERPRISE_ASSISTANT_ID=default_assistant,\
+ALLOW_SERVICE_ACCOUNT_FALLBACK=true"
+```
+
+### 2. Deploy Auth Gateway Proxy (`authproxy/`)
+```bash
+cd ../authproxy
 gcloud run deploy auth-proxy \
   --source . \
   --project YOUR_GCP_PROJECT_ID \
@@ -145,24 +163,6 @@ GCP_LOCATION=global,\
 USER_AUTH_MODE=auto,\
 REQUIRE_ENTRA_AUTH=true,\
 VERBOSE_LOGGING=true"
-```
-
-### 2. Deploy Backend Proxy (`geminiproxy/`)
-```bash
-cd ../geminiproxy
-gcloud run deploy askgemini-proxy \
-  --source . \
-  --project YOUR_GCP_PROJECT_ID \
-  --region us-central1 \
-  --no-allow-unauthenticated \
-  --set-env-vars "\
-GCP_PROJECT_ID=YOUR_GCP_PROJECT_ID,\
-GEMINI_ENTERPRISE_APP_ID=YOUR_GEMINI_ENTERPRISE_APP_ID,\
-BACKEND_MODE=streamassist,\
-GCP_LOCATION=global,\
-ENTERPRISE_COLLECTION_ID=default_collection,\
-ENTERPRISE_ASSISTANT_ID=default_assistant,\
-ALLOW_SERVICE_ACCOUNT_FALLBACK=true"
 ```
 
 ### 3. Deploy Frontend Add-in (`microsoft-addin/`)
