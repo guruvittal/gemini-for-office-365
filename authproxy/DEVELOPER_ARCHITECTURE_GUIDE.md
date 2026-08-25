@@ -162,6 +162,13 @@ sequenceDiagram
     Office-->>User: Renders formatted grounded response & citations
 ```
 
+> [!NOTE]
+> ### 💡 Understanding S2S (Service-to-Service) Authentication
+> **S2S** stands for **Service-to-Service** authentication in Google Cloud.
+> - **The Goal**: The generative AI and grounding backend (`askgemini-proxy`) is deployed as a private Cloud Run microservice (`--no-allow-unauthenticated`). It has **zero public access** on the internet.
+> - **The Mechanism**: To invoke `askgemini-proxy`, the calling service (`auth-proxy`) must present a cryptographically signed **Google Cloud OIDC ID Token** in the `Authorization: Bearer <token>` header.
+> - **The Role**: The token is minted by the local GCP metadata server on behalf of the `gemini-office365-sa` Service Account. Google Cloud's infrastructure automatically verifies that this service account holds the `roles/run.invoker` IAM role before letting the request reach `askgemini-proxy`.
+
 ---
 
 ## 4. Deep Dive: Auth-Proxy Microservice (`authproxy/`)
@@ -202,10 +209,24 @@ def extract_user_from_payload(payload: Dict[str, Any]) -> AuthenticatedUser:
 This guarantees that regardless of whether the user logs in with a UPN, an email alias, or a subject claim, downstream services receive a standardized identity model.
 
 #### 4. Google S2S IAM Token Exchange (`get_google_id_token`)
-To call `askgemini-proxy` (which rejects unauthenticated requests), `auth-proxy` obtains a Google Cloud OIDC ID token:
+
+##### What is Service-to-Service (S2S) IAM Authentication?
+In enterprise Google Cloud architectures, microservices that should not be callable by the public are deployed with `--no-allow-unauthenticated`. Google Cloud Run enforces this at its global ingress proxy: any HTTP request without a valid Google-signed OpenID Connect (OIDC) ID token is immediately terminated with `HTTP 403 Forbidden` before your container ever receives the request.
+
+`auth-proxy` bridges the gap between external Microsoft 365 clients and private Google Cloud backends:
+1. **End-User Ingress**: `auth-proxy` accepts requests from Office 365, verifying the incoming Microsoft Entra ID JWT.
+2. **S2S Token Acquisition**: `auth-proxy` queries the local Cloud Run instance metadata server at `http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience={DOWNSTREAM_BACKEND_URL}`.
+   - The metadata server mints a signed Google OIDC token asserting the identity of the running Service Account (`gemini-office365-sa`).
+   - This metadata query executes over the local VM/container bus with **sub-millisecond latency** (no outbound network hop to Google OAuth endpoints).
+3. **Dual-Identity Forwarding**:
+   - `Authorization: Bearer <Google_S2S_ID_Token>`: Authenticates the caller service to Google Cloud IAM (`roles/run.invoker`).
+   - `X-End-User-Email`, `X-End-User-Id`, `X-End-User-Name`: Passes the authenticated human employee's corporate identity to Discovery Engine for session history and grounding attribution.
+   - `X-End-User-Google-Token`: Passes the federated WIF access token when operating in Workforce Identity Federation mode.
+
+##### Python Implementation in `authproxy/main.py`:
 ```python
 def get_google_id_token(audience: str) -> Optional[str]:
-    # 1. Cloud Run / GCE Metadata Server (sub-millisecond latency)
+    # 1. Cloud Run / GCE Metadata Server (sub-millisecond latency, zero external hops)
     metadata_url = f"http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience={audience}"
     try:
         req = urllib.request.Request(metadata_url, headers={"Metadata-Flavor": "Google"})
@@ -214,7 +235,7 @@ def get_google_id_token(audience: str) -> Optional[str]:
     except Exception:
         pass
 
-    # 2. Local fallback using google-auth library
+    # 2. Local fallback using google-auth library (used during local development)
     try:
         from google.auth.transport.requests import Request as GoogleAuthRequest
         from google.oauth2 import id_token
