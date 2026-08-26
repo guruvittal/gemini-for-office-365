@@ -4,8 +4,8 @@
   <Version>1.0.0.0</Version>
   <ProviderName>Google Cloud</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Gemini Enterprise"/>
-  <Description DefaultValue="Gemini Enterprise AI Assistant for Microsoft Word, PowerPoint, and Excel."/>
+  <DisplayName DefaultValue="Gemini Enterprise (Erik)"/>
+  <Description DefaultValue="Gemini Enterprise AI Assistant (Erik)."/>
   <IconUrl DefaultValue="https://gemini-frontend-16933400417.us-central1.run.app/assets/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://gemini-frontend-16933400417.us-central1.run.app/assets/icon-64.png"/>
   <SupportUrl DefaultValue="https://cloud.google.com/vertex-ai"/>
@@ -163,13 +163,13 @@
         <bt:Url id="Taskpane.Url" DefaultValue="https://gemini-frontend-16933400417.us-central1.run.app/taskpane.html?backend=streamassist"/>
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="GetStarted.Title" DefaultValue="Gemini Enterprise"/>
-        <bt:String id="CommandsGroup.Label" DefaultValue="Gemini Enterprise"/>
-        <bt:String id="TaskpaneButton.Label" DefaultValue="Gemini Enterprise"/>
+        <bt:String id="GetStarted.Title" DefaultValue="Gemini Enterprise (Erik)"/>
+        <bt:String id="CommandsGroup.Label" DefaultValue="Gemini Enterprise (Erik)"/>
+        <bt:String id="TaskpaneButton.Label" DefaultValue="Gemini (Erik)"/>
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="Gemini Enterprise AI Assistant for Microsoft Word, PowerPoint, and Excel."/>
-        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open Gemini Enterprise AI Assistant."/>
+        <bt:String id="GetStarted.Description" DefaultValue="Gemini Enterprise AI Assistant (Erik) for Microsoft Word, PowerPoint, and Excel."/>
+        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open Gemini Enterprise AI Assistant (Erik)."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>
