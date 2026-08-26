@@ -423,6 +423,7 @@ def extract_user_from_payload(payload: Dict[str, Any], raw_token: Optional[str] 
 
 
 async def verify_entra_token(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> Optional[AuthenticatedUser]:
     """
@@ -443,8 +444,11 @@ async def verify_entra_token(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="SSO authentication is required, but MICROSOFT_ENTRA_APP_ID is not configured on the server."
             )
-        logger.warning("MICROSOFT_ENTRA_APP_ID not configured; bypassing token verification (Dev Mode).")
-        return AuthenticatedUser(user_id="dev_local_user", name="Local Developer (Auth Bypassed)")
+        dev_email = request.headers.get("x-end-user-email")
+        dev_id = request.headers.get("x-end-user-id") or dev_email or "dev_local_user"
+        dev_name = request.headers.get("x-end-user-name") or (dev_email.split("@")[0] if dev_email else "Local Developer (Auth Bypassed)")
+        logger.warning(f"MICROSOFT_ENTRA_APP_ID not configured; using dev user identity '{dev_id}'.")
+        return AuthenticatedUser(user_id=dev_id, email=dev_email, name=dev_name)
 
     if not credentials or not credentials.credentials:
         if REQUIRE_ENTRA_AUTH:
@@ -457,8 +461,11 @@ async def verify_entra_token(
                 detail="Missing Authorization header with Bearer token.",
                 headers={"WWW-Authenticate": "Bearer"}
             )
-        logger.info("No Authorization token provided; bypassing verification because REQUIRE_ENTRA_AUTH=false.")
-        return AuthenticatedUser(user_id="anonymous_dev_user", name="Anonymous User (Auth Not Enforced)")
+        dev_email = request.headers.get("x-end-user-email")
+        dev_id = request.headers.get("x-end-user-id") or dev_email or "anonymous_dev_user"
+        dev_name = request.headers.get("x-end-user-name") or (dev_email.split("@")[0] if dev_email else "Anonymous User (Auth Not Enforced)")
+        logger.info(f"No Authorization token provided; using dev identity '{dev_id}' (REQUIRE_ENTRA_AUTH=false).")
+        return AuthenticatedUser(user_id=dev_id, email=dev_email, name=dev_name)
 
     token = credentials.credentials
     token_len = len(token)

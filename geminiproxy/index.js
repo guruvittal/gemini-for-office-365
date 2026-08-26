@@ -576,6 +576,29 @@ async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, us
       fullSessionName = `projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/engines/${ENTERPRISE_APP_ID}/sessions/${sessionId}`;
     }
     requestBody.session = fullSessionName;
+  } else if (activeUserId) {
+    // Explicitly create session tagged with the userPseudoId for user history & attribution
+    try {
+      const sessionCreateUrl = `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1alpha/projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/engines/${ENTERPRISE_APP_ID}/sessions`;
+      const sessionRes = await fetch(sessionCreateUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${bearerToken}`,
+          'Content-Type': 'application/json',
+          'X-Goog-User-Project': PROJECT_ID
+        },
+        body: JSON.stringify({ userPseudoId: activeUserId })
+      });
+      if (sessionRes.ok) {
+        const sessionData = await sessionRes.json();
+        if (sessionData.name) {
+          requestBody.session = sessionData.name;
+          console.log(`[SESSION] Created new session tagged for user '${activeUserId}': ${sessionData.name}`);
+        }
+      }
+    } catch (sessionErr) {
+      console.warn(`[SESSION_WARN] Could not pre-create session with userPseudoId '${activeUserId}':`, sessionErr.message);
+    }
   }
 
   console.log(`Calling StreamAssist API (${endpointUrl})... Session: ${requestBody.session || 'NEW'}`);
