@@ -190,16 +190,16 @@ gcloud run deploy gemini-frontend \
 
 ## 🌐 Cross-Project Deployment (Cross-Project Gemini Enterprise)
 
-When the **Cloud Run microservices** (`auth-proxy`, `askgemini-proxy`, `gemini-frontend`) are deployed in one GCP project (e.g., `agentspace-452714`), but the **Gemini Enterprise (Discovery Engine) instance** resides in a different GCP project (e.g., `jeansson-gem-ent-ci`), cross-project IAM access must be granted.
+When the **Cloud Run microservices** (`auth-proxy`, `askgemini-proxy`, `gemini-frontend`) are deployed in one GCP project (e.g., `PROJECT_A`), but the **Gemini Enterprise (Discovery Engine) instance** resides in a different GCP project (e.g., `PROJECT_B`), cross-project IAM access must be granted.
 
 ### Option A: Configure Cross-Project Access via `gcloud` (Recommended)
 
-Run the following commands as an **Owner** or **IAM Admin** on the **Gemini Enterprise target project**:
+Run the following commands as an **Owner** or **IAM Admin** on the **Gemini Enterprise target project (Project B)**:
 
 ```bash
-# Set your variables
-TARGET_GEMINI_PROJECT="jeansson-gem-ent-ci"
-CLOUD_RUN_SERVICE_ACCOUNT="gemini-office365-sa@agentspace-452714.iam.gserviceaccount.com"
+# Set your target project and Cloud Run service account
+TARGET_GEMINI_PROJECT="YOUR_GEMINI_ENTERPRISE_PROJECT_ID"
+CLOUD_RUN_SERVICE_ACCOUNT="YOUR_SERVICE_ACCOUNT@YOUR_CLOUD_RUN_PROJECT_ID.iam.gserviceaccount.com"
 
 # 1. Grant Discovery Engine Editor access on the Gemini Enterprise project
 gcloud projects add-iam-policy-binding "${TARGET_GEMINI_PROJECT}" \
@@ -215,18 +215,18 @@ gcloud projects add-iam-policy-binding "${TARGET_GEMINI_PROJECT}" \
 ### Option B: Configure via Google Cloud Console
 1. Navigate to the **Gemini Enterprise GCP Project** in the [Google Cloud Console](https://console.cloud.google.com/).
 2. Go to **IAM & Admin** ➔ **IAM** ➔ Click **+ Grant Access**.
-3. **New principals**: Enter the Cloud Run service account (e.g., `gemini-office365-sa@agentspace-452714.iam.gserviceaccount.com`).
+3. **New principals**: Enter the Cloud Run service account (`YOUR_SERVICE_ACCOUNT@YOUR_CLOUD_RUN_PROJECT_ID.iam.gserviceaccount.com`).
 4. **Assign roles**:
    - `Discovery Engine Editor` (`roles/discoveryengine.editor`)
    - `Service Usage Consumer` (`roles/serviceusage.serviceUsageConsumer`)
 5. Click **Save**.
 
 ### Cloud Run Service Configuration for Cross-Project:
-Ensure the `askgemini-proxy` Cloud Run service environment variables point to the remote project:
-- `GCP_PROJECT_ID`: Target project ID (e.g., `jeansson-gem-ent-ci`)
-- `GEMINI_ENTERPRISE_APP_ID`: Engine/App ID in target project (e.g., `gemini-enterprise-dummy-ap_1787693913560`)
-- `GCP_LOCATION`: Location of collection/engine (e.g., `us` or `global`)
-- `STREAM_ASSIST_ENDPOINT_LOCATION`: Location for API endpoint (e.g., `us` or `global`)
+Set the following environment variables on the `askgemini-proxy` Cloud Run service in Project A:
+- `GCP_PROJECT_ID`: Target project ID hosting Gemini Enterprise (e.g., `YOUR_GEMINI_ENTERPRISE_PROJECT_ID`)
+- `GEMINI_ENTERPRISE_APP_ID`: Target Engine/App ID (e.g., `YOUR_GEMINI_ENTERPRISE_APP_ID`)
+- `GCP_LOCATION`: Location of collection/engine resource (`global`, `us`, or `eu`)
+- `STREAM_ASSIST_ENDPOINT_LOCATION`: Regional API endpoint prefix (`global`, `us`, or `eu`)
 
 ---
 

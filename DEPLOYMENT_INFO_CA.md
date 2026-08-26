@@ -224,17 +224,17 @@ gcloud run deploy gemini-frontend \
 
 ## 🌐 Cross-Project IAM Configuration (Different GCP Projects)
 
-When the **Cloud Run services** (`auth-proxy`, `askgemini-proxy`, `gemini-frontend`) are deployed in **Project A** (e.g. `agentspace-452714`), but the **Gemini Enterprise (Discovery Engine) instance** is located in **Project B** (e.g. `jeansson-gem-ent-ci`), the Cloud Run Service Account must be granted cross-project IAM permissions on **Project B**.
+When the **Cloud Run services** (`auth-proxy`, `askgemini-proxy`, `gemini-frontend`) are deployed in **Project A** (e.g., `CLOUD_RUN_PROJECT`), but the **Gemini Enterprise (Discovery Engine) instance** is located in **Project B** (e.g., `GEMINI_PROJECT`), the Cloud Run Service Account must be granted cross-project IAM permissions on **Project B**.
 
 ### Service Account:
-`gemini-office365-sa@agentspace-452714.iam.gserviceaccount.com`
+`YOUR_SERVICE_ACCOUNT@YOUR_CLOUD_RUN_PROJECT_ID.iam.gserviceaccount.com`
 
 ### Option A: Configure via `gcloud` (Run on Target Project B)
 Run the following commands authenticated as an **Owner** or **IAM Administrator** of the target Gemini Enterprise project:
 
 ```bash
-TARGET_PROJECT_ID="jeansson-gem-ent-ci"
-SERVICE_ACCOUNT="gemini-office365-sa@agentspace-452714.iam.gserviceaccount.com"
+TARGET_PROJECT_ID="YOUR_GEMINI_ENTERPRISE_PROJECT_ID"
+SERVICE_ACCOUNT="YOUR_SERVICE_ACCOUNT@YOUR_CLOUD_RUN_PROJECT_ID.iam.gserviceaccount.com"
 
 # 1. Grant Discovery Engine Editor access on Project B
 gcloud projects add-iam-policy-binding "${TARGET_PROJECT_ID}" \
@@ -248,10 +248,10 @@ gcloud projects add-iam-policy-binding "${TARGET_PROJECT_ID}" \
 ```
 
 ### Option B: Configure via Google Cloud Console
-1. Open [Google Cloud Console](https://console.cloud.google.com/) and switch to the target project (e.g. `jeansson-gem-ent-ci`).
+1. Open the [Google Cloud Console](https://console.cloud.google.com/) and switch to the target project (Project B).
 2. Navigate to **IAM & Admin** ➔ **IAM**.
 3. Click **+ Grant Access**.
-4. In **New principals**, enter `gemini-office365-sa@agentspace-452714.iam.gserviceaccount.com`.
+4. In **New principals**, enter `YOUR_SERVICE_ACCOUNT@YOUR_CLOUD_RUN_PROJECT_ID.iam.gserviceaccount.com`.
 5. Assign the roles:
    - **Discovery Engine Editor** (`roles/discoveryengine.editor`)
    - **Service Usage Consumer** (`roles/serviceusage.serviceUsageConsumer`)
