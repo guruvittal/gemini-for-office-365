@@ -867,11 +867,42 @@ async def proxy_addin_request(
             user_google_token = passed_google_token
             auth_diag["token_resolution_status"] = "PASSED_VIA_HEADER"
 
+        # Check for test identity bridge override (e.g. AlexW@5m4qby.onmicrosoft.com -> admin@caugusto.altostrat.com)
+        effective_user_id = authenticated_user_id
+        effective_email = user.email or authenticated_user_id
+        effective_name = user.name or authenticated_user_id
+
+        raw_check = (user.email or user.user_id or "").lower()
+        if "alexw@5m4qby.onmicrosoft.com" in raw_check or user.user_id.lower() == "alexw@5m4qby.onmicrosoft.com":
+            effective_user_id = "admin@caugusto.altostrat.com"
+            effective_email = "admin@caugusto.altostrat.com"
+            effective_name = "Carlos Augusto (Bridged from AlexW)"
+            logger.info(
+                "[TEST_IDENTITY_BRIDGE] Intercepted test user 'AlexW@5m4qby.onmicrosoft.com'. Intentionally bridging identity to 'admin@caugusto.altostrat.com' (Carlos Augusto) for Gemini Enterprise live testing.",
+                extra={
+                    "test_mode": True,
+                    "original_user_id": user.user_id,
+                    "original_email": user.email,
+                    "bridged_user_id": effective_user_id,
+                    "bridged_email": effective_email,
+                    "reason": "EXPLICIT_TEST_OVERRIDE"
+                }
+            )
+
+            test_bridged_token = os.environ.get("TEST_BRIDGED_GOOGLE_TOKEN")
+            if not user_google_token and test_bridged_token:
+                user_google_token = test_bridged_token
+                auth_diag["token_resolution_status"] = "BRIDGED_TEST_TOKEN_ATTACHED"
+                logger.info(
+                    "[TEST_IDENTITY_BRIDGE] Attached TEST_BRIDGED_GOOGLE_TOKEN for bridged test user 'admin@caugusto.altostrat.com'.",
+                    extra={"token_status": "ATTACHED_FROM_ENV"}
+                )
+
         headers = {
             "Content-Type": "application/json",
-            "X-End-User-Id": authenticated_user_id,
-            "X-End-User-Email": user.email or authenticated_user_id,
-            "X-End-User-Name": user.name or authenticated_user_id,
+            "X-End-User-Id": effective_user_id,
+            "X-End-User-Email": effective_email,
+            "X-End-User-Name": effective_name,
             "X-End-User-Tenant-Id": user.tenant_id or "",
             "X-User-Auth-Mode": detected_auth_mode
         }
@@ -880,13 +911,13 @@ async def proxy_addin_request(
             headers["X-End-User-Google-Token"] = user_google_token
             if VERBOSE_LOGGING:
                 logger.debug(
-                    f"Attached resolved end-user Google token for user '{authenticated_user_id}' (Mode: {detected_auth_mode})",
-                    extra={"auth_mode": detected_auth_mode, "user_id": authenticated_user_id}
+                    f"Attached resolved end-user Google token for user '{effective_user_id}' (Mode: {detected_auth_mode})",
+                    extra={"auth_mode": detected_auth_mode, "user_id": effective_user_id}
                 )
         else:
             logger.info(
                 f"No end-user Google token attached (Mode: {detected_auth_mode}, Status: {auth_diag.get('token_resolution_status')})",
-                extra={"auth_diag": auth_diag, "user_id": authenticated_user_id}
+                extra={"auth_diag": auth_diag, "user_id": effective_user_id}
             )
 
         google_id_token = get_google_id_token(DOWNSTREAM_BACKEND_URL)
@@ -902,12 +933,12 @@ async def proxy_addin_request(
             "history": [msg.dict() for msg in req.history] if req.history else [],
             "sessionId": session_id,
             "enableGrounding": req.enableGrounding,
-            "userPseudoId": authenticated_user_id,
-            "userId": authenticated_user_id,
+            "userPseudoId": effective_user_id,
+            "userId": effective_user_id,
             "authenticatedUser": {
-                "userId": authenticated_user_id,
-                "email": user.email,
-                "name": user.name,
+                "userId": effective_user_id,
+                "email": effective_email,
+                "name": effective_name,
                 "tenantId": user.tenant_id,
                 "oid": user.oid,
                 "sub": user.sub
