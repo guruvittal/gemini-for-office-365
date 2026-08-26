@@ -908,11 +908,12 @@ async def proxy_addin_request(
         }
 
         try:
+            downstream_timeout = int(os.environ.get("DOWNSTREAM_TIMEOUT", "300"))
             resp = requests.post(
                 target_endpoint,
                 json=downstream_payload,
                 headers=headers,
-                timeout=120
+                timeout=downstream_timeout
             )
 
             if resp.status_code >= 400:
