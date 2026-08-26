@@ -790,6 +790,7 @@ async def validate_token_endpoint(user: AuthenticatedUser = Depends(verify_entra
 @app.post("/api/gemini/chat")
 async def proxy_addin_request(
     req: OfficeAddinRequest, 
+    request: Request,
     user: AuthenticatedUser = Depends(verify_entra_token)
 ):
     """
@@ -859,6 +860,12 @@ async def proxy_addin_request(
             project_id=GCP_PROJECT_ID,
             location=GCP_LOCATION
         )
+
+        # Forward explicit X-End-User-Google-Token header if provided (testing / direct pass-through)
+        passed_google_token = request.headers.get("x-end-user-google-token")
+        if passed_google_token:
+            user_google_token = passed_google_token
+            auth_diag["token_resolution_status"] = "PASSED_VIA_HEADER"
 
         headers = {
             "Content-Type": "application/json",
