@@ -7,7 +7,7 @@
  * @author Sathya AG, Principal Architect, Google
  */
 
-import { askGeminiEnterprise, getActiveProxyUrl, setProxyUrlOverride } from '../core/geminiClient.js';
+import { askGeminiEnterprise, getActiveProxyUrl, setProxyUrlOverride, getGoogleAccessToken, setGoogleAccessToken } from '../core/geminiClient.js';
 import { parseMarkdown } from '../core/markdownParser.js';
 import { HostAdapterFactory } from '../adapters/HostAdapterFactory.js';
 
@@ -30,6 +30,137 @@ Office.onReady((info) => {
   const scanBtn = document.getElementById("scanInDoc");
   if (scanBtn) {
     scanBtn.onclick = () => checkForInDocumentCommands(true);
+  }
+
+  // Google Enterprise Auth Panel Setup
+  const authBtn = document.getElementById("authBtn");
+  const authPanel = document.getElementById("authPanel");
+  const closeAuthPanel = document.getElementById("closeAuthPanel");
+  const googleTokenInput = document.getElementById("googleTokenInput");
+  const saveTokenBtn = document.getElementById("saveTokenBtn");
+  const clearTokenBtn = document.getElementById("clearTokenBtn");
+  const tokenStatusMsg = document.getElementById("tokenStatusMsg");
+
+  if (authBtn && authPanel) {
+    const existingToken = getGoogleAccessToken();
+    if (existingToken) {
+      authBtn.style.color = '#107c41';
+      authBtn.style.borderColor = '#107c41';
+      authBtn.innerHTML = '🔑 Google (Auth)';
+    }
+
+    authBtn.onclick = () => {
+      authPanel.style.display = authPanel.style.display === 'none' ? 'block' : 'none';
+      if (googleTokenInput) {
+        googleTokenInput.value = getGoogleAccessToken();
+      }
+    };
+  }
+
+  if (closeAuthPanel && authPanel) {
+    closeAuthPanel.onclick = () => { authPanel.style.display = 'none'; };
+  }
+
+  if (saveTokenBtn) {
+    saveTokenBtn.onclick = () => {
+      const val = googleTokenInput ? googleTokenInput.value.trim() : '';
+      setGoogleAccessToken(val);
+      if (val) {
+        if (tokenStatusMsg) {
+          tokenStatusMsg.style.color = '#107c41';
+          tokenStatusMsg.innerText = '✅ Google User OAuth Token Saved!';
+        }
+        if (authBtn) {
+          authBtn.style.color = '#107c41';
+          authBtn.style.borderColor = '#107c41';
+          authBtn.innerHTML = '🔑 Google (Auth)';
+        }
+      } else {
+        if (tokenStatusMsg) {
+          tokenStatusMsg.style.color = '#605e5c';
+          tokenStatusMsg.innerText = 'Token cleared.';
+        }
+        if (authBtn) {
+          authBtn.style.color = '#323130';
+          authBtn.style.borderColor = '#8a8886';
+          authBtn.innerHTML = '🔑 Google Auth';
+        }
+      }
+      setTimeout(() => { if (authPanel) authPanel.style.display = 'none'; }, 1000);
+    };
+  }
+
+  if (clearTokenBtn) {
+    clearTokenBtn.onclick = () => {
+      setGoogleAccessToken('');
+      if (googleTokenInput) googleTokenInput.value = '';
+      if (tokenStatusMsg) {
+        tokenStatusMsg.style.color = '#605e5c';
+        tokenStatusMsg.innerText = 'Token cleared.';
+      }
+      if (authBtn) {
+        authBtn.style.color = '#323130';
+        authBtn.style.borderColor = '#8a8886';
+        authBtn.innerHTML = '🔑 Google Auth';
+      }
+    };
+  }
+
+  const googleSignInBtn = document.getElementById("googleSignInBtn");
+  if (googleSignInBtn) {
+    googleSignInBtn.onclick = () => {
+      try {
+        if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+          if (tokenStatusMsg) {
+            tokenStatusMsg.style.color = '#a4262c';
+            tokenStatusMsg.innerText = 'Google Identity SDK loading... please wait a moment or paste token below.';
+          }
+          return;
+        }
+
+        const clientId = window.localStorage ? (window.localStorage.getItem('google_oauth_client_id') || '36841365232-oauth.apps.googleusercontent.com') : '36841365232-oauth.apps.googleusercontent.com';
+
+        const client = google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: 'https://www.googleapis.com/auth/cloud-platform',
+          callback: (tokenResponse) => {
+            if (tokenResponse && tokenResponse.access_token) {
+              setGoogleAccessToken(tokenResponse.access_token);
+              if (googleTokenInput) googleTokenInput.value = tokenResponse.access_token;
+              if (tokenStatusMsg) {
+                tokenStatusMsg.style.color = '#107c41';
+                tokenStatusMsg.innerText = '✅ Successfully Signed in with Google!';
+              }
+              if (authBtn) {
+                authBtn.style.color = '#107c41';
+                authBtn.style.borderColor = '#107c41';
+                authBtn.innerHTML = '🔑 Google (Auth)';
+              }
+              setTimeout(() => { if (authPanel) authPanel.style.display = 'none'; }, 1200);
+            } else if (tokenResponse && tokenResponse.error) {
+              if (tokenStatusMsg) {
+                tokenStatusMsg.style.color = '#a4262c';
+                tokenStatusMsg.innerText = `Sign in: ${tokenResponse.error_description || tokenResponse.error}`;
+              }
+            }
+          },
+          error_callback: (err) => {
+            if (tokenStatusMsg) {
+              tokenStatusMsg.style.color = '#a4262c';
+              tokenStatusMsg.innerText = `Sign in: ${err.message || 'Popup blocked or cancelled'}`;
+            }
+          }
+        });
+
+        client.requestAccessToken();
+      } catch (err) {
+        console.error('Google Sign in error:', err);
+        if (tokenStatusMsg) {
+          tokenStatusMsg.style.color = '#a4262c';
+          tokenStatusMsg.innerText = `Sign in: ${err.message}`;
+        }
+      }
+    };
   }
 
   // Target Proxy Endpoint selector setup
@@ -107,6 +238,27 @@ function adaptUIForHost(hostName) {
     if (chipActionItems) chipActionItems.innerHTML = `✅ Action Items`;
     if (chipExecBox) chipExecBox.innerHTML = `💡 Executive Card`;
     if (welcomeBubble) welcomeBubble.innerHTML = `Type a prompt below, click a <strong>Doc Chip</strong> above, or highlight text in Word!`;
+  }
+
+  // Detect Gemini Enterprise StreamAssist Mode
+  if (typeof window !== 'undefined' && window.location) {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('backend') === 'streamassist') {
+      const titleEl = document.querySelector(".header h3");
+      if (titleEl) {
+        titleEl.innerHTML = `✨ Gemini Enterprise <span class="header-badge" style="background:#e8f5e9; color:#1b5e20;">🍔 Wendy's KB</span>`;
+      }
+      if (welcomeBubble) {
+        welcomeBubble.innerHTML = `Connected to <strong>Wendy's Gemini Enterprise Assistant</strong> (HR, Sales, SharePoint, Box, ServiceNow). Answers are grounded on Wendy's internal records with citations!`;
+      }
+      const promptInput = document.getElementById("promptText");
+      if (promptInput) {
+        promptInput.placeholder = "Ask Wendy's Enterprise Knowledge Base (HR, Sales, SharePoint)...";
+      }
+      if (debugStatus) {
+        debugStatus.innerText = `Enterprise: Wendy's (${hostName})`;
+      }
+    }
   }
 }
 
@@ -348,7 +500,8 @@ async function executeGeminiWorkflow(fullPrompt, displayUserBubble) {
 
   if (runButton) runButton.disabled = true;
   if (loadingText) {
-    loadingText.innerText = "⚡ Gemini 2.5 is thinking...";
+    const isEnterprise = typeof window !== 'undefined' && window.location && new URLSearchParams(window.location.search).get('backend') === 'streamassist';
+    loadingText.innerText = isEnterprise ? "⚡ Gemini Enterprise is thinking..." : "⚡ Gemini Guru is thinking...";
     loadingText.style.display = "block";
   }
 
@@ -494,7 +647,13 @@ async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {
   }
 
   try {
-    await hostAdapter.insertContent(htmlContent, rawText);
+    const insertPromise = hostAdapter.insertContent(htmlContent, rawText);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Operation timed out after 60 seconds")), 60000)
+    );
+
+    await Promise.race([insertPromise, timeoutPromise]);
+
     const debugStatus = document.getElementById("debugStatus");
     if (debugStatus) {
       const host = hostAdapter?.name || 'Office';
@@ -502,7 +661,7 @@ async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {
     }
   } catch (err) {
     console.error("Document insertion error:", err);
-    appendBubble(`🔴 Insertion Error: ${err.message || err}`, "system");
+    appendBubble(`🔴 Insertion Notice: ${err.message || err}`, "system");
   } finally {
     if (runButton) runButton.disabled = false;
     if (loadingText) loadingText.style.display = "none";
