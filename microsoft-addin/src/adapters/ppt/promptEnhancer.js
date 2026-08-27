@@ -12,19 +12,20 @@
 export function enhancePromptForPowerPoint(userPrompt) {
   // If the user is asking to create, generate, or make slides, append structured formatting rules.
   const lowerPrompt = userPrompt.toLowerCase();
-  if (lowerPrompt.includes("slide") || lowerPrompt.includes("presentation") || lowerPrompt.includes("deck")) {
+  if (lowerPrompt.includes("slide") || lowerPrompt.includes("presentation") || lowerPrompt.includes("deck") || lowerPrompt.includes("table") || lowerPrompt.includes("pitch")) {
     const rules = `
 IMPORTANT RULES FOR SLIDE GENERATION:
 1. Do NOT use the canvas feature. Provide the complete content directly in your text response.
-2. Structure your response clearly using Markdown Headings (e.g. ## Slide 1: [Title]) for each slide.
+2. Structure your response clearly using Markdown Headings (e.g. ## Slide 1: [Emoji] [Title]) for each slide.
 3. For each slide, provide:
-   - A clear **Title** (as the heading).
+   - A clear **Title** prefixed with a relevant **Emoji / Icon** (e.g., "📊 Executive Summary", "🚀 Growth Strategy", "🌍 Global Demographics", "📌 Key Takeaways").
    - A **Subtitle** (if applicable, clearly labeled).
-   - **Main Content** (use bullet points for readability).
+   - **Main Content** (use bullet points for readability, or a markdown table for structured comparison data).
    - **Visual Concept** (describe the recommended image/chart, labeled "Visual Concept:").
    - Recommended **Theme Color** (labeled "Color:").
    - Recommended **Title Font Size** and **Subtitle Font Size** (e.g., "Title Size: 44", "Subtitle Size: 24").
-4. Provide all slides in a single response, cleanly separated by headings.
+4. If presenting structured comparison data or metrics, format the main content as a clean Markdown table.
+5. Provide all slides in a single response, cleanly separated by headings.
 `;
     return `${userPrompt}\n\n${rules}`;
   }

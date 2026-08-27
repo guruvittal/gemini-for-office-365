@@ -602,17 +602,12 @@ function cleanSlideTitle(rawTitle, defaultNum = 1) {
     .replace(/^[#*\s:]+/, "")
     .replace(/^\d+[\.\)]\s*/, "")
     .replace(/^Slide\s*\d+[:\-–—]?\s*/i, "")
-    .replace(/^(?:of\s+course\s*,\s*|sure\s*,\s*|certainly\s*,\s*|absolutely\s*,\s*)/i, "")
+    .replace(/^(?:of\s+course[.,]?\s*|sure[.,]?\s*|certainly[.,]?\s*|absolutely[.,]?\s*)/i, "")
     .replace(/^(?:here\s+is\s+(?:a\s+)?(?:table|comparison|list|breakdown|summary)?\s+(?:of|comparing|for)?|below\s+is\s+(?:a\s+)?(?:table|comparison|list|breakdown|summary)?\s+(?:of|comparing|for)?)\s*/i, "")
     .replace(/^(?:a\s+table\s+of|a\s+comparison\s+of|table\s+of|comparison\s+of)\s*/i, "")
-    .replace(/^the\s+/i, "")
     .replace(/[:.]+$/, "")
     .replace(/\*\*/g, "")
     .trim();
 
-  // Capitalize first letter
-  if (clean.length > 0) {
-    clean = clean.charAt(0).toUpperCase() + clean.slice(1);
-  }
   return clean || `Slide ${defaultNum}`;
 }
