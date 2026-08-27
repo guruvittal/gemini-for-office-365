@@ -5,13 +5,7 @@
  */
 
 export function getActiveProxyUrl() {
-  if (typeof window !== 'undefined' && window.location) {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('backend') === 'streamassist') {
-      return 'https://gemini-enterprise-proxy-133594738129.us-central1.run.app/askGeminiEnterprise';
-    }
-  }
-  return 'https://us-central1-genai-demo-catalog.cloudfunctions.net/askGemini';
+  return 'https://gemini-proxy-j43mxpthfa-uc.a.run.app/askGeminiEnterprise';
 }
 
 export function setProxyUrlOverride(url) {
@@ -48,6 +42,23 @@ function getOfficeUserId() {
   return 'office_365_user';
 }
 
+export function getGoogleAccessToken() {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    return window.localStorage.getItem('google_access_token') || '';
+  }
+  return '';
+}
+
+export function setGoogleAccessToken(token) {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    if (token) {
+      window.localStorage.setItem('google_access_token', token.trim());
+    } else {
+      window.localStorage.removeItem('google_access_token');
+    }
+  }
+}
+
 export async function askGeminiEnterprise(prompt, history = [], sessionId = null, enableGrounding = true) {
   const functionUrl = getActiveProxyUrl();
 
@@ -61,11 +72,18 @@ export async function askGeminiEnterprise(prompt, history = [], sessionId = null
     payload.sessionId = sessionId;
   }
 
-  console.log(`Sending request to proxy endpoint: ${functionUrl}`);
+  const token = getGoogleAccessToken();
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+    payload.userAccessToken = token;
+  }
+
+  console.log(`Sending request to proxy endpoint: ${functionUrl} (Auth: ${token ? 'USER_TOKEN' : 'ANONYMOUS'})`);
 
   const response = await fetch(functionUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: headers,
     body: JSON.stringify(payload)
   });
 

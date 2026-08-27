@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0" xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="TaskPaneApp">
-  <Id>af1c0fec-3244-4f0f-b8aa-7aaf561a141d</Id>
+  <Id>b92d1efe-4355-5f10-c9bb-8bbf672b252e</Id>
   <Version>1.0.0.0</Version>
   <ProviderName>Google</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Gemini Guru"/>
-  <Description DefaultValue="Gemini Guru AI Assistant on Vertex AI for Microsoft Word, PowerPoint, and Excel."/>
+  <DisplayName DefaultValue="Gemini Enterprise"/>
+  <Description DefaultValue="Gemini Enterprise Grounded AI Assistant (StreamAssist &amp; Vertex Search) for Microsoft Word, PowerPoint, and Excel."/>
   <IconUrl DefaultValue="https://gemini-frontend-j43mxpthfa-uc.a.run.app/assets/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://gemini-frontend-j43mxpthfa-uc.a.run.app/assets/icon-64.png"/>
   <SupportUrl DefaultValue="https://cloud.google.com/vertex-ai"/>
@@ -19,7 +19,7 @@
     <Host Name="Presentation"/>
   </Hosts>
   <DefaultSettings>
-    <SourceLocation DefaultValue="https://gemini-frontend-j43mxpthfa-uc.a.run.app/taskpane.html"/>
+    <SourceLocation DefaultValue="https://gemini-frontend-j43mxpthfa-uc.a.run.app/taskpane.html?backend=streamassist"/>
   </DefaultSettings>
   <Permissions>ReadWriteDocument</Permissions>
 
@@ -152,16 +152,16 @@
       <bt:Urls>
         <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://cloud.google.com/vertex-ai"/>
         <bt:Url id="Commands.Url" DefaultValue="https://gemini-frontend-j43mxpthfa-uc.a.run.app/commands.html"/>
-        <bt:Url id="Taskpane.Url" DefaultValue="https://gemini-frontend-j43mxpthfa-uc.a.run.app/taskpane.html"/>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://gemini-frontend-j43mxpthfa-uc.a.run.app/taskpane.html?backend=streamassist"/>
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="GetStarted.Title" DefaultValue="Gemini Guru"/>
-        <bt:String id="CommandsGroup.Label" DefaultValue="Gemini Guru"/>
-        <bt:String id="TaskpaneButton.Label" DefaultValue="Gemini Guru"/>
+        <bt:String id="GetStarted.Title" DefaultValue="Gemini Enterprise"/>
+        <bt:String id="CommandsGroup.Label" DefaultValue="Gemini Enterprise"/>
+        <bt:String id="TaskpaneButton.Label" DefaultValue="Gemini Enterprise"/>
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="Gemini Guru AI Assistant for Microsoft Word, PowerPoint, and Excel."/>
-        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open Gemini Guru AI Assistant."/>
+        <bt:String id="GetStarted.Description" DefaultValue="Gemini Enterprise Grounded AI Assistant (StreamAssist &amp; Vertex Search) for Microsoft Word, PowerPoint, and Excel."/>
+        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open Gemini Enterprise AI Assistant."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>
