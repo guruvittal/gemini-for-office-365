@@ -173,8 +173,6 @@ Office.onReady(async (info) => {
 async function initAuthUI() {
   const userEmailText = document.getElementById("userEmailText");
   const userStatusDot = document.getElementById("userStatusDot");
-  const userAuthBadge = document.getElementById("userAuthBadge");
-
   const googleDriveBtn = document.getElementById("googleDriveBtn");
 
   try {
@@ -186,40 +184,32 @@ async function initAuthUI() {
     if (token && profile.is_authenticated) {
       if (userEmailText) {
         userEmailText.innerText = profile.email || profile.name;
-        userEmailText.title = `Signed in as ${profile.email} (Tenant: ${profile.tenant_id || 'Entra ID'})`;
+        userEmailText.className = "user-email-text";
+        userEmailText.title = `Connected to Microsoft 365 as ${profile.email} (Tenant: ${profile.tenant_id || 'Entra ID'})`;
       }
       if (userStatusDot) {
         userStatusDot.className = "user-status-dot";
-        userStatusDot.title = "Connected with Microsoft Entra ID";
-      }
-      if (userAuthBadge) {
-        userAuthBadge.innerText = "Office 365";
-        userAuthBadge.className = "user-auth-mode-badge active";
-        userAuthBadge.title = `Authenticated SSO session (${profile.email})`;
+        userStatusDot.title = "Connected to Microsoft 365";
       }
     } else {
-      const errHint = lastErr ? `SSO: ${lastErr.message || lastErr.code || JSON.stringify(lastErr)}` : "Click to sign in with Microsoft Entra ID";
+      const errHint = lastErr ? `SSO: ${lastErr.message || lastErr.code || JSON.stringify(lastErr)}` : "Not connected to Microsoft 365";
       if (userEmailText) {
-        userEmailText.innerText = profile.email && profile.email !== 'user@organization.com' ? profile.email : "Sign In / Entra ID";
+        userEmailText.innerText = profile.email && profile.email !== 'user@organization.com' ? profile.email : "Not Connected";
+        userEmailText.className = "user-email-text offline";
         userEmailText.title = errHint;
       }
       if (userStatusDot) {
         userStatusDot.className = "user-status-dot offline";
         userStatusDot.title = errHint;
       }
-      if (userAuthBadge) {
-        userAuthBadge.innerText = lastErr ? "Sign In" : "Office 365";
-        userAuthBadge.className = "user-auth-mode-badge";
-        userAuthBadge.title = errHint;
-      }
     }
 
-    // 2. Google Drive 3-Legged OAuth status
+    // 2. Google / Gemini OAuth status
     if (googleDriveBtn) {
       if (isGoogleTokenValid()) {
         googleDriveBtn.className = "google-drive-btn connected";
-        googleDriveBtn.innerHTML = "✅ Google Connected";
-        googleDriveBtn.title = "Google identity & grounding active (OAuth token valid)";
+        googleDriveBtn.innerHTML = "✅ Gemini Connected";
+        googleDriveBtn.title = "Gemini Enterprise grounding active (OAuth token valid)";
       } else {
         googleDriveBtn.className = "google-drive-btn";
         googleDriveBtn.innerHTML = "Login with Google";
@@ -228,7 +218,10 @@ async function initAuthUI() {
     }
   } catch (err) {
     console.warn("Auth UI init error:", err);
-    if (userEmailText) userEmailText.innerText = "Unauthenticated";
+    if (userEmailText) {
+      userEmailText.innerText = "Unauthenticated";
+      userEmailText.className = "user-email-text offline";
+    }
     if (userStatusDot) userStatusDot.className = "user-status-dot offline";
   } finally {
     updateDiagnosticsPanel().catch(() => {});

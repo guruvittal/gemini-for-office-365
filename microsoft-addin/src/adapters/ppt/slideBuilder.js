@@ -120,13 +120,11 @@ async function getThemeBlankLayoutOptions() {
 /**
  * Populates a native Microsoft PowerPoint table using PowerPoint.js shapes.addTable().
  */
-function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum) {
+function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, tableTop = 90) {
   const headers = tableData.headers || [];
   const rows = tableData.rows || [];
   const colCount = Math.max(headers.length, ...rows.map(r => r.length), 1);
   const rowCount = (headers.length > 0 ? 1 : 0) + rows.length;
-
-  const tableTop = subtitle ? 110 : 85;
 
   const tableValues = [];
   if (headers.length > 0) {
@@ -181,13 +179,13 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
 /**
  * Calculates adaptive font size so titles strictly remain on a single line.
  */
-function getAdaptiveTitleFontSize(title, requestedSize = 36) {
+function getAdaptiveTitleFontSize(title, requestedSize = 30) {
   const len = (title || "").length;
-  let size = requestedSize || 36;
-  if (len > 60) size = Math.min(size, 20);
-  else if (len > 45) size = Math.min(size, 24);
-  else if (len > 35) size = Math.min(size, 28);
-  else size = Math.min(size, 34);
+  let size = requestedSize || 30;
+  if (len > 40) size = Math.min(size, 18);
+  else if (len > 30) size = Math.min(size, 22);
+  else if (len > 20) size = Math.min(size, 26);
+  else size = Math.min(size, 30);
   return size;
 }
 
@@ -197,8 +195,8 @@ function getAdaptiveTitleFontSize(title, requestedSize = 36) {
 async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
   const cleanTitle = (slideData.title || `Slide ${slideNum}`).replace(/\*\*/g, "").trim();
   const subtitle = slideData.subtitle || "";
-  const titleSize = getAdaptiveTitleFontSize(cleanTitle, slideData.titleSize || 36);
-  const subtitleSize = slideData.subtitleSize || 20;
+  const titleSize = getAdaptiveTitleFontSize(cleanTitle, slideData.titleSize || 30);
+  const subtitleSize = slideData.subtitleSize || 18;
   const color = slideData.color || null;
   const bodyTextContent = slideData.body || "• Executive slide content";
   const tableData = slideData.tableData || null;
@@ -241,12 +239,12 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
       await context.sync();
     }
 
-    // Add Clean Title at Top
+    // Add Clean Title at Top (single line)
     const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
       left: 50,
-      top: 30,
+      top: 25,
       width: 860,
-      height: 45
+      height: 38
     });
     titleBox.textFrame.textRange.font.size = titleSize;
     titleBox.textFrame.textRange.font.bold = true;
@@ -255,25 +253,28 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
     } catch (wErr) {}
     if (color) titleBox.textFrame.textRange.font.color = color;
 
+    let contentTop = 75;
+
     // Add Subtitle if present
     if (subtitle) {
       const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
         left: 50,
-        top: 75,
+        top: 68,
         width: 860,
         height: 25
       });
       subtitleBox.textFrame.textRange.font.size = subtitleSize;
       subtitleBox.textFrame.textRange.font.italic = true;
       if (color) subtitleBox.textFrame.textRange.font.color = color;
+      contentTop = 102;
     }
 
     // If tableData is present, create native PowerPoint table
     if (tableData && tableData.rows && tableData.rows.length > 0) {
-      populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum);
+      populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop);
     } else {
       // Body text / bullets and images
-      const bodyTop = subtitle ? 115 : 85;
+      const bodyTop = contentTop;
       const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
         left: 50,
         top: bodyTop,

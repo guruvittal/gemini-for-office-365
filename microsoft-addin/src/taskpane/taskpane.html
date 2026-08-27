@@ -97,9 +97,8 @@
         .user-identity-container { display: flex; align-items: center; gap: 6px; overflow: hidden; }
         .user-status-dot { width: 7px; height: 7px; border-radius: 50%; background-color: #107c41; flex-shrink: 0; }
         .user-status-dot.offline { background-color: #a19f9d; }
-        .user-email-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
-        .user-auth-mode-badge { font-size: 9px; background: #e1dfdd; color: #323130; padding: 1px 5px; border-radius: 8px; font-weight: 600; text-transform: uppercase; flex-shrink: 0; }
-        .user-auth-mode-badge.active { background: #dff6dd; color: #107c41; }
+        .user-email-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: #107c41; }
+        .user-email-text.offline { color: #605e5c; font-weight: 500; }
         .google-drive-btn { background-color: #ffffff; color: #1a73e8; border: 1px solid #dadce0; border-radius: 10px; padding: 2px 7px; font-size: 10px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; transition: all 0.15s ease; }
         .google-drive-btn:hover { background-color: #e8f0fe; border-color: #1a73e8; }
         .google-drive-btn.connected { background-color: #e6f4ea; color: #137333; border-color: #ceead6; }
@@ -223,12 +222,11 @@
     <!-- SSO Authenticated Identity Indicator & Google Connector -->
     <div class="user-auth-bar" id="userAuthBar" title="Microsoft 365 Single Sign-On Identity">
         <div class="user-identity-container">
-            <span class="user-status-dot" id="userStatusDot"></span>
+            <span class="user-status-dot" id="userStatusDot" title="Microsoft 365 Status"></span>
             <span class="user-email-text" id="userEmailText">Connecting to Office SSO...</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 5px;">
+        <div>
             <button class="google-drive-btn" id="googleDriveBtn" title="Sign in with Google for Gemini Enterprise document grounding">Login with Google</button>
-            <span class="user-auth-mode-badge active" id="userAuthBadge">Office 365</span>
         </div>
     </div>
 

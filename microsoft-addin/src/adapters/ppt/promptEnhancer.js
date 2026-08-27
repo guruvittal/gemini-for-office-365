@@ -18,7 +18,7 @@ IMPORTANT RULES FOR SLIDE GENERATION:
 1. Do NOT use the canvas feature. Provide the complete content directly in your text response.
 2. Structure your response clearly using Markdown Headings (e.g. ## Slide 1: [Emoji] [Title]) for each slide.
 3. For each slide, provide:
-   - A clear, punchy **Title** of **no more than 4 words (under 45 characters)** prefixed with a relevant **Emoji / Icon** (e.g., "📊 Executive Summary", "🚀 Growth Strategy", "🌍 Global Demographics", "📌 Key Takeaways").
+   - A short, punchy **Title** of **MAXIMUM 3 TO 4 WORDS (under 40 characters)** prefixed with a relevant **Emoji / Icon** (e.g., "📊 Executive Summary", "🚀 Growth Strategy", "🌍 Demographics", "📌 Financial Highlights"). Put extra details (like dates or quarters) into the Subtitle.
    - A **Subtitle** (if applicable, clearly labeled).
    - **Main Content** (use bullet points for readability, or a markdown table for structured comparison data).
    - **Visual Concept** (describe the recommended image/chart, labeled "Visual Concept:").

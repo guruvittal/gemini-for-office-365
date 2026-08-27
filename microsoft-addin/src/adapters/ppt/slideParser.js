@@ -609,5 +609,18 @@ function cleanSlideTitle(rawTitle, defaultNum = 1) {
     .replace(/\*\*/g, "")
     .trim();
 
+  // Enforce maximum 4 words (under 40 chars)
+  const words = clean.split(/\s+/);
+  if (words.length > 5) {
+    const hasEmoji = /^\p{Extended_Pictographic}/u.test(words[0]);
+    const maxWords = hasEmoji ? 5 : 4;
+    if (words.length > maxWords) {
+      clean = words.slice(0, maxWords).join(" ");
+    }
+  }
+  if (clean.length > 40) {
+    clean = clean.substring(0, 40).replace(/\s+\S*$/, "").trim();
+  }
+
   return clean || `Slide ${defaultNum}`;
 }
