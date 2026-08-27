@@ -179,12 +179,25 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
 }
 
 /**
+ * Calculates adaptive font size so titles strictly remain on a single line.
+ */
+function getAdaptiveTitleFontSize(title, requestedSize = 36) {
+  const len = (title || "").length;
+  let size = requestedSize || 36;
+  if (len > 60) size = Math.min(size, 20);
+  else if (len > 45) size = Math.min(size, 24);
+  else if (len > 35) size = Math.min(size, 28);
+  else size = Math.min(size, 34);
+  return size;
+}
+
+/**
  * Creates a single slide atomically in PowerPoint with title, body bullets, native tables, or images.
  */
 async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
   const cleanTitle = (slideData.title || `Slide ${slideNum}`).replace(/\*\*/g, "").trim();
   const subtitle = slideData.subtitle || "";
-  const titleSize = slideData.titleSize || 36;
+  const titleSize = getAdaptiveTitleFontSize(cleanTitle, slideData.titleSize || 36);
   const subtitleSize = slideData.subtitleSize || 20;
   const color = slideData.color || null;
   const bodyTextContent = slideData.body || "• Executive slide content";
@@ -237,6 +250,9 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
     });
     titleBox.textFrame.textRange.font.size = titleSize;
     titleBox.textFrame.textRange.font.bold = true;
+    try {
+      titleBox.textFrame.wordWrap = false;
+    } catch (wErr) {}
     if (color) titleBox.textFrame.textRange.font.color = color;
 
     // Add Subtitle if present
