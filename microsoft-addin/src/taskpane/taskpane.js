@@ -7,7 +7,7 @@
  * @author Sathya AG, Principal Architect, Google
  */
 
-import { askGeminiEnterprise, getActiveProxyUrl, setProxyUrlOverride } from '../core/geminiClient.js';
+import { askGeminiEnterprise, getActiveProxyUrl, setProxyUrlOverride, getGoogleAccessToken, setGoogleAccessToken } from '../core/geminiClient.js';
 import { parseMarkdown } from '../core/markdownParser.js';
 import { HostAdapterFactory } from '../adapters/HostAdapterFactory.js';
 
@@ -30,6 +30,137 @@ Office.onReady((info) => {
   const scanBtn = document.getElementById("scanInDoc");
   if (scanBtn) {
     scanBtn.onclick = () => checkForInDocumentCommands(true);
+  }
+
+  // Google Enterprise Auth Panel Setup
+  const authBtn = document.getElementById("authBtn");
+  const authPanel = document.getElementById("authPanel");
+  const closeAuthPanel = document.getElementById("closeAuthPanel");
+  const googleTokenInput = document.getElementById("googleTokenInput");
+  const saveTokenBtn = document.getElementById("saveTokenBtn");
+  const clearTokenBtn = document.getElementById("clearTokenBtn");
+  const tokenStatusMsg = document.getElementById("tokenStatusMsg");
+
+  if (authBtn && authPanel) {
+    const existingToken = getGoogleAccessToken();
+    if (existingToken) {
+      authBtn.style.color = '#107c41';
+      authBtn.style.borderColor = '#107c41';
+      authBtn.innerHTML = '🔑 Google (Auth)';
+    }
+
+    authBtn.onclick = () => {
+      authPanel.style.display = authPanel.style.display === 'none' ? 'block' : 'none';
+      if (googleTokenInput) {
+        googleTokenInput.value = getGoogleAccessToken();
+      }
+    };
+  }
+
+  if (closeAuthPanel && authPanel) {
+    closeAuthPanel.onclick = () => { authPanel.style.display = 'none'; };
+  }
+
+  if (saveTokenBtn) {
+    saveTokenBtn.onclick = () => {
+      const val = googleTokenInput ? googleTokenInput.value.trim() : '';
+      setGoogleAccessToken(val);
+      if (val) {
+        if (tokenStatusMsg) {
+          tokenStatusMsg.style.color = '#107c41';
+          tokenStatusMsg.innerText = '✅ Google User OAuth Token Saved!';
+        }
+        if (authBtn) {
+          authBtn.style.color = '#107c41';
+          authBtn.style.borderColor = '#107c41';
+          authBtn.innerHTML = '🔑 Google (Auth)';
+        }
+      } else {
+        if (tokenStatusMsg) {
+          tokenStatusMsg.style.color = '#605e5c';
+          tokenStatusMsg.innerText = 'Token cleared.';
+        }
+        if (authBtn) {
+          authBtn.style.color = '#323130';
+          authBtn.style.borderColor = '#8a8886';
+          authBtn.innerHTML = '🔑 Google Auth';
+        }
+      }
+      setTimeout(() => { if (authPanel) authPanel.style.display = 'none'; }, 1000);
+    };
+  }
+
+  if (clearTokenBtn) {
+    clearTokenBtn.onclick = () => {
+      setGoogleAccessToken('');
+      if (googleTokenInput) googleTokenInput.value = '';
+      if (tokenStatusMsg) {
+        tokenStatusMsg.style.color = '#605e5c';
+        tokenStatusMsg.innerText = 'Token cleared.';
+      }
+      if (authBtn) {
+        authBtn.style.color = '#323130';
+        authBtn.style.borderColor = '#8a8886';
+        authBtn.innerHTML = '🔑 Google Auth';
+      }
+    };
+  }
+
+  const googleSignInBtn = document.getElementById("googleSignInBtn");
+  if (googleSignInBtn) {
+    googleSignInBtn.onclick = () => {
+      try {
+        if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+          if (tokenStatusMsg) {
+            tokenStatusMsg.style.color = '#a4262c';
+            tokenStatusMsg.innerText = 'Google Identity SDK loading... please wait a moment or paste token below.';
+          }
+          return;
+        }
+
+        const clientId = window.localStorage ? (window.localStorage.getItem('google_oauth_client_id') || '36841365232-oauth.apps.googleusercontent.com') : '36841365232-oauth.apps.googleusercontent.com';
+
+        const client = google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: 'https://www.googleapis.com/auth/cloud-platform',
+          callback: (tokenResponse) => {
+            if (tokenResponse && tokenResponse.access_token) {
+              setGoogleAccessToken(tokenResponse.access_token);
+              if (googleTokenInput) googleTokenInput.value = tokenResponse.access_token;
+              if (tokenStatusMsg) {
+                tokenStatusMsg.style.color = '#107c41';
+                tokenStatusMsg.innerText = '✅ Successfully Signed in with Google!';
+              }
+              if (authBtn) {
+                authBtn.style.color = '#107c41';
+                authBtn.style.borderColor = '#107c41';
+                authBtn.innerHTML = '🔑 Google (Auth)';
+              }
+              setTimeout(() => { if (authPanel) authPanel.style.display = 'none'; }, 1200);
+            } else if (tokenResponse && tokenResponse.error) {
+              if (tokenStatusMsg) {
+                tokenStatusMsg.style.color = '#a4262c';
+                tokenStatusMsg.innerText = `Sign in: ${tokenResponse.error_description || tokenResponse.error}`;
+              }
+            }
+          },
+          error_callback: (err) => {
+            if (tokenStatusMsg) {
+              tokenStatusMsg.style.color = '#a4262c';
+              tokenStatusMsg.innerText = `Sign in: ${err.message || 'Popup blocked or cancelled'}`;
+            }
+          }
+        });
+
+        client.requestAccessToken();
+      } catch (err) {
+        console.error('Google Sign in error:', err);
+        if (tokenStatusMsg) {
+          tokenStatusMsg.style.color = '#a4262c';
+          tokenStatusMsg.innerText = `Sign in: ${err.message}`;
+        }
+      }
+    };
   }
 
   // Target Proxy Endpoint selector setup

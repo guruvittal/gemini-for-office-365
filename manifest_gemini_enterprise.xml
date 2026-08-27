@@ -6,12 +6,12 @@
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Gemini Enterprise"/>
   <Description DefaultValue="Gemini Enterprise Grounded AI Assistant (StreamAssist &amp; Vertex Search) for Microsoft Word, PowerPoint, and Excel."/>
-  <IconUrl DefaultValue="https://gemini-frontend-36841365232.us-central1.run.app/assets/icon-32.png"/>
-  <HighResolutionIconUrl DefaultValue="https://gemini-frontend-36841365232.us-central1.run.app/assets/icon-64.png"/>
+  <IconUrl DefaultValue="https://gemini-frontend-j43mxpthfa-uc.a.run.app/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://gemini-frontend-j43mxpthfa-uc.a.run.app/assets/icon-64.png"/>
   <SupportUrl DefaultValue="https://cloud.google.com/vertex-ai"/>
   <AppDomains>
-    <AppDomain>https://gemini-frontend-36841365232.us-central1.run.app</AppDomain>
-    <AppDomain>https://gemini-proxy-36841365232.us-central1.run.app</AppDomain>
+    <AppDomain>https://gemini-frontend-j43mxpthfa-uc.a.run.app</AppDomain>
+    <AppDomain>https://gemini-proxy-j43mxpthfa-uc.a.run.app</AppDomain>
   </AppDomains>
   <Hosts>
     <Host Name="Document"/>
@@ -19,7 +19,7 @@
     <Host Name="Presentation"/>
   </Hosts>
   <DefaultSettings>
-    <SourceLocation DefaultValue="https://gemini-frontend-36841365232.us-central1.run.app/taskpane.html?backend=streamassist"/>
+    <SourceLocation DefaultValue="https://gemini-frontend-j43mxpthfa-uc.a.run.app/taskpane.html?backend=streamassist"/>
   </DefaultSettings>
   <Permissions>ReadWriteDocument</Permissions>
 
@@ -145,14 +145,14 @@
 
     <Resources>
       <bt:Images>
-        <bt:Image id="Icon.16x16" DefaultValue="https://gemini-frontend-36841365232.us-central1.run.app/assets/icon-16.png"/>
-        <bt:Image id="Icon.32x32" DefaultValue="https://gemini-frontend-36841365232.us-central1.run.app/assets/icon-32.png"/>
-        <bt:Image id="Icon.80x80" DefaultValue="https://gemini-frontend-36841365232.us-central1.run.app/assets/icon-80.png"/>
+        <bt:Image id="Icon.16x16" DefaultValue="https://gemini-frontend-j43mxpthfa-uc.a.run.app/assets/icon-16.png"/>
+        <bt:Image id="Icon.32x32" DefaultValue="https://gemini-frontend-j43mxpthfa-uc.a.run.app/assets/icon-32.png"/>
+        <bt:Image id="Icon.80x80" DefaultValue="https://gemini-frontend-j43mxpthfa-uc.a.run.app/assets/icon-80.png"/>
       </bt:Images>
       <bt:Urls>
         <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://cloud.google.com/vertex-ai"/>
-        <bt:Url id="Commands.Url" DefaultValue="https://gemini-frontend-36841365232.us-central1.run.app/commands.html"/>
-        <bt:Url id="Taskpane.Url" DefaultValue="https://gemini-frontend-36841365232.us-central1.run.app/taskpane.html?backend=streamassist"/>
+        <bt:Url id="Commands.Url" DefaultValue="https://gemini-frontend-j43mxpthfa-uc.a.run.app/commands.html"/>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://gemini-frontend-j43mxpthfa-uc.a.run.app/taskpane.html?backend=streamassist"/>
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="GetStarted.Title" DefaultValue="Gemini Enterprise"/>

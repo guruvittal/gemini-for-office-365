@@ -26,9 +26,10 @@ const DATASTORE_ID = process.env.VERTEX_DATASTORE_ID || process.env.VERTEX_DATAS
 const BACKEND_MODE = (process.env.BACKEND_MODE || 'streamassist').toLowerCase();
 const STREAM_ASSIST_ENDPOINT_LOCATION = process.env.STREAM_ASSIST_ENDPOINT_LOCATION || 'global';
 const GCP_LOCATION = process.env.GCP_LOCATION || 'global';
-const ENTERPRISE_APP_ID = process.env.GEMINI_ENTERPRISE_APP_ID || process.env.VERTEX_DATASTORE_ID || '';
+const ENTERPRISE_APP_ID = process.env.GEMINI_ENTERPRISE_APP_ID || process.env.VERTEX_DATASTORE_ID || 'new-ge-app_1780069391112';
 const ENTERPRISE_COLLECTION_ID = process.env.GEMINI_ENTERPRISE_COLLECTION_ID || 'default_collection';
 const ENTERPRISE_ASSISTANT_ID = process.env.GEMINI_ENTERPRISE_ASSISTANT_ID || 'default_assistant';
+const ENTERPRISE_DATASTORE_IDS = (process.env.GEMINI_ENTERPRISE_DATASTORE_IDS || process.env.VERTEX_DATASTORE_ID || 'wendysdocs_1787707313673,servicenow-noauth_1787709870555_mcp_data').split(',').map(s => s.trim()).filter(Boolean);
 
 const auth = new GoogleAuth({
   scopes: 'https://www.googleapis.com/auth/cloud-platform'
@@ -456,25 +457,38 @@ async function handleGeminiRequest(req, res) {
   });
 }
 
-async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId }) {
+async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, userAccessToken }) {
   if (!PROJECT_ID) {
-    throw new Error('GCP_PROJECT_ID environment variable is required for StreamAssist');
+    throw new Error('GCP_PROJECT_ID environment variable is required');
   }
   if (!ENTERPRISE_APP_ID) {
-    throw new Error('GEMINI_ENTERPRISE_APP_ID environment variable is required for StreamAssist');
+    throw new Error('GEMINI_ENTERPRISE_APP_ID environment variable is required');
   }
 
-  const client = await auth.getClient();
-  const accessTokenObj = await client.getAccessToken();
-  const accessToken = typeof accessTokenObj === 'string' ? accessTokenObj : accessTokenObj.token;
+  let accessToken = userAccessToken;
+  if (!accessToken) {
+    const client = await auth.getClient();
+    const accessTokenObj = await client.getAccessToken();
+    accessToken = typeof accessTokenObj === 'string' ? accessTokenObj : accessTokenObj.token;
+  }
 
-  const endpointUrl = `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1/projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/engines/${ENTERPRISE_APP_ID}/assistants/${ENTERPRISE_ASSISTANT_ID}:streamAssist`;
+  const endpointUrl = `https://discoveryengine.googleapis.com/v1alpha/projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/engines/${ENTERPRISE_APP_ID}/assistants/${ENTERPRISE_ASSISTANT_ID}:streamAssist`;
 
-  const activeUserId = userPseudoId || userId || 'office_365_user';
+  const dataStoreSpecs = ENTERPRISE_DATASTORE_IDS.map(dsId => {
+    const dsPath = dsId.startsWith('projects/')
+      ? dsId
+      : `projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/dataStores/${dsId}`;
+    return { dataStore: dsPath };
+  });
 
   const requestBody = {
     query: {
       text: prompt
+    },
+    toolsSpec: {
+      vertexAiSearchSpec: {
+        dataStoreSpecs: dataStoreSpecs
+      }
     }
   };
 
@@ -486,88 +500,99 @@ async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId }) 
     requestBody.session = fullSessionName;
   }
 
-  console.log(`Calling StreamAssist API (${endpointUrl})... Session: ${requestBody.session || 'NEW'}`);
+  console.log(`Forwarding directly to Gemini Enterprise streamAssist API (${endpointUrl})... Auth: ${userAccessToken ? 'END_USER_OAUTH' : 'SERVICE_ACCOUNT'} | DataStores: ${ENTERPRISE_DATASTORE_IDS.join(', ')} | Session: ${requestBody.session || 'NEW'}`);
 
   const apiRes = await fetch(endpointUrl, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'X-Goog-User-Project': PROJECT_ID
     },
     body: JSON.stringify(requestBody)
   });
 
   if (!apiRes.ok) {
     const errText = await apiRes.text();
-    console.error('StreamAssist API error:', apiRes.status, errText);
-    throw new Error(`StreamAssist API returned HTTP ${apiRes.status}: ${errText}`);
+    console.error('Gemini Enterprise streamAssist API error:', apiRes.status, errText);
+    throw new Error(`Gemini Enterprise API returned HTTP ${apiRes.status}: ${errText}`);
   }
 
-  const rawResponseBody = await apiRes.text();
-  let parsedChunks = [];
+  const rawText = await apiRes.text();
+  let chunks = [];
 
   try {
-    const data = JSON.parse(rawResponseBody);
-    parsedChunks = Array.isArray(data) ? data : [data];
+    const parsed = JSON.parse(rawText);
+    if (Array.isArray(parsed)) {
+      chunks = parsed;
+    } else {
+      chunks = [parsed];
+    }
   } catch (e) {
-    const lines = rawResponseBody.split('\n').filter(l => l.trim().length > 0);
+    const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
     for (const line of lines) {
       try {
-        parsedChunks.push(JSON.parse(line));
+        chunks.push(JSON.parse(line));
       } catch (err) {
-        console.warn('Could not parse streaming line chunk:', line.substring(0, 80));
+        // ignore partial chunk format
       }
     }
   }
 
-  let aggregatedText = '';
-  let returnedSessionResource = null;
+  let finalAnswerText = '';
+  let fallbackThoughtText = '';
   const citations = [];
   const seenCitations = new Set();
+  let returnedSession = sessionId || '';
 
-  for (const chunk of parsedChunks) {
+  for (const chunk of chunks) {
     if (chunk.sessionInfo?.session) {
-      returnedSessionResource = chunk.sessionInfo.session;
+      returnedSession = chunk.sessionInfo.session;
     }
 
     const replies = chunk.answer?.replies || [];
     for (const reply of replies) {
-      const contentObj = reply.groundedContent?.content;
-      if (contentObj && contentObj.text && !contentObj.thought) {
-        aggregatedText += contentObj.text;
-      } else if (reply.replyText) {
-        aggregatedText += reply.replyText;
-      }
+      const content = reply.groundedContent?.content || {};
+      const text = content.text || reply.replyText || '';
+      const isThought = content.thought === true;
 
-      const grounded = reply.groundedContent || {};
-      if (grounded.searchChunk || grounded.web || reply.replyId) {
-        const title = grounded.title || grounded.searchChunk?.title || 'Enterprise Data Source';
-        const uri = grounded.uri || grounded.searchChunk?.uri || '';
-        if (uri && !seenCitations.has(title)) {
-          seenCitations.add(title);
-          citations.push({ title, uri });
+      if (isThought && text) {
+        fallbackThoughtText = text;
+      } else if (text) {
+        finalAnswerText += text;
+      }
+    }
+
+    // Collect citations from steps and search observations
+    const steps = chunk.answer?.steps || [];
+    for (const step of steps) {
+      const actions = step.actions || [];
+      for (const action of actions) {
+        const searchResults = action.observation?.searchObservation?.searchResults || action.observation?.search?.results || [];
+        for (const item of searchResults) {
+          const doc = item.document || {};
+          const structData = doc.derivedStructData || doc.structData || {};
+          const title = structData.title || doc.name?.split('/').pop() || item.title || 'Enterprise Document';
+          const uri = structData.link || doc.content?.uri || item.uri || item.link || '';
+          if (title && !seenCitations.has(title + uri)) {
+            seenCitations.add(title + uri);
+            citations.push({ title, uri });
+          }
         }
       }
     }
-
-    if (!aggregatedText) {
-      let chunkText = chunk.answer?.replyText || chunk.replyText || '';
-      if (chunkText) {
-        aggregatedText += chunkText;
-      }
-    }
   }
 
-  let shortSessionId = returnedSessionResource;
-  if (returnedSessionResource && returnedSessionResource.includes('/sessions/')) {
-    shortSessionId = returnedSessionResource.split('/sessions/').pop();
-  }
+  const resultText = finalAnswerText.trim() || fallbackThoughtText.trim() || '';
+  const shortSessionId = returnedSession.includes('/sessions/')
+    ? returnedSession.split('/sessions/').pop()
+    : returnedSession;
 
   return {
-    resultText: aggregatedText,
-    sessionResource: returnedSessionResource,
-    sessionId: shortSessionId || sessionId,
-    citations: citations
+    resultText,
+    sessionId: shortSessionId,
+    sessionResource: returnedSession,
+    citations
   };
 }
 
@@ -583,36 +608,37 @@ async function handleGeminiEnterpriseRequest(req, res) {
         return res.status(400).json({ error: 'Prompt is required' });
       }
 
-      console.log(`Processing Gemini Enterprise request (Mode: ${BACKEND_MODE})... User: ${userPseudoId || userId || 'office_365_user'}`);
-
-      if (BACKEND_MODE === 'streamassist' && ENTERPRISE_APP_ID) {
-        try {
-          const streamAssistResult = await callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId });
-          let rawText = streamAssistResult.resultText || '';
-
-          if (streamAssistResult.citations && streamAssistResult.citations.length > 0) {
-            const citationItems = streamAssistResult.citations.map(c => `* 📄 **${c.title}**${c.uri ? ` \`(${c.uri})\`` : ''}`);
-            rawText += `\n\n---\n> [!NOTE] **Verified Gemini Enterprise Grounded Sources:**\n> ` + citationItems.join('\n> ');
-          }
-
-          const processedText = await inlineImagesInContent(rawText);
-
-          return res.status(200).json({
-            result: processedText,
-            sessionId: streamAssistResult.sessionId,
-            sessionResource: streamAssistResult.sessionResource,
-            citations: streamAssistResult.citations,
-            backendMode: 'streamassist'
-          });
-        } catch (streamAssistErr) {
-          console.warn('StreamAssist execution failed, falling back to direct Vertex AI:', streamAssistErr.message);
-        }
+      // Check for End-User OAuth Token in Authorization Header or Body
+      let userAccessToken = null;
+      const authHeader = req.headers['authorization'] || req.headers['x-goog-user-token'];
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        userAccessToken = authHeader.substring(7).trim();
+      } else if (authHeader) {
+        userAccessToken = authHeader.trim();
+      } else if (req.body.userAccessToken) {
+        userAccessToken = req.body.userAccessToken;
       }
 
-      // Fallback to direct Vertex AI
-      return handleGeminiRequest(req, res);
+      console.log(`Processing direct Gemini Enterprise Pass-Through request (App: ${ENTERPRISE_APP_ID}, Auth: ${userAccessToken ? 'USER_TOKEN' : 'SERVICE_ACCOUNT'})...`);
+
+      const assistResult = await callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, userAccessToken });
+
+      let outputText = assistResult.resultText || '';
+      if (assistResult.citations.length > 0) {
+        const citationItems = assistResult.citations.slice(0, 5).map(c => `* 📄 **${c.title}**${c.uri ? ` \`(${c.uri})\`` : ''}`);
+        outputText += `\n\n---\n> [!NOTE] **Verified Sources from Wendy's Gemini Enterprise Knowledge Base:**\n> ` + citationItems.join('\n> ');
+      }
+
+      const processedText = await inlineImagesInContent(outputText);
+
+      return res.status(200).json({
+        result: processedText,
+        sessionId: assistResult.sessionId,
+        citations: assistResult.citations,
+        backendMode: 'gemini_enterprise_native_assist'
+      });
     } catch (error) {
-      console.error('Error in Gemini Enterprise handler:', error);
+      console.error('Error in pure Gemini Enterprise pass-through proxy:', error);
       return res.status(500).json({
         error: 'Failed to process Gemini Enterprise request',
         details: error.message,
@@ -621,16 +647,17 @@ async function handleGeminiEnterpriseRequest(req, res) {
   });
 }
 
-functions.http('askGemini', handleGeminiRequest);
+functions.http('askGemini', handleGeminiEnterpriseRequest);
 functions.http('askGeminiEnterprise', handleGeminiEnterpriseRequest);
-functions.http('geminiProxy', handleGeminiRequest);
+functions.http('geminiProxy', handleGeminiEnterpriseRequest);
 
 // Standalone Express Server (for Cloud Run & Docker execution)
 const app = express();
 app.use(express.json());
 app.use(cors);
 app.post('/askGeminiEnterprise', handleGeminiEnterpriseRequest);
-app.post('/askGemini', handleGeminiRequest);
+app.post('/askGemini', handleGeminiEnterpriseRequest);
+app.post('/geminiProxy', handleGeminiEnterpriseRequest);
 app.post('/', handleGeminiEnterpriseRequest);
 app.get('/', (req, res) => res.status(200).send('Gemini Enterprise Proxy Service Healthy'));
 

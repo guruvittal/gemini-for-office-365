@@ -28,12 +28,14 @@ echo ""
 echo ">>> [1/3] Deploying Backend Proxy Service (${BACKEND_SERVICE_NAME})..."
 cd "${SCRIPT_DIR}/geminiproxy"
 
+ENTERPRISE_APP_ID="${GEMINI_ENTERPRISE_APP_ID:-new-ge-app_1780069391112}"
+
 gcloud run deploy "${BACKEND_SERVICE_NAME}" \
   --source=. \
   --region="${REGION}" \
   --platform=managed \
   --allow-unauthenticated \
-  --set-env-vars GCP_PROJECT_ID="${PROJECT_ID}",GCP_REGION="${REGION}",GEMINI_MODEL="gemini-2.5-flash",GEMINI_IMAGE_MODEL="gemini-2.5-flash-image",BACKEND_MODE="streamassist" \
+  --set-env-vars GCP_PROJECT_ID="${PROJECT_ID}",GCP_REGION="${REGION}",GEMINI_MODEL="gemini-2.5-flash",GEMINI_IMAGE_MODEL="gemini-2.5-flash-image",BACKEND_MODE="streamassist",GEMINI_ENTERPRISE_APP_ID="${ENTERPRISE_APP_ID}",GEMINI_ENTERPRISE_DATASTORE_IDS="wendysdocs_1787707313673,servicenow-noauth_1787709870555_mcp_data" \
   --project="${PROJECT_ID}"
 
 BACKEND_URL=$(gcloud run services describe "${BACKEND_SERVICE_NAME}" --region="${REGION}" --project="${PROJECT_ID}" --format="value(status.url)")
