@@ -177,26 +177,13 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
 }
 
 /**
- * Calculates adaptive font size so titles strictly remain on a single line.
- */
-function getAdaptiveTitleFontSize(title, requestedSize = 30) {
-  const len = (title || "").length;
-  let size = requestedSize || 30;
-  if (len > 40) size = Math.min(size, 18);
-  else if (len > 30) size = Math.min(size, 22);
-  else if (len > 20) size = Math.min(size, 26);
-  else size = Math.min(size, 30);
-  return size;
-}
-
-/**
  * Creates a single slide atomically in PowerPoint with title, body bullets, native tables, or images.
  */
 async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
   const cleanTitle = (slideData.title || `Slide ${slideNum}`).replace(/\*\*/g, "").trim();
   const subtitle = slideData.subtitle || "";
-  const titleSize = getAdaptiveTitleFontSize(cleanTitle, slideData.titleSize || 30);
-  const subtitleSize = slideData.subtitleSize || 18;
+  const titleSize = slideData.titleSize || 40;
+  const subtitleSize = slideData.subtitleSize || 20;
   const color = slideData.color || null;
   const bodyTextContent = slideData.body || "• Executive slide content";
   const tableData = slideData.tableData || null;
@@ -239,12 +226,12 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
       await context.sync();
     }
 
-    // Add Clean Title at Top (single line)
+    // Add Clean Title at Top using Gemini's requested title font size
     const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
       left: 50,
       top: 25,
       width: 860,
-      height: 38
+      height: 50
     });
     titleBox.textFrame.textRange.font.size = titleSize;
     titleBox.textFrame.textRange.font.bold = true;
@@ -253,20 +240,20 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
     } catch (wErr) {}
     if (color) titleBox.textFrame.textRange.font.color = color;
 
-    let contentTop = 75;
+    let contentTop = 85;
 
     // Add Subtitle if present
     if (subtitle) {
       const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
         left: 50,
-        top: 68,
+        top: 75,
         width: 860,
-        height: 25
+        height: 30
       });
       subtitleBox.textFrame.textRange.font.size = subtitleSize;
       subtitleBox.textFrame.textRange.font.italic = true;
       if (color) subtitleBox.textFrame.textRange.font.color = color;
-      contentTop = 102;
+      contentTop = 112;
     }
 
     // If tableData is present, create native PowerPoint table
