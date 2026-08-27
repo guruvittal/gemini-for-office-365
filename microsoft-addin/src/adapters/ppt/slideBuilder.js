@@ -118,78 +118,77 @@ async function getThemeBlankLayoutOptions() {
 }
 
 /**
- * Populates title, subtitle, bullets, and visuals onto a slide shape collection.
+ * Populates a native Microsoft PowerPoint table using PowerPoint.js shapes.addTable().
  */
-function populateSlideShapes(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, bodyTextContent, hasImages, imagesToInsert, slideNum) {
-  // 1. Add Title TextBox at Top
-  const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
-    left: 50,
-    top: 35,
-    width: 860,
-    height: 50
-  });
-  titleBox.textFrame.textRange.font.size = titleSize;
-  titleBox.textFrame.textRange.font.bold = true;
-  if (color) {
-    titleBox.textFrame.textRange.font.color = color;
-  }
+function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum) {
+  const headers = tableData.headers || [];
+  const rows = tableData.rows || [];
+  const colCount = Math.max(headers.length, ...rows.map(r => r.length), 1);
+  const rowCount = (headers.length > 0 ? 1 : 0) + rows.length;
 
-  // 2. Add Subtitle TextBox directly under Title
-  if (subtitle) {
-    const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
-      left: 50,
-      top: 90,
-      width: 860,
-      height: 35
-    });
-    subtitleBox.textFrame.textRange.font.size = subtitleSize;
-    subtitleBox.textFrame.textRange.font.italic = true;
-    if (color) {
-      subtitleBox.textFrame.textRange.font.color = color;
+  const tableTop = subtitle ? 110 : 85;
+
+  const tableValues = [];
+  if (headers.length > 0) {
+    const hRow = [];
+    for (let c = 0; c < colCount; c++) {
+      hRow.push(headers[c] || "");
     }
+    tableValues.push(hRow);
+  }
+  for (const r of rows) {
+    const rowVals = [];
+    for (let c = 0; c < colCount; c++) {
+      rowVals.push(r[c] !== undefined && r[c] !== null ? String(r[c]) : "");
+    }
+    tableValues.push(rowVals);
   }
 
-  // 3. Add Body Content TextBox
-  const bodyTop = subtitle ? 135 : 95;
-  const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
-    left: 50,
-    top: bodyTop,
-    width: hasImages ? 400 : 860,
-    height: 360
-  });
-  bodyBox.textFrame.textRange.font.size = 18;
+  const tableHeight = Math.min(400, Math.max(100, rowCount * 32));
 
-  // 4. Add Image if available
-  if (hasImages) {
-    for (const rawImg of imagesToInsert) {
-      const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
-      if (clean.length > 50) {
-        try {
-          newSlide.shapes.addImage(clean, {
-            left: 480,
-            top: bodyTop,
-            width: 380,
-            height: 300
-          });
-          logToPPTConsole(`Slide ${slideNum}: Attached image.`);
-        } catch (imgErr) {
-          logToPPTConsole(`Slide ${slideNum}: Image notice: ${imgErr.message}`);
-        }
+  try {
+    if (typeof newSlide.shapes.addTable === "function") {
+      newSlide.shapes.addTable(rowCount, colCount, {
+        left: 50,
+        top: tableTop,
+        width: 860,
+        height: tableHeight,
+        values: tableValues
+      });
+      logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table (${rowCount} rows x ${colCount} cols).`);
+      return;
+    }
+  } catch (err) {
+    console.warn("shapes.addTable with options failed, trying basic addTable:", err);
+  }
+
+  try {
+    const shape = newSlide.shapes.addTable(rowCount, colCount);
+    const table = shape.getTable();
+    for (let r = 0; r < tableValues.length; r++) {
+      for (let c = 0; c < colCount; c++) {
+        const cell = table.getCellOrNullObject(r, c);
+        if (cell) cell.text = tableValues[r][c];
       }
     }
+    logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table via getCell.`);
+  } catch (fallbackErr) {
+    console.error("Native table shape creation failed:", fallbackErr);
+    logToPPTConsole(`Slide ${slideNum}: ⚠️ Table shape notice: ${fallbackErr.message}`);
   }
 }
 
 /**
- * Creates a single slide atomically in PowerPoint with title, body bullets, and optional images.
+ * Creates a single slide atomically in PowerPoint with title, body bullets, native tables, or images.
  */
 async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
   const cleanTitle = (slideData.title || `Slide ${slideNum}`).replace(/\*\*/g, "").trim();
   const subtitle = slideData.subtitle || "";
-  const titleSize = slideData.titleSize || 40;
-  const subtitleSize = slideData.subtitleSize || 22;
+  const titleSize = slideData.titleSize || 36;
+  const subtitleSize = slideData.subtitleSize || 20;
   const color = slideData.color || null;
   const bodyTextContent = slideData.body || "• Executive slide content";
+  const tableData = slideData.tableData || null;
 
   const imagesToInsert = (slideData.compressedImages && slideData.compressedImages.length > 0)
     ? slideData.compressedImages
@@ -198,46 +197,96 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
 
   logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."`);
 
-  let addedSuccessfully = false;
-
-  // 1. Attempt addition with Theme Blank Layout if available
-  if (layoutOptions) {
-    try {
-      await PowerPoint.run(async (context) => {
-        const slides = context.presentation.slides;
+  // Atomic PowerPoint slide creation with clean shape management
+  await PowerPoint.run(async (context) => {
+    const slides = context.presentation.slides;
+    if (layoutOptions) {
+      try {
         slides.add(layoutOptions);
-        await context.sync();
-
-        slides.load("items");
-        await context.sync();
-
-        const newSlide = slides.items[slides.items.length - 1];
-        populateSlideShapes(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, bodyTextContent, hasImages, imagesToInsert, slideNum);
-        await context.sync();
-        addedSuccessfully = true;
-      });
-    } catch (layoutErr) {
-      console.warn(`[PPTBuilder] Theme layout add failed (${layoutErr.message}), falling back to standard slide add.`);
-    }
-  }
-
-  // 2. Reliable Fallback: Add standard slide if theme blank layout was unavailable or failed
-  if (!addedSuccessfully) {
-    await PowerPoint.run(async (context) => {
-      const slides = context.presentation.slides;
+      } catch (lErr) {
+        slides.add();
+      }
+    } else {
       slides.add();
-      await context.sync();
+    }
+    await context.sync();
 
-      slides.load("items");
-      await context.sync();
+    slides.load("items");
+    await context.sync();
 
-      const newSlide = slides.items[slides.items.length - 1];
-      populateSlideShapes(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, bodyTextContent, hasImages, imagesToInsert, slideNum);
+    const newSlide = slides.items[slides.items.length - 1];
+    newSlide.shapes.load("items");
+    await context.sync();
+
+    // Delete any default template placeholders (e.g. "Click to add title", "Click to add text")
+    if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
+      for (let i = newSlide.shapes.items.length - 1; i >= 0; i--) {
+        try {
+          newSlide.shapes.items[i].delete();
+        } catch (dErr) {}
+      }
       await context.sync();
+    }
+
+    // Add Clean Title at Top
+    const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
+      left: 50,
+      top: 30,
+      width: 860,
+      height: 45
     });
-  }
+    titleBox.textFrame.textRange.font.size = titleSize;
+    titleBox.textFrame.textRange.font.bold = true;
+    if (color) titleBox.textFrame.textRange.font.color = color;
 
-  logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}and Bullets.`);
+    // Add Subtitle if present
+    if (subtitle) {
+      const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
+        left: 50,
+        top: 75,
+        width: 860,
+        height: 25
+      });
+      subtitleBox.textFrame.textRange.font.size = subtitleSize;
+      subtitleBox.textFrame.textRange.font.italic = true;
+      if (color) subtitleBox.textFrame.textRange.font.color = color;
+    }
+
+    // If tableData is present, create native PowerPoint table
+    if (tableData && tableData.rows && tableData.rows.length > 0) {
+      populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum);
+    } else {
+      // Body text / bullets and images
+      const bodyTop = subtitle ? 115 : 85;
+      const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
+        left: 50,
+        top: bodyTop,
+        width: hasImages ? 400 : 860,
+        height: 380
+      });
+      bodyBox.textFrame.textRange.font.size = 18;
+
+      if (hasImages) {
+        for (const rawImg of imagesToInsert) {
+          const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
+          if (clean.length > 50) {
+            try {
+              newSlide.shapes.addImage(clean, {
+                left: 480,
+                top: bodyTop,
+                width: 380,
+                height: 300
+              });
+            } catch (imgErr) {}
+          }
+        }
+      }
+    }
+
+    await context.sync();
+  });
+
+  logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}${tableData ? 'and Native Table.' : 'and Bullets.'}`);
 }
 
 /**

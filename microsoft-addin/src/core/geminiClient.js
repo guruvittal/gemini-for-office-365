@@ -4,7 +4,7 @@
  * @author Sathya AG, Principal Architect, Google
  */
 
-import { getOfficeAuthToken, getUserProfile } from './authService.js';
+import { getOfficeAuthToken, getUserProfile, getGoogleAccessToken } from './authService.js';
 
 // Default endpoint points directly to the secure auth-proxy gateway
 const DEFAULT_AUTH_PROXY_URL = 'https://auth-proxy-16933400417.us-central1.run.app/askGeminiEnterprise';
@@ -42,6 +42,9 @@ export async function askGeminiEnterprise(prompt, history = [], sessionId = null
     console.warn('Proceeding without SSO token (server may reject if REQUIRE_ENTRA_AUTH=true):', authErr);
   }
 
+  // 2. Check for 3-legged Google User OAuth token (for Google Drive grounding without DWD)
+  const googleUserToken = getGoogleAccessToken();
+
   const payload = { 
     prompt: prompt,
     history: history,
@@ -57,6 +60,10 @@ export async function askGeminiEnterprise(prompt, history = [], sessionId = null
   };
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
+  }
+  if (googleUserToken) {
+    headers['X-End-User-Google-Token'] = googleUserToken;
+    console.log('Attaching 3-legged Google User Token to request header.');
   }
 
   console.log(`Sending authenticated request to proxy endpoint: ${functionUrl}`);

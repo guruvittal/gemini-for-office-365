@@ -14,21 +14,23 @@
 - **Cloud Run Service Name:** `auth-proxy`
 - **Base URL:** [https://auth-proxy-16933400417.us-central1.run.app](https://auth-proxy-16933400417.us-central1.run.app)
 - **Health Endpoint:** `https://auth-proxy-16933400417.us-central1.run.app/health`
+- **Dynamic Config Endpoint:** `https://auth-proxy-16933400417.us-central1.run.app/api/config`
 - **Interactive Swagger Docs:** `https://auth-proxy-16933400417.us-central1.run.app/docs`
 - **Office 365 Add-in Endpoint:** `https://auth-proxy-16933400417.us-central1.run.app/askGeminiEnterprise`
 - **Dedicated Service Account:** `gemini-office365-sa@agentspace-452714.iam.gserviceaccount.com`
 - **Assigned IAM Roles:**
   - `roles/logging.logWriter` on Project `agentspace-452714` (Cloud Logging)
   - `roles/run.invoker` on Project `agentspace-452714` (Cloud Run invocation)
-  - `roles/discoveryengine.editor` on Project `agentspace-wif` (Cross-project Discovery Engine access & ACL inspection)
-- **Entra ID App ID (WIF Client ID):** `85fb5428-6249-4131-9eeb-f2436d5d4d8c`
-- **Application ID URI:** `api://gemini-frontend-16933400417.us-central1.run.app/85fb5428-6249-4131-9eeb-f2436d5d4d8c`
+  - `roles/discoveryengine.editor` on Project `jeansson-gem-ent-ci` / `agentspace-wif`
+- **Entra ID App IDs:** `e871aa77-54f7-4310-a549-cad3b1edee4a, 74a2fdc6-7d78-4ffa-99be-e70e2eab33a0, 85fb5428-6249-4131-9eeb-f2436d5d4d8c`
+- **Google OAuth 2.0 Web Client ID:** `497524937986-66oh05fskrkufpv2he7fb00fmpd4nlt9.apps.googleusercontent.com`
+- **Application ID URI:** `api://gemini-frontend-16933400417.us-central1.run.app/e871aa77-54f7-4310-a549-cad3b1edee4a`
 - **Authorized Client Applications:**
   - `ea5a67f6-b6f3-4338-b240-c655ddc3cc8e` (Office on the Web)
   - `d3590ed6-52b3-4102-aeff-aad2292ab01c` (Office on the Web)
   - `00000002-0000-0ff1-ce00-000000000000` (Office Desktop / Mac / Windows)
 - **Downstream Backend:** `https://askgemini-proxy-16933400417.us-central1.run.app` (Invoked via Google S2S IAM token)
-- **User Auth Mode:** `auto` (`USER_AUTH_MODE=auto` - dynamically queries Discovery Engine `aclConfig` to detect `GSUITE` vs `THIRD_PARTY` WIF)
+- **User Auth Mode:** `cloud_identity` (Dynamic 3-legged Google OAuth with zero hardcoded credentials)
 - **Logging Mode:** Native GCP Structured JSON (`VERBOSE_LOGGING=true`)
 
 ---

@@ -318,6 +318,30 @@ class GCPStructuredJsonFormatter(logging.Formatter):
         return json.dumps(log_payload, default=str)
 ```
 
+#### 8. Dynamic Frontend Configuration Delivery (`GET /api/config`)
+To prevent hardcoding any GCP or Entra ID Client IDs into static frontend JavaScript bundles, `auth-proxy` serves a lightweight public configuration endpoint:
+
+```python
+@app.get("/api/config")
+async def get_app_config():
+    return {
+        "google_oauth_client_id": GOOGLE_OAUTH_CLIENT_ID,
+        "user_auth_mode": USER_AUTH_MODE,
+        "gcp_project_id": GCP_PROJECT_ID,
+        "gcp_location": GCP_LOCATION,
+        "status": "ok"
+    }
+```
+When the Office Add-in initializes in Word, PowerPoint, or Excel, `authService.js` calls `GET /api/config` to dynamically retrieve `GOOGLE_OAUTH_CLIENT_ID` before rendering UI buttons or initiating OAuth flows.
+
+#### 9. Cloud Identity 3-Legged OAuth Pass-Through (`X-End-User-Google-Token`)
+When Gemini Enterprise is configured with **Cloud Identity / Google Workspace Identity**, end-users authenticate interactively via `Office.context.ui.displayDialogAsync` against `accounts.google.com` requesting `https://www.googleapis.com/auth/drive.readonly` and `https://www.googleapis.com/auth/cloud-platform`.
+
+1. **Taskpane Header Attachment**: The frontend attaches the returned Google OAuth access token as `X-End-User-Google-Token: ya29...`.
+2. **Gateway Forwarding**: `auth-proxy` receives the token, validates the incoming Microsoft Entra ID JWT, and forwards `X-End-User-Google-Token` directly to `askgemini-proxy` while bypassing Domain-Wide Delegation checks.
+3. **Downstream Execution**: `askgemini-proxy` calls Discovery Engine `streamAssist` presenting `Authorization: Bearer <ya29...>` and `toolsSpec: { vertexAiSearchSpec: {} }`, executing user-grounded search over Google Drive with strict ACL evaluation.
+
+
 In `geminiproxy` (`askgemini-proxy`), if `X-End-User-Google-Token` is absent:
 - If `ALLOW_SERVICE_ACCOUNT_FALLBACK=true`: Emits a structured `WARNING` (`[AUTH_FALLBACK] No end-user Google token provided for user '...'. ALLOW_SERVICE_ACCOUNT_FALLBACK is enabled. Falling back to Cloud Run Service Account ADC credentials.`) and continues using the Service Account.
 - If `ALLOW_SERVICE_ACCOUNT_FALLBACK=false`: Emits an `ERROR` (`[AUTH_REJECTED] Request for user '...' rejected: End-user Google token is required to enforce Gemini Enterprise licensing`) and returns `HTTP 403 Forbidden`.

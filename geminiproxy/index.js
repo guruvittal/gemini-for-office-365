@@ -601,14 +601,17 @@ async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, us
     }
   }
 
+  const headers = {
+    'Authorization': `Bearer ${bearerToken}`,
+    'Content-Type': 'application/json',
+    'X-Goog-User-Project': PROJECT_ID
+  };
+
   console.log(`Calling StreamAssist API (${endpointUrl})... Session: ${requestBody.session || 'NEW'}`);
 
-  const apiRes = await fetch(endpointUrl, {
+  let apiRes = await fetch(endpointUrl, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${bearerToken}`,
-      'Content-Type': 'application/json'
-    },
+    headers: headers,
     body: JSON.stringify(requestBody)
   });
 
@@ -623,46 +626,46 @@ async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, us
         user_id: activeUserId
       }));
       delete requestBody.session;
-      const retryRes = await fetch(endpointUrl, {
+      apiRes = await fetch(endpointUrl, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${bearerToken}`,
-          'Content-Type': 'application/json'
-        },
+        headers: headers,
         body: JSON.stringify(requestBody)
       });
-      if (retryRes.ok) {
-        const rawRetryBody = await retryRes.text();
-        let retryChunks = [];
-        try {
-          const retryData = JSON.parse(rawRetryBody);
-          retryChunks = Array.isArray(retryData) ? retryData : [retryData];
-        } catch (e) {
-          retryChunks = rawRetryBody.split('\n').filter(l => l.trim()).map(l => {
-            try { return JSON.parse(l); } catch (_) { return null; }
-          }).filter(Boolean);
-        }
-        return processStreamAssistChunks(retryChunks, null);
+    } else if (apiRes.status === 499 || (apiRes.status >= 400 && requestBody.toolsSpec)) {
+      // Auto-recover if toolsSpec (e.g. vertexAiSearchSpec) causes downstream timeout/cancellation
+      console.warn(JSON.stringify({
+        severity: 'WARNING',
+        message: `[TOOLS_SPEC_FALLBACK] StreamAssist failed with HTTP ${apiRes.status} (details: ${errText.substring(0, 100)}). Retrying with default assistant tools configuration...`,
+        user_id: activeUserId
+      }));
+      delete requestBody.toolsSpec;
+      apiRes = await fetch(endpointUrl, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(requestBody)
+      });
+    }
+
+    if (!apiRes.ok) {
+      const finalErrText = await apiRes.text();
+      console.error(JSON.stringify({
+        severity: 'ERROR',
+        message: `StreamAssist API call failed with HTTP ${apiRes.status}`,
+        status_code: apiRes.status,
+        user_id: activeUserId,
+        error_detail: finalErrText
+      }));
+
+      if (apiRes.status === 403) {
+        const forbiddenErr = new Error(`Google Cloud Discovery Engine rejected the request (HTTP 403): User '${activeUserId}' does not have an active Gemini Enterprise license or IAM permission on engine '${ENTERPRISE_APP_ID}'. Details: ${finalErrText}`);
+        forbiddenErr.statusCode = 403;
+        throw forbiddenErr;
       }
+
+      const streamErr = new Error(`StreamAssist API returned HTTP ${apiRes.status}: ${finalErrText}`);
+      streamErr.statusCode = apiRes.status;
+      throw streamErr;
     }
-
-    console.error(JSON.stringify({
-      severity: 'ERROR',
-      message: `StreamAssist API call failed with HTTP ${apiRes.status}`,
-      status_code: apiRes.status,
-      user_id: activeUserId,
-      error_detail: errText
-    }));
-
-    if (apiRes.status === 403) {
-      const forbiddenErr = new Error(`Google Cloud Discovery Engine rejected the request (HTTP 403): User '${activeUserId}' does not have an active Gemini Enterprise license or IAM permission on engine '${ENTERPRISE_APP_ID}'. Details: ${errText}`);
-      forbiddenErr.statusCode = 403;
-      throw forbiddenErr;
-    }
-
-    const genericErr = new Error(`StreamAssist API returned HTTP ${apiRes.status}: ${errText}`);
-    genericErr.statusCode = apiRes.status;
-    throw genericErr;
   }
 
   const rawResponseBody = await apiRes.text();

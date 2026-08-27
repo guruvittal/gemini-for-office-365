@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0" xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="TaskPaneApp">
-  <Id>e8a31b45-6f12-4c89-a29b-77e4d89a2024</Id>
+  <Id>d748f219-98a1-4389-982e-8461cd77e4a1</Id>
   <Version>1.0.0.0</Version>
-  <ProviderName>Google Cloud (Carlos Augusto)</ProviderName>
+  <ProviderName>Google Cloud</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Gemini Enterprise (GSuite Test)"/>
-  <Description DefaultValue="Gemini Enterprise AI Assistant for Microsoft Word, PowerPoint, and Excel grounded in Cloud Identity."/>
+  <DisplayName DefaultValue="Gemini Enterprise (GSUITE)"/>
+  <Description DefaultValue="Gemini Enterprise AI Assistant (GSUITE) for Microsoft Word, PowerPoint, and Excel."/>
   <IconUrl DefaultValue="https://gemini-frontend-16933400417.us-central1.run.app/assets/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://gemini-frontend-16933400417.us-central1.run.app/assets/icon-64.png"/>
   <SupportUrl DefaultValue="https://cloud.google.com/vertex-ai"/>
@@ -144,8 +144,8 @@
     </Hosts>
 
     <WebApplicationInfo>
-      <Id>74a2fdc6-7d78-4ffa-99be-e70e2eab33a0</Id>
-      <Resource>api://gemini-frontend-16933400417.us-central1.run.app/74a2fdc6-7d78-4ffa-99be-e70e2eab33a0</Resource>
+      <Id>e871aa77-54f7-4310-a549-cad3b1edee4a</Id>
+      <Resource>api://gemini-frontend-16933400417.us-central1.run.app/e871aa77-54f7-4310-a549-cad3b1edee4a</Resource>
       <Scopes>
         <Scope>access_as_user</Scope>
       </Scopes>
@@ -163,13 +163,13 @@
         <bt:Url id="Taskpane.Url" DefaultValue="https://gemini-frontend-16933400417.us-central1.run.app/taskpane.html?backend=streamassist"/>
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="GetStarted.Title" DefaultValue="Gemini Enterprise (GSuite)"/>
-        <bt:String id="CommandsGroup.Label" DefaultValue="Gemini Enterprise (GSuite)"/>
-        <bt:String id="TaskpaneButton.Label" DefaultValue="Gemini (GSuite)"/>
+        <bt:String id="GetStarted.Title" DefaultValue="Gemini Enterprise (GSUITE)"/>
+        <bt:String id="CommandsGroup.Label" DefaultValue="Gemini Enterprise (GSUITE)"/>
+        <bt:String id="TaskpaneButton.Label" DefaultValue="Gemini (GSUITE)"/>
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="Gemini Enterprise AI Assistant for Microsoft Word, PowerPoint, and Excel grounded in Cloud Identity."/>
-        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open Gemini Enterprise AI Assistant (GSuite/Cloud Identity)."/>
+        <bt:String id="GetStarted.Description" DefaultValue="Gemini Enterprise AI Assistant (GSUITE) for Microsoft Word, PowerPoint, and Excel."/>
+        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open Gemini Enterprise AI Assistant (GSUITE)."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

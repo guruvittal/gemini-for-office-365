@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Microsoft Entra ID Setup Guide - Gemini Enterprise Office 365 Add-in</title>
+<style>
+  @page {
+    size: letter;
+    margin: 18mm 16mm 18mm 16mm;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1f2937;
+    line-height: 1.45;
+    font-size: 13px;
+    margin: 0;
+    padding: 0;
+  }
+  .header {
+    border-bottom: 2px solid #2563eb;
+    padding-bottom: 12px;
+    margin-bottom: 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+  .header h1 {
+    font-size: 20px;
+    color: #1e3a8a;
+    margin: 0 0 4px 0;
+    font-weight: 700;
+  }
+  .header p {
+    font-size: 12px;
+    color: #6b7280;
+    margin: 0;
+  }
+  .badge {
+    background-color: #dbeafe;
+    color: #1e40af;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .overview-box {
+    background: #f8fafc;
+    border-left: 4px solid #3b82f6;
+    padding: 10px 14px;
+    border-radius: 4px;
+    margin-bottom: 16px;
+    font-size: 12.5px;
+  }
+  .overview-box strong {
+    color: #1e3a8a;
+  }
+  .step-card {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    page-break-inside: avoid;
+  }
+  .step-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .step-number {
+    background: #2563eb;
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 8px;
+    flex-shrink: 0;
+  }
+  .step-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #111827;
+    margin: 0;
+  }
+  ol, ul {
+    margin: 4px 0 6px 0;
+    padding-left: 20px;
+  }
+  li {
+    margin-bottom: 4px;
+  }
+  code {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+    background-color: #f1f5f9;
+    color: #0f172a;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    border: 1px solid #e2e8f0;
+    word-break: break-all;
+  }
+  .code-block {
+    background-color: #0f172a;
+    color: #f8fafc;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 11px;
+    margin: 6px 0;
+    word-break: break-all;
+  }
+  .client-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 6px 0;
+    font-size: 12px;
+  }
+  .client-table th {
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 6px 8px;
+    text-align: left;
+    font-weight: 600;
+    color: #475569;
+  }
+  .client-table td {
+    border: 1px solid #e2e8f0;
+    padding: 6px 8px;
+  }
+  .deliverables-box {
+    background: #ecfdf5;
+    border: 1.5px solid #10b981;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-top: 14px;
+    page-break-inside: avoid;
+  }
+  .deliverables-box h3 {
+    margin: 0 0 6px 0;
+    font-size: 13.5px;
+    color: #065f46;
+    display: flex;
+    align-items: center;
+  }
+  .deliverables-box ul {
+    margin: 0;
+    padding-left: 20px;
+    color: #047857;
+    font-weight: 500;
+  }
+  .footer {
+    margin-top: 14px;
+    text-align: center;
+    font-size: 11px;
+    color: #9ca3af;
+    border-top: 1px solid #e5e7eb;
+    padding-top: 8px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>Microsoft Entra ID Configuration Guide</h1>
+    <p>Gemini Enterprise Office 365 Add-in (PowerPoint, Word, Excel, Outlook)</p>
+  </div>
+  <div class="badge">Admin Setup Guide</div>
+</div>
+
+<div class="overview-box">
+  <strong>Purpose:</strong> This guide outlines the steps required for a Microsoft Entra ID (Azure AD) administrator to register and expose the API for the Gemini Enterprise Office 365 Add-in to enable seamless Single Sign-On (SSO).
+</div>
+
+<!-- STEP 1 -->
+<div class="step-card">
+  <div class="step-header">
+    <span class="step-number">1</span>
+    <h2 class="step-title">Create App Registration</h2>
+  </div>
+  <ol>
+    <li>Sign in to the <strong>Microsoft Entra admin center</strong> (<a href="https://entra.microsoft.com">entra.microsoft.com</a>).</li>
+    <li>Navigate to <strong>Identity &gt; Applications &gt; App registrations</strong>.</li>
+    <li>Click <strong>+ New registration</strong>.</li>
+    <li><strong>Name:</strong> <code>Gemini Enterprise Office Add-in</code></li>
+    <li><strong>Supported account types:</strong> Select <strong>Accounts in this organizational directory only (Single tenant)</strong>.</li>
+    <li><strong>Redirect URI:</strong> Leave blank.</li>
+    <li>Click <strong>Register</strong>.</li>
+  </ol>
+</div>
+
+<!-- STEP 2 -->
+<div class="step-card">
+  <div class="step-header">
+    <span class="step-number">2</span>
+    <h2 class="step-title">Set the Application ID URI</h2>
+  </div>
+  <p style="margin: 0 0 6px 0; font-size: 12px; color: #4b5563;">Office 365 SSO strictly requires the Application ID URI to match the hosting backend domain.</p>
+  <ol>
+    <li>In the left navigation menu, select <strong>Expose an API</strong>.</li>
+    <li>Next to <strong>Application ID URI</strong>, click <strong>Set</strong> (or <strong>Edit</strong>).</li>
+    <li>Enter the URI in the following exact format:
+      <div class="code-block">api://gemini-frontend-16933400417.us-central1.run.app/&lt;APPLICATION_CLIENT_ID&gt;</div>
+      <em>(Replace <code>&lt;APPLICATION_CLIENT_ID&gt;</code> with the Application (client) ID from Step 1).</em>
+    </li>
+    <li>Click <strong>Save</strong>.</li>
+  </ol>
+</div>
+
+<!-- STEP 3 -->
+<div class="step-card">
+  <div class="step-header">
+    <span class="step-number">3</span>
+    <h2 class="step-title">Define the <code>access_as_user</code> Scope</h2>
+  </div>
+  <ol>
+    <li>Still on the <strong>Expose an API</strong> page, click <strong>+ Add a scope</strong>.</li>
+    <li><strong>Scope name:</strong> <code>access_as_user</code></li>
+    <li><strong>Who can consent:</strong> <strong>Admins and users</strong></li>
+    <li><strong>Admin consent display name:</strong> <code>Access Gemini Enterprise as user</code></li>
+    <li><strong>Admin consent description:</strong> <code>Allows Office add-in to authenticate the signed-in user against Gemini Enterprise.</code></li>
+    <li><strong>State:</strong> <strong>Enabled</strong></li>
+    <li>Click <strong>Add scope</strong>.</li>
+  </ol>
+</div>
+
+<!-- STEP 4 -->
+<div class="step-card">
+  <div class="step-header">
+    <span class="step-number">4</span>
+    <h2 class="step-title">Pre-Authorize Microsoft Office Clients</h2>
+  </div>
+  <p style="margin: 0 0 6px 0; font-size: 12px; color: #4b5563;">Pre-authorizing Microsoft client IDs allows silent SSO without repeated consent popups for users.</p>
+  <ol>
+    <li>Still on the <strong>Expose an API</strong> page, scroll to <strong>Authorized client applications</strong>.</li>
+    <li>Click <strong>+ Add a client application</strong> and add the two authorized Office clients:</li>
+  </ol>
+  <table class="client-table">
+    <thead>
+      <tr>
+        <th>Application / Client Type</th>
+        <th>Client Application ID (GUID)</th>
+        <th>Authorized Scopes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Office on the Web</strong></td>
+        <td><code>ea5a67f6-b6f3-4338-b240-c655ddc3cc8e</code></td>
+        <td>Check <code>access_as_user</code></td>
+      </tr>
+      <tr>
+        <td><strong>Modern Office Desktop / PowerPoint / Outlook</strong></td>
+        <td><code>bc59ab01-8403-45c6-8796-ac3ef710b3e3</code></td>
+        <td>Check <code>access_as_user</code></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- STEP 5 -->
+<div class="step-card">
+  <div class="step-header">
+    <span class="step-number">5</span>
+    <h2 class="step-title">Enable v2.0 Access Tokens</h2>
+  </div>
+  <ol>
+    <li>In the left navigation menu, select <strong>Manifest</strong>.</li>
+    <li>Locate the <code>"accessTokenAcceptedVersion"</code> property (or <code>"requestedAccessTokenVersion"</code> under <code>"api"</code>).</li>
+    <li>Change its value from <code>null</code> or <code>1</code> to <code>2</code>.</li>
+    <li>Click <strong>Save</strong>.</li>
+  </ol>
+</div>
+
+<!-- STEP 6 -->
+<div class="step-card">
+  <div class="step-header">
+    <span class="step-number">6</span>
+    <h2 class="step-title">Configure Token Claims</h2>
+  </div>
+  <ol>
+    <li>In the left navigation menu, select <strong>Token configuration</strong>.</li>
+    <li>Click <strong>+ Add optional claim</strong>.</li>
+    <li>Select <strong>Access</strong> as the token type.</li>
+    <li>Select the check boxes for: <strong><code>email</code></strong>, <strong><code>upn</code></strong>, and <strong><code>preferred_username</code></strong>.</li>
+    <li>Click <strong>Add</strong> (accept any Microsoft Graph permission prompt).</li>
+  </ol>
+</div>
+
+<!-- STEP 7 -->
+<div class="step-card">
+  <div class="step-header">
+    <span class="step-number">7</span>
+    <h2 class="step-title">API Permissions &amp; Admin Consent</h2>
+  </div>
+  <ol>
+    <li>In the left navigation menu, select <strong>API permissions</strong>.</li>
+    <li>Ensure <strong><code>User.Read</code></strong>, <strong><code>openid</code></strong>, <strong><code>profile</code></strong>, and <strong><code>email</code></strong> are present under Microsoft Graph.</li>
+    <li>Click <strong>Grant admin consent for &lt;Your Organization&gt;</strong> and confirm.</li>
+  </ol>
+</div>
+
+<!-- DELIVERABLES -->
+<div class="deliverables-box">
+  <h3>📋 Information Required from Administrator</h3>
+  <p style="margin: 0 0 6px 0; font-size: 12px; color: #065f46;">Once completed, please reply with the following values from the App Registration <strong>Overview</strong> page:</p>
+  <ul>
+    <li><strong>Application (client) ID:</strong> <code>&lt;e.g. 74a2fdc6-7d78-4ffa-99be-e70e2eab33a0&gt;</code></li>
+    <li><strong>Directory (tenant) ID:</strong> <code>&lt;e.g. 464c0986-459d-42b9-a68d-aff41ccd3b16&gt;</code></li>
+  </ul>
+</div>
+
+<div class="footer">
+  Google Cloud Architecture &bull; Gemini Enterprise Office 365 Add-in Integration &bull; Confidential
+</div>
+
+</body>
+</html>

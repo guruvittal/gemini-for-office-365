@@ -60,6 +60,26 @@ module.exports = async (env, options) => {
     });
   }
 
+  const manifestGsuiteSrc = fs.existsSync(path.resolve(__dirname, "manifest-gsuite.xml"))
+    ? "manifest-gsuite.xml"
+    : (fs.existsSync(path.resolve(__dirname, "../manifest-gsuite.xml")) ? path.resolve(__dirname, "../manifest-gsuite.xml") : null);
+
+  if (manifestGsuiteSrc) {
+    copyPatterns.push({
+      from: manifestGsuiteSrc,
+      to: "manifest-gsuite.xml",
+      toType: "file",
+      noErrorOnMissing: true,
+      transform(content) {
+        if (dev) {
+          return content;
+        } else {
+          return content.toString().replace(new RegExp(urlDev, "g"), urlProd);
+        }
+      },
+    });
+  }
+
   const config = {
     devtool: "source-map",
     entry: {
@@ -113,6 +133,16 @@ module.exports = async (env, options) => {
         filename: "commands.html",
         template: "./src/commands/commands.html",
         chunks: ["polyfill", "commands"],
+      }),
+      new HtmlWebpackPlugin({
+        filename: "google-auth.html",
+        template: "./src/auth/google-auth.html",
+        chunks: [],
+      }),
+      new HtmlWebpackPlugin({
+        filename: "google-callback.html",
+        template: "./src/auth/google-callback.html",
+        chunks: [],
       }),
     ],
     devServer: {

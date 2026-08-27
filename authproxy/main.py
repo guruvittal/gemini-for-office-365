@@ -107,6 +107,7 @@ DOWNSTREAM_BACKEND_URL = os.environ.get("DOWNSTREAM_BACKEND_URL", "").rstrip("/"
 GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "agentspace-452714")
 GCP_LOCATION = os.environ.get("GCP_LOCATION", "global")
 USER_AUTH_MODE = os.environ.get("USER_AUTH_MODE", "auto").lower()
+GOOGLE_OAUTH_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
 WIF_AUDIENCE = os.environ.get("WIF_AUDIENCE", "")
 WIF_PROVIDER_NAME = os.environ.get("WIF_PROVIDER_NAME", "entra-id-oidc-pool-provider")
 
@@ -295,6 +296,98 @@ def exchange_entra_jwt_for_wif_token(
     return None
 
 
+_user_token_cache: Dict[str, Tuple[str, float]] = {}
+
+def mint_user_google_token_via_dwd(user_email: str) -> Optional[str]:
+    """
+    Automatically mints a short-lived Google OAuth2 Access Token for the given user email
+    using Service Account Domain-Wide Delegation (DWD) and the IAM Credentials API.
+    Cached for token lifetime.
+    """
+    if not user_email or "@" not in user_email:
+        return None
+
+    now = time.time()
+    # Check cache (refresh if less than 5 minutes remaining)
+    if user_email in _user_token_cache:
+        cached_tok, exp = _user_token_cache[user_email]
+        if exp - now > 300:
+            return cached_tok
+
+    try:
+        from google.auth import default
+        from google.auth.transport.requests import Request as GoogleAuthRequest
+        import google.auth
+
+        sa_email = "gemini-office365-sa@agentspace-452714.iam.gserviceaccount.com"
+        iat = int(now)
+        exp_time = iat + 3600
+
+        jwt_payload = {
+            "iss": sa_email,
+            "sub": user_email,
+            "aud": "https://oauth2.googleapis.com/token",
+            "scope": "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/drive.readonly",
+            "iat": iat,
+            "exp": exp_time
+        }
+
+        credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        auth_req = GoogleAuthRequest()
+        credentials.refresh(auth_req)
+        gcp_token = credentials.token
+
+        sign_url = f"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/{sa_email}:signJwt"
+        sign_req = urllib.request.Request(
+            sign_url,
+            data=json.dumps({"payload": json.dumps(jwt_payload)}).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {gcp_token}",
+                "Content-Type": "application/json"
+            },
+            method="POST"
+        )
+
+        with urllib.request.urlopen(sign_req, timeout=5) as sign_resp:
+            sign_data = json.loads(sign_resp.read().decode("utf-8"))
+            signed_jwt = sign_data.get("signedJwt")
+
+        if not signed_jwt:
+            return None
+
+        # Exchange signed JWT assertion with Google OAuth2 endpoint
+        token_url = "https://oauth2.googleapis.com/token"
+        token_data = urllib.parse.urlencode({
+            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            "assertion": signed_jwt
+        }).encode("utf-8")
+
+        token_req = urllib.request.Request(
+            token_url,
+            data=token_data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST"
+        )
+
+        with urllib.request.urlopen(token_req, timeout=5) as token_resp:
+            oauth_data = json.loads(token_resp.read().decode("utf-8"))
+            access_token = oauth_data.get("access_token")
+            if access_token:
+                _user_token_cache[user_email] = (access_token, now + 3500)
+                logger.info(
+                    f"[AUTO_DWD] Successfully minted automated Google OAuth access token for user '{user_email}'",
+                    extra={"user_id": user_email, "token_type": "DWD_USER_TOKEN"}
+                )
+                return access_token
+
+    except Exception as e:
+        logger.warning(
+            f"[AUTO_DWD_INFO] Automated user token generation for '{user_email}' (pending DWD admin authorization): {e}",
+            extra={"user_id": user_email, "error": str(e)}
+        )
+        return None
+
+
 def resolve_end_user_google_token(
     user: "AuthenticatedUser", 
     project_id: str, 
@@ -334,6 +427,13 @@ def resolve_end_user_google_token(
         return None, "wif", metadata
 
     elif auth_mode == "cloud_identity":
+        # Automatically attempt on-the-fly Google User Token generation for this Cloud Identity / Workspace user
+        user_email = user.email or user.user_id
+        dwd_token = mint_user_google_token_via_dwd(user_email)
+        if dwd_token:
+            metadata["token_resolution_status"] = "DWD_USER_TOKEN_MINTED"
+            return dwd_token, "cloud_identity", metadata
+
         metadata["token_resolution_status"] = "CLOUD_IDENTITY_USER_ATTRIBUTED"
         return None, "cloud_identity", metadata
 
@@ -393,6 +493,19 @@ class AuthenticatedUser(BaseModel):
     scopes: List[str] = []
     raw_claims: Dict[str, Any] = Field(default_factory=dict)
     raw_token: Optional[str] = None
+
+
+class DiagnosticLogEntry(BaseModel):
+    timestamp: Optional[str] = None
+    level: str = "INFO"
+    category: str = "DIAGNOSTICS"
+    message: str
+    details: Optional[Dict[str, Any]] = None
+
+
+class DiagnosticLogBatchRequest(BaseModel):
+    logs: List[DiagnosticLogEntry] = []
+    client_context: Optional[Dict[str, Any]] = None
 
 
 def extract_user_from_payload(payload: Dict[str, Any], raw_token: Optional[str] = None) -> AuthenticatedUser:
@@ -743,6 +856,21 @@ async def health_check():
     )
 
 
+@app.get("/api/config")
+async def get_public_config():
+    """
+    Returns public frontend configuration dynamically so no Client IDs
+    or environment-specific parameters are hardcoded into the frontend code.
+    """
+    return {
+        "google_oauth_client_id": GOOGLE_OAUTH_CLIENT_ID,
+        "microsoft_entra_app_id": ENTRA_APP_ID,
+        "user_auth_mode": USER_AUTH_MODE,
+        "gcp_project_id": GCP_PROJECT_ID,
+        "require_entra_auth": REQUIRE_ENTRA_AUTH
+    }
+
+
 @app.get("/api/auth/me")
 async def get_current_user(user: AuthenticatedUser = Depends(verify_entra_token)):
     """
@@ -784,6 +912,45 @@ async def validate_token_endpoint(user: AuthenticatedUser = Depends(verify_entra
             "tenant_id": user.tenant_id
         }
     }
+
+
+@app.post("/api/diagnostics/log")
+async def ingest_client_diagnostics(
+    req: DiagnosticLogBatchRequest,
+    request: Request
+):
+    """
+    Ingests client-side troubleshooting and diagnostic logs from the Office 365 Add-in
+    and writes structured JSON records directly to Google Cloud Logging.
+    """
+    client_ctx = req.client_context or {}
+    client_ip = request.client.host if request.client else "unknown"
+    client_ctx["client_ip"] = client_ip
+
+    for entry in req.logs:
+        lvl = (entry.level or "INFO").upper()
+        cat = entry.category or "DIAGNOSTICS"
+        structured_payload = {
+            "logger": "client-diagnostics",
+            "category": cat,
+            "client_timestamp": entry.timestamp,
+            "client_context": client_ctx,
+            "details": entry.details or {},
+            "user_id": client_ctx.get("user_email") or client_ctx.get("user_id") or "anonymous"
+        }
+        
+        log_msg = f"[CLIENT_DIAGNOSTICS][{cat}] {entry.message}"
+        
+        if lvl == "ERROR":
+            logger.error(log_msg, extra=structured_payload)
+        elif lvl == "WARNING":
+            logger.warning(log_msg, extra=structured_payload)
+        elif lvl == "DEBUG":
+            logger.debug(log_msg, extra=structured_payload)
+        else:
+            logger.info(log_msg, extra=structured_payload)
+
+    return {"status": "ok", "ingested": len(req.logs)}
 
 
 @app.post("/askGeminiEnterprise")
@@ -854,18 +1021,24 @@ async def proxy_addin_request(
             extra={"downstream_endpoint": target_endpoint, "user_id": authenticated_user_id}
         )
 
-        # Dynamically resolve end-user Google token based on project Gemini Enterprise settings
-        user_google_token, detected_auth_mode, auth_diag = resolve_end_user_google_token(
-            user=user,
-            project_id=GCP_PROJECT_ID,
-            location=GCP_LOCATION
-        )
-
-        # Forward explicit X-End-User-Google-Token header if provided (testing / direct pass-through)
+        # 1. Check if 3-legged user OAuth token was passed directly from the Office 365 add-in
         passed_google_token = request.headers.get("x-end-user-google-token")
         if passed_google_token:
             user_google_token = passed_google_token
-            auth_diag["token_resolution_status"] = "PASSED_VIA_HEADER"
+            detected_auth_mode = USER_AUTH_MODE if USER_AUTH_MODE != "auto" else "cloud_identity"
+            auth_diag = {
+                "project_id": GCP_PROJECT_ID,
+                "location": GCP_LOCATION,
+                "effective_auth_mode": detected_auth_mode,
+                "token_resolution_status": "PASSED_VIA_HEADER_OAUTH3"
+            }
+        else:
+            # Dynamically resolve end-user Google token based on project Gemini Enterprise settings (DWD / WIF)
+            user_google_token, detected_auth_mode, auth_diag = resolve_end_user_google_token(
+                user=user,
+                project_id=GCP_PROJECT_ID,
+                location=GCP_LOCATION
+            )
 
         # Check for test identity bridge override (e.g. AlexW@5m4qby.onmicrosoft.com -> admin@caugusto.altostrat.com)
         effective_user_id = authenticated_user_id

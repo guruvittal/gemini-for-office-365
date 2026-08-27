@@ -168,3 +168,212 @@ export async function getOfficeAuthToken(forceRefresh = false) {
 
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Google 3-Legged OAuth Management (No DWD Required)
+// ---------------------------------------------------------------------------
+
+let cachedGoogleToken = null;
+let googleTokenExpiry = 0;
+let cachedAppConfig = null;
+let googleAuthDialog = null;
+
+/**
+ * Loads dynamic frontend configuration from the backend auth-proxy (/api/config)
+ * so that Google OAuth Client IDs and settings are never hardcoded in client code.
+ */
+export async function fetchAppConfig() {
+  if (cachedAppConfig) return cachedAppConfig;
+
+  // Check localStorage override
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const localClientId = window.localStorage.getItem('google_oauth_client_id');
+    if (localClientId) {
+      cachedAppConfig = { google_oauth_client_id: localClientId };
+      return cachedAppConfig;
+    }
+  }
+
+  try {
+    const configUrl = 'https://auth-proxy-16933400417.us-central1.run.app/api/config';
+    const resp = await fetch(configUrl);
+    if (resp.ok) {
+      cachedAppConfig = await resp.json();
+      console.log('Successfully fetched dynamic app config:', {
+        google_client_id_configured: bool(cachedAppConfig?.google_oauth_client_id),
+        user_auth_mode: cachedAppConfig?.user_auth_mode
+      });
+      return cachedAppConfig;
+    }
+  } catch (err) {
+    console.warn('Could not fetch backend app config:', err);
+  }
+
+  return cachedAppConfig || {};
+}
+
+function bool(val) {
+  return !!val;
+}
+
+/**
+ * Retrieves the configured Google OAuth 2.0 Web Client ID dynamically.
+ */
+export async function getGoogleOAuthClientId() {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const stored = window.localStorage.getItem('google_oauth_client_id');
+    if (stored) return stored;
+  }
+  const config = await fetchAppConfig();
+  return config?.google_oauth_client_id || '';
+}
+
+/**
+ * Stores Google OAuth access token with expiration in memory and sessionStorage.
+ */
+export function setGoogleAccessToken(token, expiresIn = 3600) {
+  if (!token) {
+    cachedGoogleToken = null;
+    googleTokenExpiry = 0;
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      window.sessionStorage.removeItem('google_user_access_token');
+      window.sessionStorage.removeItem('google_user_token_expiry');
+    }
+    return;
+  }
+
+  cachedGoogleToken = token;
+  const now = Date.now();
+  // Safe buffer: expire 5 minutes earlier
+  const ttlMs = Math.max((expiresIn - 300) * 1000, 60000);
+  googleTokenExpiry = now + ttlMs;
+
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    window.sessionStorage.setItem('google_user_access_token', token);
+    window.sessionStorage.setItem('google_user_token_expiry', String(googleTokenExpiry));
+  }
+  console.log('Google user access token stored. Valid for ~' + Math.round(ttlMs / 60000) + ' minutes.');
+}
+
+/**
+ * Retrieves the active Google user OAuth token if valid.
+ */
+export function getGoogleAccessToken() {
+  const now = Date.now();
+  if (cachedGoogleToken && now < googleTokenExpiry) {
+    return cachedGoogleToken;
+  }
+
+  // Check sessionStorage
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    const stored = window.sessionStorage.getItem('google_user_access_token');
+    const exp = parseInt(window.sessionStorage.getItem('google_user_token_expiry') || '0', 10);
+    if (stored && now < exp) {
+      cachedGoogleToken = stored;
+      googleTokenExpiry = exp;
+      return cachedGoogleToken;
+    }
+  }
+
+  return null;
+}
+
+export function isGoogleTokenValid() {
+  return !!getGoogleAccessToken();
+}
+
+/**
+ * Initiates the 3-Legged Google OAuth Sign-In flow using Office Dialog API.
+ * 
+ * @param {string|null} loginHint - Email hint (e.g. scim@jeansson.demo.altostrat.com)
+ * @param {string} prompt - OAuth prompt mode ('select_account' or 'none')
+ * @returns {Promise<{status: string, token?: string, error?: string}>}
+ */
+export async function initiateGoogleSignIn(loginHint = null, prompt = 'select_account') {
+  const clientId = await getGoogleOAuthClientId();
+  if (!clientId) {
+    const errMsg = 'Google OAuth Client ID is not configured. Please ensure GOOGLE_OAUTH_CLIENT_ID is set.';
+    console.error(errMsg);
+    return { status: 'error', error: errMsg };
+  }
+
+  // Pre-fill user email from profile if not provided
+  if (!loginHint) {
+    const profile = getUserProfile();
+    if (profile && profile.email && profile.email !== 'user@organization.com') {
+      loginHint = profile.email;
+    }
+  }
+
+  return new Promise((resolve) => {
+    const origin = typeof window !== 'undefined' && window.location ? window.location.origin : 'https://gemini-frontend-16933400417.us-central1.run.app';
+    const authUrl = `${origin}/google-auth.html?client_id=${encodeURIComponent(clientId)}&login_hint=${encodeURIComponent(loginHint || '')}&prompt=${encodeURIComponent(prompt)}`;
+
+    console.log('Opening Google OAuth dialog at:', authUrl);
+
+    if (typeof Office !== 'undefined' && Office.context && Office.context.ui && Office.context.ui.displayDialogAsync) {
+      Office.context.ui.displayDialogAsync(
+        authUrl,
+        { height: 60, width: 40, promptBeforeOpen: false },
+        (asyncResult) => {
+          if (asyncResult.status === Office.AsyncResultStatus.Failed) {
+            console.error('Failed to open Office Google Auth dialog:', asyncResult.error);
+            resolve({ status: 'error', error: asyncResult.error.message });
+            return;
+          }
+
+          googleAuthDialog = asyncResult.value;
+
+          googleAuthDialog.addEventHandler(Office.EventType.DialogMessageReceived, (arg) => {
+            try {
+              const data = JSON.parse(arg.message);
+              if (data.google_token) {
+                setGoogleAccessToken(data.google_token, data.expires_in || 3600);
+                if (googleAuthDialog) {
+                  googleAuthDialog.close();
+                  googleAuthDialog = null;
+                }
+                resolve({ status: 'success', token: data.google_token });
+              } else {
+                if (googleAuthDialog) {
+                  googleAuthDialog.close();
+                  googleAuthDialog = null;
+                }
+                resolve({ status: 'error', error: data.error || 'Google authentication was not completed.' });
+              }
+            } catch (e) {
+              console.error('Error handling dialog message:', e);
+              if (googleAuthDialog) {
+                googleAuthDialog.close();
+                googleAuthDialog = null;
+              }
+              resolve({ status: 'error', error: e.message });
+            }
+          });
+
+          googleAuthDialog.addEventHandler(Office.EventType.DialogEventReceived, (arg) => {
+            console.warn('Dialog event / closed by user:', arg);
+            googleAuthDialog = null;
+            resolve({ status: 'error', error: 'Authentication window closed.' });
+          });
+        }
+      );
+    } else {
+      // Standalone browser fallback popup
+      const popup = window.open(authUrl, 'google_auth_popup', 'width=500,height=650');
+      const messageHandler = (event) => {
+        if (event.data && event.data.type === 'GOOGLE_AUTH_RESULT') {
+          window.removeEventListener('message', messageHandler);
+          const payload = event.data.payload;
+          if (payload.google_token) {
+            setGoogleAccessToken(payload.google_token, payload.expires_in || 3600);
+            resolve({ status: 'success', token: payload.google_token });
+          } else {
+            resolve({ status: 'error', error: payload.error || 'Authentication failed' });
+          }
+        }
+      };
+      window.addEventListener('message', messageHandler);
+    }
+  });
+}

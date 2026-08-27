@@ -44,18 +44,22 @@ The `auth-proxy` service acts as an authenticated security gateway between Micro
 
 ## 2. Recommended Deployment Order
 
-Because `auth-proxy` requires the downstream backend URL of `askgemini-proxy`, and the Microsoft Entra **Application ID URI** requires the public domain of `auth-proxy` (e.g., `api://auth-proxy-xxxxx-uc.a.run.app/<CLIENT_ID>`), follow this sequence:
+Because `auth-proxy` requires the downstream backend URL of `askgemini-proxy`, Microsoft Entra's **Application ID URI** requires the public domain of `gemini-frontend` (e.g., `api://gemini-frontend-xxxxx.us-central1.run.app/<CLIENT_ID>`), and the **Google OAuth 2.0 Web Client** (for Cloud Identity mode) requires the frontend origin and redirect URI, follow this sequence:
 
 ```
-Step 1: Register App in Entra ID ➔ Capture Client ID
+Step 1: Register App in Entra ID ➔ Capture Entra Client ID
        │
 Step 2: Deploy Backend Proxy (askgemini-proxy) ➔ Capture Backend URL
        │
-Step 3: Deploy auth-proxy to Cloud Run with Client ID & Backend URL ➔ Capture Auth Proxy URL
+Step 3: Deploy Frontend Add-in (gemini-frontend) ➔ Capture Frontend URL
        │
-Step 4: In Entra ID ➔ Set Application ID URI, Add Scopes & Pre-authorize Office
+Step 4: Create Google OAuth 2.0 Web Client (GCP Console) ➔ Set Frontend URL & Callback URI ➔ Capture Google Client ID
        │
-Step 5: Update Office Manifest (XML) & Verify
+Step 5: Deploy auth-proxy to Cloud Run with Entra Client ID, Backend URL & GOOGLE_OAUTH_CLIENT_ID
+       │
+Step 6: In Entra ID ➔ Set Application ID URI, Add Scopes & Pre-authorize Office
+       │
+Step 7: Update Office Manifest (manifest-ca.xml) & Verify in Office 365
 ```
 
 ---

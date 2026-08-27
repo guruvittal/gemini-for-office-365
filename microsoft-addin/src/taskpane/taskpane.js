@@ -8,7 +8,17 @@
  */
 
 import { askGeminiEnterprise, getActiveProxyUrl, setProxyUrlOverride } from '../core/geminiClient.js';
-import { getOfficeAuthToken, getUserProfile, getLastAuthError } from '../core/authService.js';
+import { 
+  getOfficeAuthToken, 
+  getUserProfile, 
+  getLastAuthError, 
+  initiateGoogleSignIn, 
+  isGoogleTokenValid, 
+  getGoogleAccessToken,
+  setGoogleAccessToken,
+  getGoogleOAuthClientId,
+  fetchAppConfig
+} from '../core/authService.js';
 import { parseMarkdown } from '../core/markdownParser.js';
 import { HostAdapterFactory } from '../adapters/HostAdapterFactory.js';
 import { initPowerPointDiagnostics } from '../adapters/ppt/pptDiagnostics.js';
@@ -19,12 +29,43 @@ let isProcessingInDocCommand = false;
 let hostAdapter = null;
 let currentSelectedText = "";
 
-Office.onReady((info) => {
+Office.onReady(async (info) => {
   // Detect active Microsoft Office host (Word, PowerPoint, Excel) dynamically
   hostAdapter = HostAdapterFactory.getAdapter();
 
-  // Initialize Entra ID Single Sign-On Identity in UI
-  initAuthUI();
+  // Pre-fetch dynamic backend configuration (Google OAuth Client ID)
+  fetchAppConfig().catch(e => console.warn("Background config fetch failed:", e));
+
+  // Initialize Entra ID & Google Drive Identity in UI
+  await initAuthUI();
+
+  // Initialize Collapsible Troubleshooting & Diagnostics Panel
+  initTroubleshootPanel();
+
+  // Log Add-in startup and host context to Cloud Logging
+  sendDiagnosticLogToCloud(
+    `Office Add-in initialized on host '${info.host || 'Unknown'}' (${info.platform || 'Unknown platform'})`,
+    "INFO",
+    "STARTUP",
+    { host: info.host, platform: info.platform }
+  );
+
+  // Wire Google Drive 1-click connect button
+  const googleDriveBtn = document.getElementById("googleDriveBtn");
+  if (googleDriveBtn) {
+    googleDriveBtn.onclick = async () => {
+      console.log("Triggering Google OAuth 3-legged sign-in flow...");
+      googleDriveBtn.innerHTML = "⏳ Logging in...";
+      const profile = getUserProfile();
+      const res = await initiateGoogleSignIn(profile?.email || null, 'select_account');
+      if (res.status === 'success') {
+        appendBubble("✅ Google login successful! Gemini Enterprise grounding is now active.", "system");
+      } else {
+        console.warn("Google Sign-In was not completed:", res.error);
+      }
+      await initAuthUI();
+    };
+  }
 
   document.getElementById("run").onclick = () => callGeminiProxy();
   
@@ -134,11 +175,14 @@ async function initAuthUI() {
   const userStatusDot = document.getElementById("userStatusDot");
   const userAuthBadge = document.getElementById("userAuthBadge");
 
+  const googleDriveBtn = document.getElementById("googleDriveBtn");
+
   try {
     const token = await getOfficeAuthToken();
     const profile = getUserProfile();
     const lastErr = getLastAuthError();
 
+    // 1. Entra ID / Microsoft 365 status
     if (token && profile.is_authenticated) {
       if (userEmailText) {
         userEmailText.innerText = profile.email || profile.name;
@@ -149,7 +193,7 @@ async function initAuthUI() {
         userStatusDot.title = "Connected with Microsoft Entra ID";
       }
       if (userAuthBadge) {
-        userAuthBadge.innerText = "Logged in";
+        userAuthBadge.innerText = "Office 365";
         userAuthBadge.className = "user-auth-mode-badge active";
         userAuthBadge.title = `Authenticated SSO session (${profile.email})`;
       }
@@ -164,15 +208,30 @@ async function initAuthUI() {
         userStatusDot.title = errHint;
       }
       if (userAuthBadge) {
-        userAuthBadge.innerText = lastErr ? "Sign In" : "Dev Mode";
+        userAuthBadge.innerText = lastErr ? "Sign In" : "Office 365";
         userAuthBadge.className = "user-auth-mode-badge";
         userAuthBadge.title = errHint;
+      }
+    }
+
+    // 2. Google Drive 3-Legged OAuth status
+    if (googleDriveBtn) {
+      if (isGoogleTokenValid()) {
+        googleDriveBtn.className = "google-drive-btn connected";
+        googleDriveBtn.innerHTML = "✅ Google Connected";
+        googleDriveBtn.title = "Google identity & grounding active (OAuth token valid)";
+      } else {
+        googleDriveBtn.className = "google-drive-btn";
+        googleDriveBtn.innerHTML = "Login with Google";
+        googleDriveBtn.title = "Click to sign into Google for Gemini Enterprise grounding";
       }
     }
   } catch (err) {
     console.warn("Auth UI init error:", err);
     if (userEmailText) userEmailText.innerText = "Unauthenticated";
     if (userStatusDot) userStatusDot.className = "user-status-dot offline";
+  } finally {
+    updateDiagnosticsPanel().catch(() => {});
   }
 }
 
@@ -461,7 +520,7 @@ async function executeGeminiWorkflow(fullPrompt, displayUserBubble) {
 
   if (runButton) runButton.disabled = true;
   if (loadingText) {
-    loadingText.innerText = "⚡ Gemini 2.5 is thinking...";
+    loadingText.innerText = "⚡ Gemini Enterprise is thinking...";
     loadingText.style.display = "block";
   }
 
@@ -619,6 +678,373 @@ async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {
   } finally {
     if (runButton) runButton.disabled = false;
     if (loadingText) loadingText.style.display = "none";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cloud Logging Dispatcher for Client Diagnostics & Troubleshooting
+// ---------------------------------------------------------------------------
+let pendingDiagLogs = [];
+let diagLogFlushTimeout = null;
+
+export function sendDiagnosticLogToCloud(message, level = "INFO", category = "DIAGNOSTICS", details = {}) {
+  const entry = {
+    timestamp: new Date().toISOString(),
+    level: (level || "INFO").toUpperCase(),
+    category: category || "DIAGNOSTICS",
+    message: String(message),
+    details: details || {}
+  };
+
+  pendingDiagLogs.push(entry);
+
+  if (!diagLogFlushTimeout) {
+    diagLogFlushTimeout = setTimeout(flushDiagnosticLogsToCloud, 600);
+  }
+}
+
+async function flushDiagnosticLogsToCloud() {
+  diagLogFlushTimeout = null;
+  if (pendingDiagLogs.length === 0) return;
+
+  const logsToSend = [...pendingDiagLogs];
+  pendingDiagLogs = [];
+
+  const profile = getUserProfile();
+  const baseUrl = getActiveProxyUrl().replace(/\/askGeminiEnterprise$/, '');
+  const logUrl = `${baseUrl}/api/diagnostics/log`;
+
+  const payload = {
+    logs: logsToSend,
+    client_context: {
+      host: hostAdapter?.name || (typeof Office !== "undefined" && Office.context?.host) || "UnknownHost",
+      platform: (typeof Office !== "undefined" && Office.context?.platform) || "UnknownPlatform",
+      user_id: profile?.user_id || "anonymous",
+      user_email: profile?.email || null,
+      tenant_id: profile?.tenant_id || null,
+      session_id: currentSessionId || null,
+      user_agent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+      addin_version: "1.0.0"
+    }
+  };
+
+  try {
+    const res = await fetch(logUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      keepalive: true
+    });
+    if (!res.ok) {
+      console.warn("Cloud log ingestion HTTP error:", res.status);
+    }
+  } catch (err) {
+    console.debug("Failed to dispatch diagnostic logs to Cloud Logging:", err);
+  }
+}
+
+export function logToDiagBox(msg, isError = false, category = "DIAGNOSTICS", details = {}) {
+  const box = document.getElementById("diagLogBox");
+  if (box) {
+    const time = new Date().toLocaleTimeString();
+    box.innerText += `\n[${time}] ${msg}`;
+    box.scrollTop = box.scrollHeight;
+  }
+  // Stream directly to GCP Cloud Logging
+  const level = isError ? "ERROR" : "INFO";
+  sendDiagnosticLogToCloud(msg, level, category, details);
+}
+window.logToDiagBox = logToDiagBox;
+window.sendDiagnosticLogToCloud = sendDiagnosticLogToCloud;
+
+async function updateDiagnosticsPanel() {
+  try {
+    // 1. Entra ID SSO diagnostics
+    const ssoStatus = document.getElementById("diagSsoStatus");
+    const ssoUser = document.getElementById("diagSsoUser");
+    const ssoTenant = document.getElementById("diagSsoTenant");
+    const profile = getUserProfile();
+    const token = await getOfficeAuthToken().catch(() => null);
+    const lastErr = getLastAuthError();
+
+    if (token && profile.is_authenticated) {
+      if (ssoStatus) {
+        ssoStatus.innerText = "✅ Authenticated";
+        ssoStatus.style.color = "#107c41";
+      }
+      if (ssoUser) ssoUser.innerText = profile.email || profile.name || "Signed In";
+      if (ssoTenant) ssoTenant.innerText = profile.tenant_id ? (profile.tenant_id.length > 20 ? profile.tenant_id.substring(0, 18) + '...' : profile.tenant_id) : "Default Tenant";
+    } else {
+      if (ssoStatus) {
+        ssoStatus.innerText = lastErr ? `⚠️ ${lastErr.code || lastErr.message || 'Not Authenticated'}` : "Not Authenticated";
+        ssoStatus.style.color = "#a4262c";
+      }
+      if (ssoUser) ssoUser.innerText = profile.email && profile.email !== 'user@organization.com' ? profile.email : "--";
+      if (ssoTenant) ssoTenant.innerText = "--";
+    }
+
+    // 2. Google OAuth diagnostics
+    const googleStatus = document.getElementById("diagGoogleStatus");
+    const googleClientId = document.getElementById("diagGoogleClientId");
+    const googleExpiry = document.getElementById("diagGoogleExpiry");
+    const gToken = getGoogleAccessToken();
+    const gClientId = await getGoogleOAuthClientId();
+
+    if (googleClientId) {
+      googleClientId.innerText = gClientId ? (gClientId.length > 24 ? gClientId.substring(0, 22) + '...' : gClientId) : 'Not Configured';
+      googleClientId.title = gClientId || 'Google OAuth Client ID not configured';
+    }
+
+    if (gToken) {
+      if (googleStatus) {
+        googleStatus.innerText = "✅ Connected";
+        googleStatus.style.color = "#107c41";
+      }
+      const exp = parseInt(window.sessionStorage?.getItem('google_user_token_expiry') || '0', 10);
+      const remainingMin = exp ? Math.max(0, Math.round((exp - Date.now()) / 60000)) : 0;
+      if (googleExpiry) googleExpiry.innerText = `${remainingMin} min remaining`;
+    } else {
+      if (googleStatus) {
+        googleStatus.innerText = "⚪ Not Connected";
+        googleStatus.style.color = "#605e5c";
+      }
+      if (googleExpiry) googleExpiry.innerText = "--";
+    }
+
+    // 3. Backend & Config
+    const proxyUrl = document.getElementById("diagProxyUrl");
+    const authMode = document.getElementById("diagAuthMode");
+    const projId = document.getElementById("diagProjectId");
+
+    const appConfig = await fetchAppConfig();
+    if (proxyUrl) {
+      const activeUrl = getActiveProxyUrl();
+      proxyUrl.innerText = activeUrl.replace('https://', '').split('/')[0];
+      proxyUrl.title = activeUrl;
+    }
+    if (authMode) authMode.innerText = appConfig?.user_auth_mode || "Office SSO + Google OAuth";
+    if (projId) projId.innerText = appConfig?.project_id || "agentspace-452714";
+
+    // PowerPoint & Office.js Engine Status
+    const pptApiStatus = document.getElementById("diagPptApiStatus");
+    if (pptApiStatus) {
+      if (typeof Office !== "undefined" && Office.context?.requirements) {
+        const v15 = Office.context.requirements.isSetSupported("PowerPointApi", "1.5");
+        const v14 = Office.context.requirements.isSetSupported("PowerPointApi", "1.4");
+        const v13 = Office.context.requirements.isSetSupported("PowerPointApi", "1.3");
+        const v12 = Office.context.requirements.isSetSupported("PowerPointApi", "1.2");
+        const v11 = Office.context.requirements.isSetSupported("PowerPointApi", "1.1");
+        const highest = v15 ? "1.5" : v14 ? "1.4" : v13 ? "1.3" : v12 ? "1.2" : v11 ? "1.1" : "Base";
+        pptApiStatus.innerText = `PowerPointApi ${highest} Supported`;
+        pptApiStatus.style.color = "#107c41";
+      } else {
+        const isPPT = typeof PowerPoint !== "undefined";
+        pptApiStatus.innerText = isPPT ? "PowerPoint.js Ready" : (Office?.context?.host || "Office Environment");
+      }
+    }
+
+  } catch (e) {
+    console.warn("Diagnostics update error:", e);
+  }
+}
+
+function initTroubleshootPanel() {
+  const panel = document.getElementById("troubleshootPanel");
+  if (panel) {
+    panel.ontoggle = () => {
+      if (panel.open) {
+        updateDiagnosticsPanel();
+        logToDiagBox("Troubleshooting panel expanded.");
+      }
+    };
+  }
+
+  const btnRefreshSso = document.getElementById("diagRefreshSso");
+  if (btnRefreshSso) {
+    btnRefreshSso.onclick = async () => {
+      logToDiagBox("Forcing Entra ID SSO token refresh...", false, "SSO");
+      btnRefreshSso.innerText = "⏳ Refreshing...";
+      try {
+        const token = await getOfficeAuthToken(true);
+        if (token) {
+          const profile = getUserProfile();
+          logToDiagBox("✅ SSO Token refreshed successfully.", false, "SSO", { email: profile?.email, tenant: profile?.tenant_id });
+        } else {
+          logToDiagBox("⚠️ Token refresh returned empty.", true, "SSO");
+        }
+      } catch (err) {
+        logToDiagBox(`❌ SSO Refresh error: ${err.message || err}`, true, "SSO", { error: String(err) });
+      } finally {
+        btnRefreshSso.innerText = "🔄 Refresh SSO Token";
+        await initAuthUI();
+        await updateDiagnosticsPanel();
+      }
+    };
+  }
+
+  const btnSignInGoogle = document.getElementById("diagSignInGoogle");
+  if (btnSignInGoogle) {
+    btnSignInGoogle.onclick = async () => {
+      logToDiagBox("Launching Google OAuth sign-in flow...", false, "GOOGLE_OAUTH");
+      btnSignInGoogle.innerText = "⏳ Signing in...";
+      try {
+        const profile = getUserProfile();
+        const res = await initiateGoogleSignIn(profile?.email || null, 'select_account');
+        if (res.status === 'success') {
+          logToDiagBox("✅ Google Sign-In succeeded.", false, "GOOGLE_OAUTH", { status: 'success' });
+        } else {
+          logToDiagBox(`⚠️ Google Sign-In canceled/failed: ${res.error || 'Unknown'}`, true, "GOOGLE_OAUTH", { error: res.error });
+        }
+      } catch (err) {
+        logToDiagBox(`❌ Google Sign-In error: ${err.message || err}`, true, "GOOGLE_OAUTH", { error: String(err) });
+      } finally {
+        btnSignInGoogle.innerText = "🔑 Sign In with Google";
+        await initAuthUI();
+        await updateDiagnosticsPanel();
+      }
+    };
+  }
+
+  const btnClearGoogle = document.getElementById("diagClearGoogle");
+  if (btnClearGoogle) {
+    btnClearGoogle.onclick = async () => {
+      setGoogleAccessToken(null);
+      logToDiagBox("🗑️ Google access token cleared.", false, "GOOGLE_OAUTH");
+      await initAuthUI();
+      await updateDiagnosticsPanel();
+    };
+  }
+
+  const btnPingBackend = document.getElementById("diagPingBackend");
+  if (btnPingBackend) {
+    btnPingBackend.onclick = async () => {
+      const startTime = Date.now();
+      btnPingBackend.innerText = "⏳ Pinging...";
+      const baseUrl = getActiveProxyUrl().replace(/\/askGeminiEnterprise$/, '');
+      const configUrl = `${baseUrl}/api/config`;
+      logToDiagBox(`Testing backend connectivity -> ${configUrl}`, false, "BACKEND_PING");
+      try {
+        const res = await fetch(configUrl, { cache: 'no-store' });
+        const latency = Date.now() - startTime;
+        if (res.ok) {
+          const cfg = await res.json();
+          logToDiagBox(`✅ Backend reachable (${latency}ms). Project: ${cfg.project_id || 'OK'}, AuthMode: ${cfg.user_auth_mode || 'OK'}`, false, "BACKEND_PING", { latency, config: cfg });
+        } else {
+          logToDiagBox(`⚠️ Backend HTTP ${res.status} (${latency}ms)`, true, "BACKEND_PING", { latency, status: res.status });
+        }
+      } catch (err) {
+        logToDiagBox(`❌ Connectivity failed: ${err.message || err}`, true, "BACKEND_PING", { error: String(err) });
+      } finally {
+        btnPingBackend.innerText = "📡 Test Connection";
+        await updateDiagnosticsPanel();
+      }
+    };
+  }
+
+  // PowerPoint Diagnostic & Live Test Actions
+  const btnDiagCheckApi = document.getElementById("btnDiagCheckApi");
+  if (btnDiagCheckApi) {
+    btnDiagCheckApi.onclick = async () => {
+      logToDiagBox("Checking PowerPoint Office.js environment...", false, "POWERPOINT_API");
+      try {
+        const hasOffice = typeof Office !== "undefined";
+        const hasPPT = typeof PowerPoint !== "undefined";
+        const host = (hasOffice && Office.context?.host) || "Unknown";
+        const platform = (hasOffice && Office.context?.platform) || "Unknown";
+
+        let versions = {};
+        if (hasOffice && Office.context?.requirements) {
+          versions = {
+            v11: Office.context.requirements.isSetSupported("PowerPointApi", "1.1"),
+            v12: Office.context.requirements.isSetSupported("PowerPointApi", "1.2"),
+            v13: Office.context.requirements.isSetSupported("PowerPointApi", "1.3"),
+            v14: Office.context.requirements.isSetSupported("PowerPointApi", "1.4"),
+            v15: Office.context.requirements.isSetSupported("PowerPointApi", "1.5")
+          };
+          logToDiagBox(`Host: ${host}, Platform: ${platform}, PowerPointApi: 1.1=${versions.v11}, 1.2=${versions.v12}, 1.3=${versions.v13}, 1.4=${versions.v14}, 1.5=${versions.v15}`, false, "POWERPOINT_API", { host, platform, versions });
+        } else {
+          logToDiagBox(`Host: ${host}, Platform: ${platform}, PPT Namespace: ${hasPPT}`, false, "POWERPOINT_API", { host, platform, hasPPT });
+        }
+      } catch (e) {
+        logToDiagBox(`❌ API Check Error: ${e.message}`, true, "POWERPOINT_API", { error: String(e) });
+      }
+    };
+  }
+
+  const btnDiagTestSlide = document.getElementById("btnDiagTestSlide");
+  if (btnDiagTestSlide) {
+    btnDiagTestSlide.onclick = async () => {
+      logToDiagBox("Calling PowerPoint.run(presentation.slides.add())...", false, "POWERPOINT_TEST");
+      const startTime = Date.now();
+      try {
+        if (typeof PowerPoint === "undefined") {
+          throw new Error("PowerPoint namespace is not available in current host.");
+        }
+        await PowerPoint.run(async (context) => {
+          context.presentation.slides.add();
+          logToDiagBox("Slide add queued. Calling context.sync()...", false, "POWERPOINT_TEST");
+          await context.sync();
+        });
+        const elapsed = Date.now() - startTime;
+        logToDiagBox(`✅ Successfully added 1 blank slide via PowerPoint.run! (${elapsed}ms)`, false, "POWERPOINT_TEST", { test: "add_slide", elapsed });
+      } catch (e) {
+        logToDiagBox(`❌ Slide Add Error: ${e.message} (code: ${e.code || "N/A"})`, true, "POWERPOINT_TEST", { error: String(e), code: e.code });
+      }
+    };
+  }
+
+  const btnDiagTestText = document.getElementById("btnDiagTestText");
+  if (btnDiagTestText) {
+    btnDiagTestText.onclick = async () => {
+      logToDiagBox("Testing Add Slide + Title Textbox + Body Textbox via getCount()...", false, "POWERPOINT_TEST");
+      const startTime = Date.now();
+      try {
+        if (typeof PowerPoint === "undefined") {
+          throw new Error("PowerPoint namespace is not available in current host.");
+        }
+        await PowerPoint.run(async (context) => {
+          const slides = context.presentation.slides;
+          slides.add();
+          await context.sync();
+
+          const countResult = slides.getCount();
+          await context.sync();
+
+          const slideCount = countResult.value;
+          logToDiagBox(`Slide count: ${slideCount}. Fetching slide at index ${slideCount - 1}...`, false, "POWERPOINT_TEST");
+          const slide = slides.getItemAt(slideCount - 1);
+
+          slide.shapes.addTextBox("🧪 Diagnostic Test Title", {
+            left: 50,
+            top: 40,
+            width: 650,
+            height: 55
+          });
+
+          slide.shapes.addTextBox("• Bullet item 1: Official Microsoft Office.js pattern\n• Bullet item 2: Direct geometry textbox creation verified", {
+            left: 50,
+            top: 110,
+            width: 650,
+            height: 300
+          });
+
+          await context.sync();
+        });
+        const elapsed = Date.now() - startTime;
+        logToDiagBox(`✅ Successfully created Slide with Title & Body Textbox! (${elapsed}ms)`, false, "POWERPOINT_TEST", { test: "add_slide_textbox", elapsed });
+      } catch (e) {
+        logToDiagBox(`❌ Slide Text Error: ${e.message} (code: ${e.code || "N/A"})`, true, "POWERPOINT_TEST", { error: String(e), code: e.code });
+      }
+    };
+  }
+
+  const btnClearLog = document.getElementById("diagClearLog");
+  if (btnClearLog) {
+    btnClearLog.onclick = (e) => {
+      e.stopPropagation();
+      const box = document.getElementById("diagLogBox");
+      if (box) box.innerText = "[Ready] Log cleared.";
+    };
   }
 }
 
