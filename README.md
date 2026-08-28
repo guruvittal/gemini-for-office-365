@@ -93,7 +93,7 @@ gemini-for-office-365/
 │   ├── main.py                                 # JWT verification, IdP auto-discovery & S2S token minting
 │   ├── requirements.txt                        # FastAPI, uvicorn, PyJWT, cryptography, google-auth
 │   ├── Dockerfile                              # Python 3.11 Cloud Run container
-│   ├── DEPLOYMENT_AND_ENTRA_GUIDE.md           # Step-by-step Entra ID & Cloud Run deployment guide
+│   ├── README.md                               # Auth proxy service reference
 │   └── DEVELOPER_ARCHITECTURE_GUIDE.md         # Deep-dive architecture, sequence flows & developer guide
 │
 ├── microsoft-addin/                            # Tier 1: Microsoft Office 365 Add-in (Word, PPT, Excel)
@@ -127,8 +127,7 @@ For setup instructions, deployment steps, architecture deep-dives, and admin gui
 
 | Guide | Description |
 | :--- | :--- |
-| 📋 **[`DEPLOYMENT_INSTRUCTIONS.md`](DEPLOYMENT_INSTRUCTIONS.md)** | **Primary Deployment Runbook:** End-to-end first-time setup for **Track 1 (WIF)** and **Track 2 (GSuite)**, live environment configuration, dual security boundary explanation, manifest customization reference, and full Cloud Run environment variables catalog. |
-| 🚀 **[`authproxy/DEPLOYMENT_AND_ENTRA_GUIDE.md`](authproxy/DEPLOYMENT_AND_ENTRA_GUIDE.md)** | **Microsoft Entra ID & Auth Gateway Guide:** Step-by-step Entra ID App Registration, OAuth 2.0 v2 token versioning, optional claims configuration, service account provisioning, and cross-project deployment. |
+| 📋 **[`DEPLOYMENT_INSTRUCTIONS.md`](DEPLOYMENT_INSTRUCTIONS.md)** | **Primary Deployment Runbook:** End-to-end first-time setup for **Track 1 (WIF)** and **Track 2 (GSuite)**, Microsoft Entra ID App Registration, live environment configuration, dual security boundary explanation, Google OAuth client setup, manifest customization reference, and full Cloud Run environment variables catalog. |
 | 📖 **[`authproxy/DEVELOPER_ARCHITECTURE_GUIDE.md`](authproxy/DEVELOPER_ARCHITECTURE_GUIDE.md)** | **Architecture & Security Deep-Dive:** Token exchange flows (Entra ID JWT ➔ Google STS Workforce Pool ➔ Gemini Enterprise), Service-to-Service IAM authentication, and comprehensive error resolution matrix. |
 | 🏢 **[`MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md`](MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md)** | **Centralized IT Admin Deployment:** Enterprise-wide rollout guide via Microsoft 365 Admin Center Integrated Apps. |
 | 🏗️ **[`ARCHITECTURE.md`](ARCHITECTURE.md)** | **System Architecture:** Detailed client adapter lifecycle (`WordAdapter`, `PPTAdapter`, `ExcelAdapter`), multimodal visual generation pipeline, and document injection flows. |

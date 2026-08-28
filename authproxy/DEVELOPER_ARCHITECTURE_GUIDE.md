@@ -420,14 +420,13 @@ retail-gemini-for-office-365/
 │   ├── Dockerfile                            # Python 3.11-slim container image specification
 │   ├── test_authproxy.py                     # Unit & integration tests for authproxy
 │   ├── .env.example                          # Environment configuration template
-│   ├── README.md                             # Microservice documentation & Swagger endpoints
-│   └── DEPLOYMENT_AND_ENTRA_GUIDE.md         # End-to-end Entra ID & Cloud Run step-by-step guide
+│   └── README.md                             # Microservice documentation & Swagger endpoints
 ├── geminiproxy/
 │   └── index.js                              # [MODIFIED] Added X-End-User-* header extraction & user attribution
 ├── manifest-wif.xml                          # [CONFIG] Office 365 manifest for WIF with <WebApplicationInfo> SSO binding
 ├── manifest-gsuite.xml                       # [CONFIG] Office 365 manifest for GSuite / Cloud Identity
-├── DEPLOYMENT_INSTRUCTIONS.md                # [DOC] Live GCP deployment references, endpoints & IAM state
-└── DEVELOPER_ARCHITECTURE_GUIDE.md           # [DOC] This document
+├── DEPLOYMENT_INSTRUCTIONS.md                # [DOC] Live GCP deployment runbook, endpoints & IAM state
+└── authproxy/DEVELOPER_ARCHITECTURE_GUIDE.md # [DOC] This document
 ```
 
 ---
