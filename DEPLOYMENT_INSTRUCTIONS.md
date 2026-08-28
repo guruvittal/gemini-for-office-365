@@ -350,6 +350,8 @@ WIF_AUDIENCE=//iam.googleapis.com/locations/global/workforcePools/YOUR_POOL/prov
 
 ### Track 2: Cloud Identity / Google Workspace Deployment
 
+When Gemini Enterprise is configured with **Cloud Identity / Google Workspace Identity** (`idpType: GSUITE`), document search (such as personal/shared Google Drive files) requires an authorized Google user credential. This track uses **3-Legged Google User OAuth** where users sign into Google directly from within the Microsoft Office 365 taskpane.
+
 #### Step 1: Deploy Backend Proxy (`askgemini-proxy`)
 ```bash
 cd geminiproxy
@@ -372,7 +374,7 @@ ALLOW_SERVICE_ACCOUNT_FALLBACK=true" \
   --quiet
 ```
 
-#### Step 2: Deploy Frontend Host & Create Google OAuth Web Client
+#### Step 2: Deploy Frontend Host (`gemini-frontend`)
 ```bash
 cd ../microsoft-addin
 
@@ -386,12 +388,88 @@ gcloud run deploy gemini-frontend \
   --quiet
 ```
 
-1. Go to Google Cloud Console ➔ **APIs & Services** ➔ **Credentials** ➔ **+ CREATE CREDENTIALS** ➔ **OAuth client ID** (Application type: *Web application*).
-2. Set **Authorized JavaScript Origin:** `https://<gemini-frontend-url>`
-3. Set **Authorized Redirect URI:** `https://<gemini-frontend-url>/google-callback.html`
-4. Copy the generated **Client ID** (e.g. `497524937986-...apps.googleusercontent.com`).
+> [!IMPORTANT]
+> **Note your Live Frontend URL**: Note the HTTPS URL returned by Cloud Run (e.g., `https://gemini-frontend-16933400417.us-central1.run.app`). You will need this exact URL in Step 3 to configure the Google OAuth Authorized JavaScript Origins and Redirect URIs.
 
-#### Step 3: Deploy Auth Gateway (`auth-proxy`)
+---
+
+#### Step 3: Setup Google OAuth 2.0 Web Client (in Gemini Enterprise GCP Project)
+
+Navigate to the Google Cloud Project hosting your **Gemini Enterprise / Discovery Engine instance** (e.g., `jeansson-gem-ent-ci`).
+
+```mermaid
+flowchart LR
+    A["Live gemini-frontend URL<br/>(from Step 2)"] --> B["Configure OAuth Consent Screen<br/>(User Type: Internal)"]
+    B --> C["Add Data Access Scopes<br/>(Drive + Cloud Platform)"]
+    C --> D["Create OAuth 2.0 Web Client ID<br/>(Origin + Callback URI)"]
+    D --> E["Copy Client ID<br/>497524...apps.googleusercontent.com"]
+    E --> F["Inject into auth-proxy<br/>(Step 4)"]
+
+    style A fill:#e8f0fe,stroke:#1a73e8,stroke-width:2px;
+    style B fill:#fef7e0,stroke:#f9ab00,stroke-width:2px;
+    style C fill:#fef7e0,stroke:#f9ab00,stroke-width:2px;
+    style D fill:#e6f4ea,stroke:#137333,stroke-width:2px;
+    style E fill:#e6f4ea,stroke:#137333,stroke-width:2px;
+    style F fill:#f3e8fd,stroke:#7b1fa2,stroke-width:2px;
+```
+
+##### 1. Configure OAuth Consent Screen & Audience
+1. In the Google Cloud Console, navigate to **APIs & Services** ➔ **OAuth consent screen**  
+   *(Direct link: `https://console.cloud.google.com/apis/credentials/consent`)*
+2. Select **User Type:** **Internal** *(Allows all users within your Google Workspace / Cloud Identity domain to sign in immediately without unverified app warnings)*.
+3. Click **Create**.
+4. **App Information:**
+   - **App name:** `Gemini Enterprise for Office 365`
+   - **User support email:** Select your administrator email.
+   - **Developer contact information:** Enter your administrator email.
+5. Click **Save and Continue**.
+
+##### 2. Configure Data Access (Scopes)
+1. Under **Data Access / Scopes** (or **APIs & Services** ➔ **OAuth consent screen** ➔ **Data Access**):
+2. Click **Add or Remove Scopes**.
+3. Select the standard identity scopes:
+   - `.../auth/userinfo.email`
+   - `.../auth/userinfo.profile`
+   - `openid`
+4. In the **Manually add scopes** text box at the bottom, paste the required API scopes:
+   ```text
+   https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/drive.readonly
+   ```
+5. Click **Add to Table**, then click **Update**, and click **Save and Continue**.
+
+| Scope URL | Scope Type | Purpose in Office 365 Integration |
+| :--- | :--- | :--- |
+| `openid` | OpenID Connect | Authenticates the user's Google profile |
+| `https://www.googleapis.com/auth/userinfo.email` | Identity | Captures the primary user email |
+| `https://www.googleapis.com/auth/userinfo.profile` | Identity | Captures the user's display name |
+| `https://www.googleapis.com/auth/cloud-platform` | Core GCP | Authorizes Discovery Engine `streamAssist` API execution |
+| `https://www.googleapis.com/auth/drive.readonly` | Google Drive | Read-only search & RAG grounding on user's Google Drive files |
+
+##### 3. Create OAuth 2.0 Web Client ID
+1. In the left navigation menu, go to **Credentials**  
+   *(Direct link: `https://console.cloud.google.com/apis/credentials`)*
+2. Click **+ CREATE CREDENTIALS** at the top ➔ Select **OAuth client ID**.
+3. Fill in the required fields:
+   - **Application type:** Select **Web application**.
+   - **Name:** `Gemini Office 365 Web Client`
+   - **Authorized JavaScript origins:**  
+     Click **+ ADD URI** and enter your deployed `gemini-frontend` URL from Step 2:
+     ```text
+     https://gemini-frontend-YOUR_PROJECT_NUM.us-central1.run.app
+     ```
+   - **Authorized redirect URIs:**  
+     Click **+ ADD URI** and enter the dedicated callback endpoint:
+     ```text
+     https://gemini-frontend-YOUR_PROJECT_NUM.us-central1.run.app/google-callback.html
+     ```
+4. Click **CREATE**.
+5. Copy the generated **Client ID** (e.g., `497524937986-66oh05fskrkufpv2he7fb00fmpd4nlt9.apps.googleusercontent.com`).
+
+---
+
+#### Step 4: Deploy Auth Gateway (`auth-proxy`)
+Inject the **Google OAuth Client ID** generated in Step 3 into `auth-proxy`. The gateway serves this Client ID dynamically to the taskpane via `/api/config` (zero hardcoding in client bundles).
+
 ```bash
 cd ../authproxy
 
