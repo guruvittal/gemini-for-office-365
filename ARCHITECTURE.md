@@ -76,9 +76,9 @@ graph TB
         
         BackendProxy -->|"6. StreamAssist Request with User Context (Authorization: Bearer <ya29...>) + toolsSpec"| StreamAssist
         StreamAssist ---|"7. Semantic Grounding & User-Level Drive Search"| EnterpriseCorpus
-        StreamAssist -->>|"8. Server-Sent Events (SSE) Stream"| BackendProxy
-        BackendProxy -->>|"9. SSE Chunks"| AuthProxy
-        AuthProxy -->>|"10. Stream to Client"| TaskpaneUI
+        StreamAssist -.->|"8. Server-Sent Events (SSE) Stream"| BackendProxy
+        BackendProxy -.->|"9. SSE Chunks"| AuthProxy
+        AuthProxy -.->|"10. Stream to Client"| TaskpaneUI
     end
 
     style OfficeClientTier fill:#e8f0fe,stroke:#1a73e8,stroke-width:2px;
