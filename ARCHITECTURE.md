@@ -147,6 +147,63 @@ sequenceDiagram
     Office-->>User: Renders formatted grounded response & citations
 ```
 
+#### 💡 Deep Dive: How WIF Token Exchange & StreamAssist Grounding Work
+
+```
+[Microsoft Office 365 Client]
+          │
+          │ 1. Office.auth.getAccessToken()
+          ▼
+   [Microsoft Entra ID]
+          │
+          │ 2. Returns Entra ID JWT (claims: upn, email, oid, tid)
+          ▼
+   [Cloud Run: auth-proxy]
+          │
+          │ 3. POST https://sts.googleapis.com/v1/token (RFC 8693)
+          │    subject_token = Entra_JWT
+          │    audience = //iam.googleapis.com/.../workforcePools/{POOL}/providers/{PROVIDER}
+          ▼
+   [Google Security Token Service (STS)]
+          │
+          │ 4. Maps Microsoft UPN -> Google Principal & returns Google STS Token (ya29.workforce-...)
+          ▼
+   [Cloud Run: auth-proxy]
+          │
+          │ 5. POST /askGeminiEnterprise to askgemini-proxy
+          │    Authorization: Bearer <Google_S2S_IAM_Token> (Service Account token)
+          │    X-End-User-Google-Token: ya29.workforce-... (The Federated User Token)
+          ▼
+   [Cloud Run: askgemini-proxy]
+          │
+          │ 6. POST https://discoveryengine.googleapis.com/.../assistants/default_assistant:streamAssist
+          │    Authorization: Bearer ya29.workforce-... ◄── [FEDERATED END-USER TOKEN]
+          ▼
+[Google Discovery Engine / Gemini Enterprise]
+```
+
+1. **The Token Translation Chain (RFC 8693):**
+   - In Track 1, enterprise users log into Microsoft 365 using corporate Entra ID accounts (`alex@contoso.com`). They do not maintain separate Google credentials.
+   - `auth-proxy` validates the Entra JWT signature via Microsoft JWKS, then calls Google Security Token Service (`sts.googleapis.com/v1/token`) presenting the Entra JWT as a `subject_token`.
+   - Google STS validates the Microsoft signature against Entra ID's OpenID discovery metadata, evaluates the Workforce Pool attribute mapping (`assertion.upn -> google.subject`), and returns a short-lived **Google STS Federated Access Token (`ya29.workforce-...`)**.
+
+2. **What Bearer Token is Passed to `streamAssist`?**
+   - When `askgemini-proxy` invokes the Discovery Engine `streamAssist` API:
+     ```http
+     POST https://discoveryengine.googleapis.com/v1alpha/projects/PROJECT_ID/locations/global/collections/default_collection/engines/ENGINE_ID/assistants/default_assistant:streamAssist
+     Authorization: Bearer ya29.workforce-...
+     X-Goog-User-Project: PROJECT_ID
+     Content-Type: application/json
+     ```
+   - The token in the `Authorization: Bearer` header is the **Google STS Federated Access Token (`ya29.workforce-...`)**.
+   - It represents the authenticated workforce principal:
+     `principal://iam.googleapis.com/locations/global/workforcePools/{POOL}/subject/alex@contoso.com`
+
+3. **How Discovery Engine / StreamAssist Uses the End-User Token to Query:**
+   - **Identity & License Verification:** Google Cloud's API gateway parses the workforce principal from the STS token, validates that the user holds `roles/discoveryengine.viewer` or `roles/discoveryengine.editor`, and consumes an assigned Gemini Enterprise seat license.
+   - **User-Level ACL Grounding (Zero-Trust Retrieval):** When Discovery Engine searches connected enterprise data sources (SharePoint, Jira, Confluence, Salesforce, Google Drive, or indexed datastores), every document in the search index carries an Access Control List (ACL). Discovery Engine filters search results against the caller's verified identity before feeding retrieved context into Gemini. If `alex@contoso.com` lacks read access to a document, that document is filtered out prior to prompt assembly.
+   - **Session Isolation & Audit Trail:** Discovery Engine isolates conversation state by workforce principal and logs queries with attributed user telemetry in Cloud Logging.
+
 ---
 
 ### Track 2: Cloud Identity 3-Legged Google User OAuth & S2S IAM
@@ -171,7 +228,7 @@ sequenceDiagram
     PPT->>FE: Fetches taskpane.html, JS bundles & assets
     FE-->>PPT: Renders Taskpane UI (Status: Connecting...)
     
-    rect rgb(240, 244, 255)
+    rect rgb(240, 248, 255)
         Note over PPT,Entra: Phase 1: Microsoft 365 Office SSO Token Acquisition
         PPT->>PPT: Office.auth.getAccessToken({ forMSGraphAccess: false })
         PPT->>Entra: Requests access token for api://gemini-frontend-.../e871aa77-...
@@ -221,6 +278,74 @@ sequenceDiagram
     PPT->>PPT: Renders answer incrementally in Taskpane UI
     PPT->>User: Displays formatted markdown, citations, and Insert Slide action buttons
 ```
+
+#### 💡 Deep Dive: How Cloud Identity / Google Workspace OAuth & StreamAssist Grounding Work
+
+```
+[Microsoft Office 365 Client]
+          │
+          │ 1. Office.context.ui.displayDialogAsync(google-auth.html)
+          ▼
+   [accounts.google.com]
+          │
+          │ 2. Interactive Consent for drive.readonly + cloud-platform scopes
+          │    User logs in with Google Workspace identity (e.g. scim@domain.com)
+          ▼
+   [Office Dialog Callback]
+          │
+          │ 3. messageParent({ google_token: "ya29..." }) -> Cached in client
+          ▼
+   [Office Taskpane Client]
+          │
+          │ 4. POST /askGeminiEnterprise
+          │    Authorization: Bearer <Entra_JWT> (Perimeter Security)
+          │    X-End-User-Google-Token: ya29... (Google User Token)
+          ▼
+   [Cloud Run: auth-proxy]
+          │
+          │ 5. Validates Entra JWT signature & forwards ya29... via S2S IAM channel
+          ▼
+   [Cloud Run: askgemini-proxy]
+          │
+          │ 6. POST https://discoveryengine.googleapis.com/.../assistants/default_assistant:streamAssist
+          │    Authorization: Bearer ya29... ◄── [GOOGLE WORKSPACE USER TOKEN]
+          │    toolsSpec: { vertexAiSearchSpec: {} }
+          ▼
+[Google Discovery Engine / Gemini Enterprise]
+```
+
+1. **The Dual-Boundary Authentication Model:**
+   - **Perimeter Gatekeeper (Microsoft Entra ID):** Entra ID SSO ensures that only authorized corporate Microsoft 365 users can connect to the Cloud Run gateway.
+   - **Data Grounding Gatekeeper (Google Cloud Identity / Workspace):** The 3-legged Google OAuth token authorizes Discovery Engine to search and read the specific user's Google Drive files and Google Workspace data.
+
+2. **What Bearer Token is Passed to `streamAssist`?**
+   - When `askgemini-proxy` invokes Discovery Engine `streamAssist`, it supplies the Google OAuth access token acquired from the user consent dialog:
+     ```http
+     POST https://discoveryengine.googleapis.com/v1alpha/projects/PROJECT_ID/locations/global/collections/default_collection/engines/ENGINE_ID/assistants/default_assistant:streamAssist
+     Authorization: Bearer ya29.a0AfH6SM...
+     X-Goog-User-Project: PROJECT_ID
+     Content-Type: application/json
+     ```
+   - The token carries the `https://www.googleapis.com/auth/drive.readonly` and `https://www.googleapis.com/auth/cloud-platform` scopes for `scim@domain.com`.
+
+3. **How Discovery Engine / StreamAssist Uses the End-User Token to Query:**
+   - **Delegated Google Drive Grounding:** Discovery Engine uses the user's `ya29...` token to execute on-the-fly semantic queries against the user's personal Google Drive, shared corporate drives, and shared-with-me documents.
+   - **Native Google Workspace ACL Enforcement:** Discovery Engine only indexes and retrieves documents where `scim@domain.com` is an authorized viewer/editor in Google Drive. Confidential files belonging to other users or restricted teams remain completely invisible.
+   - **User Attribution & History:** `askgemini-proxy` binds conversation sessions to `userPseudoId: scim@domain.com`, preserving chat history across Office sessions while maintaining strict multi-tenant isolation.
+
+---
+
+### 📊 Token & Security Comparison: WIF vs. Cloud Identity
+
+| Dimension | Track 1: Workforce Identity Federation (WIF) | Track 2: Cloud Identity / Google Workspace |
+| :--- | :--- | :--- |
+| **End-User Login Experience** | **100% Silent SSO** (zero Google login popups). | **1-Click Google Sign-In** via Office Dialog API. |
+| **Token in Office Add-in** | Microsoft Entra ID JWT only. | Microsoft Entra ID JWT + Google User OAuth Token (`ya29...`). |
+| **Token Minting Mechanism** | Google STS RFC 8693 token exchange on `auth-proxy`. | Standard Google OAuth 2.0 Authorization Code flow. |
+| **Bearer Token to `streamAssist`** | Google STS Federated Access Token (`ya29.workforce-...`). | Google User 3-Legged OAuth Access Token (`ya29...`). |
+| **Caller Identity in Google Cloud** | `principal://iam.googleapis.com/.../workforcePools/...` | `scim@company.com` (Google Workspace user account). |
+| **Target Data Sources** | Datastores, SharePoint, Jira, Confluence, Salesforce, ACL-indexed repositories. | Personal & Shared Google Drive, Google Workspace docs, and Datastores. |
+| **Enterprise Identity Authority** | Microsoft Entra ID (Single Source of Truth). | Dual Authority: Entra ID (Office client) + Cloud Identity (Google services). |
 
 ---
 
