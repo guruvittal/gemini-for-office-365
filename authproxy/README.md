@@ -24,7 +24,7 @@ A decoupled, lightweight **FastAPI Python microservice** running on Google Cloud
 For complete, step-by-step instructions on setting up your Entra ID App Registration, defining scopes, pre-authorizing Microsoft Office applications, and deploying to Google Cloud Run, see:
 
 👉 **[DEPLOYMENT_INSTRUCTIONS.md (Master Runbook)](../DEPLOYMENT_INSTRUCTIONS.md)**  
-👉 **[DEVELOPER_ARCHITECTURE_GUIDE.md](DEVELOPER_ARCHITECTURE_GUIDE.md)**
+👉 **[DEVELOPER_ARCHITECTURE_GUIDE.md](../DEVELOPER_ARCHITECTURE_GUIDE.md)**
 
 ---
 

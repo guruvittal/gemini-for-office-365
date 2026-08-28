@@ -4,7 +4,7 @@
 
 > **Target Audience:** Backend & Frontend Developers, Cloud Architects, and DevOps Engineers  
 > **Repository:** `retail-gemini-for-office-365`  
-> **Master Deployment Runbook:** [`DEPLOYMENT_INSTRUCTIONS.md`](../DEPLOYMENT_INSTRUCTIONS.md)  
+> **Master Deployment Runbook:** [`DEPLOYMENT_INSTRUCTIONS.md`](DEPLOYMENT_INSTRUCTIONS.md)  
 > 
 > | Identity Track | GCP Cloud Run Project | Discovery Engine Project & Location | Entra ID Client ID | Auth Mode |
 > | :--- | :--- | :--- | :--- | :--- |
@@ -487,7 +487,7 @@ retail-gemini-for-office-365/
 ├── manifest-wif.xml                          # [CONFIG] Office 365 manifest for WIF with <WebApplicationInfo> SSO binding
 ├── manifest-gsuite.xml                       # [CONFIG] Office 365 manifest for GSuite / Cloud Identity
 ├── DEPLOYMENT_INSTRUCTIONS.md                # [DOC] Live GCP deployment runbook, endpoints & IAM state
-└── authproxy/DEVELOPER_ARCHITECTURE_GUIDE.md # [DOC] This document
+└── DEVELOPER_ARCHITECTURE_GUIDE.md           # [DOC] This document
 ```
 
 ---
@@ -866,5 +866,5 @@ For engineering teams upgrading their existing add-in or backend codebase to thi
 - [x] **Downstream Hardening Complete**: `askgemini-proxy` locked down with `--no-allow-unauthenticated` and bound to `gemini-office365-sa`.
 - [x] **End-User Attribution Complete**: `geminiproxy` extracts `X-End-User-*` headers and tags StreamAssist sessions.
 - [x] **Milestone 2 Complete**: Office.js SSO token acquisition (`Office.auth.getAccessToken()`), Domain Matching resolution, and UI identity indicator verified.
-- [x] **Milestone 3 Complete**: Centralized Microsoft 365 Admin Center deployment guide documented in [`MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md`](../MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md).
+- [x] **Milestone 3 Complete**: Centralized Microsoft 365 Admin Center deployment guide documented in [`MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md`](MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md).
 

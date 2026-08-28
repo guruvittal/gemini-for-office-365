@@ -23,7 +23,7 @@ https://github.com/user-attachments/assets/7b361e71-13d4-48ba-81ce-41bf5d0c9e50
 
 ---
 
-> 📖 **Developer & Architecture Guide:** For a detailed breakdown of the new decoupled authentication architecture, Microsoft Entra ID SSO integration, Google Cloud S2S IAM security, and flow diagrams, see [DEVELOPER_ARCHITECTURE_GUIDE.md](authproxy/DEVELOPER_ARCHITECTURE_GUIDE.md).
+> 📖 **Developer & Architecture Guide:** For a detailed breakdown of the new decoupled authentication architecture, Microsoft Entra ID SSO integration, Google Cloud S2S IAM security, and flow diagrams, see [DEVELOPER_ARCHITECTURE_GUIDE.md](DEVELOPER_ARCHITECTURE_GUIDE.md).
 
 ## 🏗️ Architecture Overview
 
@@ -93,8 +93,7 @@ gemini-for-office-365/
 │   ├── main.py                                 # JWT verification, IdP auto-discovery & S2S token minting
 │   ├── requirements.txt                        # FastAPI, uvicorn, PyJWT, cryptography, google-auth
 │   ├── Dockerfile                              # Python 3.11 Cloud Run container
-│   ├── README.md                               # Auth proxy service reference
-│   └── DEVELOPER_ARCHITECTURE_GUIDE.md         # Deep-dive architecture, sequence flows & developer guide
+│   └── README.md                               # Auth proxy service reference
 │
 ├── microsoft-addin/                            # Tier 1: Microsoft Office 365 Add-in (Word, PPT, Excel)
 │   ├── package.json                            # Webpack, Babel, Office.js dependencies
@@ -114,6 +113,11 @@ gemini-for-office-365/
 │   ├── Dockerfile                              # Node.js 20 Cloud Run container
 │   └── README.md                               # Backend configuration guide
 │
+├── DEVELOPER_ARCHITECTURE_GUIDE.md             # Deep-dive architecture, sequence flows & developer guide
+├── DEPLOYMENT_INSTRUCTIONS.md                  # Comprehensive end-to-end multi-track deployment runbook
+├── ARCHITECTURE.md                             # System architecture, multimodal graphics & host adapters
+├── MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md    # Microsoft 365 centralized tenant admin deployment guide
+│
 └── scripts/
     ├── generate_manifest.py                    # Interactive & CLI tool to generate custom Office XML manifests
     └── sideload_mac.sh                         # macOS local development sideloading automation script
@@ -128,7 +132,7 @@ For setup instructions, deployment steps, architecture deep-dives, and admin gui
 | Guide | Description |
 | :--- | :--- |
 | 📋 **[`DEPLOYMENT_INSTRUCTIONS.md`](DEPLOYMENT_INSTRUCTIONS.md)** | **Primary Deployment Runbook:** End-to-end first-time setup for **Track 1 (WIF)** and **Track 2 (GSuite)**, Microsoft Entra ID App Registration, live environment configuration, dual security boundary explanation, Google OAuth client setup, manifest customization reference, and full Cloud Run environment variables catalog. |
-| 📖 **[`authproxy/DEVELOPER_ARCHITECTURE_GUIDE.md`](authproxy/DEVELOPER_ARCHITECTURE_GUIDE.md)** | **Architecture & Security Deep-Dive:** Token exchange flows (Entra ID JWT ➔ Google STS Workforce Pool ➔ Gemini Enterprise), Service-to-Service IAM authentication, and comprehensive error resolution matrix. |
+| 📖 **[`DEVELOPER_ARCHITECTURE_GUIDE.md`](DEVELOPER_ARCHITECTURE_GUIDE.md)** | **Architecture & Security Deep-Dive:** Token exchange flows (Entra ID JWT ➔ Google STS Workforce Pool ➔ Gemini Enterprise), Service-to-Service IAM authentication, and comprehensive error resolution matrix. |
 | 🏢 **[`MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md`](MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md)** | **Centralized IT Admin Deployment:** Enterprise-wide rollout guide via Microsoft 365 Admin Center Integrated Apps. |
 | 🏗️ **[`ARCHITECTURE.md`](ARCHITECTURE.md)** | **System Architecture:** Detailed client adapter lifecycle (`WordAdapter`, `PPTAdapter`, `ExcelAdapter`), multimodal visual generation pipeline, and document injection flows. |
 | ⚙️ **[`geminiproxy/README.md`](geminiproxy/README.md)** | **Backend Proxy Reference:** Configuration, environment variables, and deployment for the Node.js Express inference backend. |
