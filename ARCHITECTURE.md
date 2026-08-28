@@ -91,7 +91,65 @@ graph TB
 
 ---
 
-## 🔄 End-to-End Execution Flow (Cloud Identity 3-Legged OAuth & S2S IAM)
+## 🔄 End-to-End Execution Flows
+
+The platform supports two distinct identity execution paths depending on enterprise IdP configuration.
+
+### Track 1: Workforce Identity Federation (WIF) Silent Token Exchange
+
+In Track 1, users experience seamless Single Sign-On with zero Google login prompts. Their Microsoft Entra ID JWT is exchanged on the fly for a Google STS federated token via RFC 8693.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Corporate User
+    participant Office as Office Taskpane UI
+    participant Entra as Microsoft Entra ID
+    participant Auth as Cloud Run: auth-proxy
+    participant STS as Google STS (sts.googleapis.com)
+    participant Meta as GCP Metadata Server
+    participant Backend as Cloud Run: askgemini-proxy
+    participant Engine as Gemini / StreamAssist
+
+    User->>Office: Submits prompt: "Summarize Q3 earnings"
+    
+    rect rgb(240, 248, 255)
+        Note over Office,Entra: Phase 1: Silent Entra ID Token Acquisition
+        Office->>Entra: Office.auth.getAccessToken({ forMSGraphAccess: false })
+        Entra-->>Office: Returns Microsoft Entra ID JWT Bearer Token
+    end
+
+    rect rgb(255, 250, 235)
+        Note over Office,Auth: Phase 2: Auth Gateway Validation & STS Exchange
+        Office->>Auth: POST /askGeminiEnterprise<br/>Authorization: Bearer [Entra_JWT]<br/>Body: { prompt, history, sessionId }
+        Auth->>Entra: Fetch/Match RS256 Public Key via JWKS cache
+        Auth->>Auth: Verify signature, expiration (exp), audience (aud), tenant (tid)
+        Auth->>Auth: Extract claims (user_id, email, name, tenant_id, oid)
+        Auth->>STS: POST /v1/token (RFC 8693 Token Exchange)<br/>subject_token=[Entra_JWT], audience=[//iam.googleapis.com/workforcePools/...]
+        STS-->>Auth: Returns Federated Google Access Token (ya29...)
+    end
+
+    rect rgb(235, 255, 235)
+        Note over Auth,Backend: Phase 3: Google S2S IAM Token Exchange & Forwarding
+        Auth->>Meta: GET /instance/service-accounts/default/identity?audience=https://askgemini-proxy-...
+        Meta-->>Auth: Returns short-lived Google OIDC ID Token
+        Auth->>Backend: POST /askGeminiEnterprise<br/>Authorization: Bearer [Google_ID_Token]<br/>Headers: X-End-User-Id, X-End-User-Email, X-End-User-Google-Token: ya29...<br/>Body: { prompt, sessionId, userPseudoId, authenticatedUser }
+    end
+
+    rect rgb(255, 240, 245)
+        Note over Backend,Engine: Phase 4: Grounded Execution & Attribution
+        Backend->>Engine: StreamAssist API Call with user attribution & STS token
+        Engine-->>Backend: Grounded answer + citations
+        Backend-->>Auth: HTTP 200 OK with AI result and citations
+    end
+
+    Auth-->>Office: HTTP 200 OK with authenticated AI payload
+    Office-->>User: Renders formatted grounded response & citations
+```
+
+---
+
+### Track 2: Cloud Identity 3-Legged Google User OAuth & S2S IAM
 
 The sequence below illustrates the complete token acquisition, dynamic configuration retrieval, 3-legged Google user authorization, service-to-service IAM minting, and streaming grounding lifecycle:
 
