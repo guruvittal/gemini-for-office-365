@@ -44,10 +44,10 @@ graph TB
         AppUri["Application ID URI<br/>api://gemini-frontend-...run.app/e871aa77-..."]
         GoogleOAuth["Google Cloud OAuth 2.0 Web Client<br/>(Client ID: 497524937986-...apps.googleusercontent.com)"]
         
-        OfficeSSO -->|1. Silent SSO Token Request| EntraApp
-        EntraApp -->|2. Signed Microsoft JWT| OfficeSSO
-        GoogleDialog -->|3-Legged Consent Flow| GoogleOAuth
-        GoogleOAuth -->|Google User OAuth Token ya29...| GoogleDialog
+        OfficeSSO -->|"1. Silent SSO Token Request"| EntraApp
+        EntraApp -->|"2. Signed Microsoft JWT"| OfficeSSO
+        GoogleDialog -->|"3-Legged Consent Flow"| GoogleOAuth
+        GoogleOAuth -->|"Google User OAuth Token ya29..."| GoogleDialog
     end
 
     subgraph GCPInfrastructure ["3. Google Cloud Platform (Project: agentspace-452714)"]
@@ -268,8 +268,8 @@ graph TB
         FrontendRun["Cloud Run: gemini-frontend<br/>(Nginx Container / Port 80)"]
         ProxyFunction["Cloud Function Gen 2: askGemini<br/>(Node.js 20 Microservice)"]
         
-        TaskpaneUI -->|1. Loads Static Assets & JS Bundle| FrontendRun
-        TaskpaneUI -->|2. HTTPS POST /askGemini JSON| ProxyFunction
+        TaskpaneUI -->|"1. Loads Static Assets & JS Bundle"| FrontendRun
+        TaskpaneUI -->|"2. HTTPS POST /askGemini JSON"| ProxyFunction
     end
 
     subgraph VertexAIEngine ["Google Cloud Vertex AI Enterprise Backend"]
@@ -283,10 +283,10 @@ graph TB
     end
 
     subgraph OutputPipeline ["Client Rendering & Document Injection"]
-        ProxyFunction -->|3. Grounded Text + Base64 PNGs| TaskpaneUI
-        TaskpaneUI -->|Word.run / OOXML| WordApp
-        TaskpaneUI -->|PowerPoint.run + setSelectedDataAsync| PPTApp
-        TaskpaneUI -->|Excel.run| ExcelApp
+        ProxyFunction -->|"3. Grounded Text + Base64 PNGs"| TaskpaneUI
+        TaskpaneUI -->|"Word.run / OOXML"| WordApp
+        TaskpaneUI -->|"PowerPoint.run + setSelectedDataAsync"| PPTApp
+        TaskpaneUI -->|"Excel.run"| ExcelApp
     end
 
     style ClientTier fill:#e8f0fe,stroke:#1a73e8,stroke-width:2px;
@@ -383,12 +383,12 @@ When users request visual charts, graphs, or executive diagrams, the system util
 
 ```mermaid
 graph LR
-    UserPrompt[User Prompt: 'Show revenue chart'] --> GeminiFlash[Gemini 2.5 Flash]
-    GeminiFlash -->|Outputs Directive| Directive["![Chart](image: A modern 2D financial bar chart... ($94.5B)...)"]
-    Directive --> BalancedParser[Balanced Parenthesis Parser]
-    BalancedParser -->|Clean Prompt| NanoBanana[Gemini 2.5 Flash Image / Nano Banana]
-    NanoBanana -->|Raw Base64 PNG| DataUriEmbedder[HTML & Base64 Inliner]
-    DataUriEmbedder --> TaskpaneResponse[Taskpane / Host Document]
+    UserPrompt["User Prompt: 'Show revenue chart'"] --> GeminiFlash["Gemini 2.5 Flash"]
+    GeminiFlash -->|"Outputs Directive"| Directive["Directive: ![Chart](image: Prompt with params)"]
+    Directive --> BalancedParser["Balanced Parenthesis Parser"]
+    BalancedParser -->|"Clean Prompt"| NanoBanana["Gemini 2.5 Flash Image / Nano Banana"]
+    NanoBanana -->|"Raw Base64 PNG"| DataUriEmbedder["HTML & Base64 Inliner"]
+    DataUriEmbedder --> TaskpaneResponse["Taskpane / Host Document"]
 ```
 
 ### Balanced Parenthesis Prompt Parser
@@ -495,9 +495,9 @@ graph TD
         end
     end
     
-    OfficeClient["Microsoft 365 Client<br/>(Word / PPT / Excel)"] -->|HTTPS (TLS 1.3)| Frontend
-    OfficeClient -->|HTTPS JSON (CORS)| Backend
-    Backend -->|Native IAM Token| DatastoreRes
+    OfficeClient["Microsoft 365 Client<br/>(Word / PPT / Excel)"] -->|"HTTPS (TLS 1.3)"| Frontend
+    OfficeClient -->|"HTTPS JSON (CORS)"| Backend
+    Backend -->|"Native IAM Token"| DatastoreRes
 ```
 
 1. **Zero Secret Storage:** No API keys or static credentials reside in client code or manifests. Authentication to Vertex AI and Gemini Enterprise is handled through Google Cloud IAM Service Account delegation and user-consented OAuth tokens.
