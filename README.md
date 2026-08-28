@@ -23,7 +23,7 @@ https://github.com/user-attachments/assets/7b361e71-13d4-48ba-81ce-41bf5d0c9e50
 
 ---
 
-> 📖 **Developer & Architecture Guide:** For a detailed breakdown of the new decoupled authentication architecture, Microsoft Entra ID SSO integration, Google Cloud S2S IAM security, and flow diagrams, see [DEVELOPER_ARCHITECTURE_GUIDE.md](file:///Users/caugusto/Documents/antigravity/retail-gemini-for-office-365/authproxy/DEVELOPER_ARCHITECTURE_GUIDE.md).
+> 📖 **Developer & Architecture Guide:** For a detailed breakdown of the new decoupled authentication architecture, Microsoft Entra ID SSO integration, Google Cloud S2S IAM security, and flow diagrams, see [DEVELOPER_ARCHITECTURE_GUIDE.md](authproxy/DEVELOPER_ARCHITECTURE_GUIDE.md).
 
 ## 🏗️ Architecture Overview
 

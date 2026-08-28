@@ -4,10 +4,12 @@
 
 > **Target Audience:** Backend & Frontend Developers, Cloud Architects, and DevOps Engineers  
 > **Repository:** `retail-gemini-for-office-365`  
-> **GCP Project:** `agentspace-452714` (Region: `us-central1`)  
-> **Live Auth-Proxy Endpoint:** `https://auth-proxy-16933400417.us-central1.run.app`  
-> **Live Backend Endpoint:** `https://askgemini-proxy-16933400417.us-central1.run.app`  
-> **Entra ID Application ID:** `b990d644-e47b-4575-97b3-2067c488042b`
+> **Master Deployment Runbook:** [`DEPLOYMENT_INSTRUCTIONS.md`](../DEPLOYMENT_INSTRUCTIONS.md)  
+> 
+> | Identity Track | GCP Cloud Run Project | Discovery Engine Project & Location | Entra ID Client ID | Auth Mode |
+> | :--- | :--- | :--- | :--- | :--- |
+> | **Track 1: WIF (SSO)** | `agentspace-wif` (`1062675944253`) | `agentspace-wif` (`global`) | `85fb5428-6249-4131-9eeb-f2436d5d4d8c` | `auto` / `wif` |
+> | **Track 2: Cloud Identity** | `agentspace-452714` (`16933400417`) | `jeansson-gem-ent-ci` (`us`) | `e871aa77-54f7-4310-a549-cad3b1edee4a` | `cloud_identity` |
 
 ---
 
@@ -153,7 +155,9 @@ graph TB
 
 ---
 
-### 3.2 End-to-End Request Sequence Diagram
+### 3.2 Track 1: Workforce Identity Federation (WIF) Sequence Diagram
+
+In Track 1, users experience zero Google login prompts. Their Microsoft Entra ID JWT is exchanged on the fly for a Google STS federated token.
 
 ```mermaid
 sequenceDiagram
@@ -162,6 +166,7 @@ sequenceDiagram
     participant Office as Office Taskpane UI
     participant Entra as Microsoft Entra ID
     participant Auth as Cloud Run: auth-proxy
+    participant STS as Google STS (sts.googleapis.com)
     participant Meta as GCP Metadata Server
     participant Backend as Cloud Run: askgemini-proxy
     participant Engine as Gemini / StreamAssist
@@ -169,36 +174,92 @@ sequenceDiagram
     User->>Office: Submits prompt: "Summarize Q3 earnings"
     
     rect rgb(240, 248, 255)
-        Note over Office,Entra: Phase A: Client Token Acquisition
+        Note over Office,Entra: Phase A: Silent Entra ID Token Acquisition
         Office->>Entra: Office.auth.getAccessToken({ forMSGraphAccess: false })
         Entra-->>Office: Returns Microsoft Entra ID JWT Bearer Token
     end
 
     rect rgb(255, 250, 235)
-        Note over Office,Auth: Phase B: Auth Gateway Validation
+        Note over Office,Auth: Phase B: Auth Gateway Validation & STS Exchange
         Office->>Auth: POST /askGeminiEnterprise<br/>Authorization: Bearer [Entra_JWT]<br/>Body: { prompt, history, sessionId }
         Auth->>Entra: Fetch/Match RS256 Public Key via JWKS cache
         Auth->>Auth: Verify signature, expiration (exp), audience (aud), tenant (tid)
         Auth->>Auth: Extract claims (user_id, email, name, tenant_id, oid)
+        Auth->>STS: POST /v1/token (RFC 8693 Token Exchange)<br/>subject_token=[Entra_JWT], audience=[//iam.googleapis.com/workforcePools/...]
+        STS-->>Auth: Returns Federated Google Access Token (ya29...)
     end
 
     rect rgb(235, 255, 235)
         Note over Auth,Backend: Phase C: Google S2S IAM Token Exchange & Forwarding
         Auth->>Meta: GET /instance/service-accounts/default/identity?audience=https://askgemini-proxy-...
         Meta-->>Auth: Returns short-lived Google OIDC ID Token
-        Auth->>Backend: POST /askGeminiEnterprise<br/>Authorization: Bearer [Google_ID_Token]<br/>Headers: X-End-User-Id, X-End-User-Email, X-End-User-Name<br/>Body: { prompt, sessionId, userPseudoId, authenticatedUser }
+        Auth->>Backend: POST /askGeminiEnterprise<br/>Authorization: Bearer [Google_ID_Token]<br/>Headers: X-End-User-Id, X-End-User-Email, X-End-User-Google-Token: ya29...<br/>Body: { prompt, sessionId, userPseudoId, authenticatedUser }
     end
 
     rect rgb(255, 240, 245)
         Note over Backend,Engine: Phase D: Grounded Execution & Attribution
-        Backend->>Backend: Extract X-End-User-Id ('AlexW@contoso.com')
-        Backend->>Engine: StreamAssist API Call with user attribution session
+        Backend->>Engine: StreamAssist API Call with user attribution & STS token
         Engine-->>Backend: Grounded answer + citations
         Backend-->>Auth: HTTP 200 OK with AI result and citations
     end
 
     Auth-->>Office: HTTP 200 OK with authenticated AI payload
     Office-->>User: Renders formatted grounded response & citations
+```
+
+---
+
+### 3.3 Track 2: Cloud Identity / Google Workspace Sequence Diagram
+
+In Track 2, Microsoft Entra ID secures the perimeter, and a 3-Legged Google User OAuth token authorizes access to personal and shared Google Drive files via Discovery Engine.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Corporate User
+    participant Office as Office Taskpane UI
+    participant Entra as Microsoft Entra ID
+    participant GoogleAuth as Google OAuth (accounts.google.com)
+    participant Auth as Cloud Run: auth-proxy
+    participant Meta as GCP Metadata Server
+    participant Backend as Cloud Run: askgemini-proxy
+    participant Engine as Gemini / StreamAssist & Google Drive
+
+    User->>Office: Opens Taskpane in Word/PPT/Excel
+    
+    rect rgb(240, 248, 255)
+        Note over Office,Auth: Phase A: Dynamic Config & Perimeter Auth
+        Office->>Auth: GET /api/config
+        Auth-->>Office: Returns { google_oauth_client_id: "497524...apps.googleusercontent.com", user_auth_mode: "cloud_identity" }
+        Office->>Entra: Office.auth.getAccessToken()
+        Entra-->>Office: Returns Microsoft Entra ID JWT
+    end
+
+    rect rgb(254, 247, 224)
+        Note over Office,GoogleAuth: Phase B: Google User Sign-In (Once Per Session)
+        User->>Office: Clicks "Login with Google"
+        Office->>GoogleAuth: Office.context.ui.displayDialogAsync(google-login.html)<br/>Scopes: drive.readonly, cloud-platform, email, profile
+        GoogleAuth-->>Office: Returns Google Access Token (ya29...) via messageParent
+    end
+
+    rect rgb(235, 255, 235)
+        Note over Office,Backend: Phase C: Authenticated Request & S2S Proxying
+        Office->>Auth: POST /askGeminiEnterprise<br/>Authorization: Bearer [Entra_JWT]<br/>X-End-User-Google-Token: [Google_ya29_Token]<br/>Body: { prompt, history, sessionId }
+        Auth->>Auth: Validate Entra JWT claims
+        Auth->>Meta: Acquire S2S OIDC Token for askgemini-proxy
+        Meta-->>Auth: Returns Google OIDC ID Token
+        Auth->>Backend: POST /askGeminiEnterprise<br/>Authorization: Bearer [Google_ID_Token]<br/>X-End-User-Google-Token: [Google_ya29_Token]<br/>X-End-User-Email, X-End-User-Id
+    end
+
+    rect rgb(255, 240, 245)
+        Note over Backend,Engine: Phase D: User-Grounded Search (Google Drive + Datastores)
+        Backend->>Engine: StreamAssist API (Authorization: Bearer [Google_ya29_Token])<br/>toolsSpec: { vertexAiSearchSpec: {} }
+        Engine-->>Backend: Grounded response from personal/shared Google Drive docs
+        Backend-->>Auth: HTTP 200 OK (Stream/JSON)
+    end
+
+    Auth-->>Office: HTTP 200 OK with grounded AI response
+    Office-->>User: Displays response with Drive citations & insights
 ```
 
 > [!NOTE]
@@ -805,5 +866,5 @@ For engineering teams upgrading their existing add-in or backend codebase to thi
 - [x] **Downstream Hardening Complete**: `askgemini-proxy` locked down with `--no-allow-unauthenticated` and bound to `gemini-office365-sa`.
 - [x] **End-User Attribution Complete**: `geminiproxy` extracts `X-End-User-*` headers and tags StreamAssist sessions.
 - [x] **Milestone 2 Complete**: Office.js SSO token acquisition (`Office.auth.getAccessToken()`), Domain Matching resolution, and UI identity indicator verified.
-- [x] **Milestone 3 Complete**: Centralized Microsoft 365 Admin Center deployment guide documented in [`MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md`](file:///Users/caugusto/Documents/antigravity/retail-gemini-for-office-365/MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md).
+- [x] **Milestone 3 Complete**: Centralized Microsoft 365 Admin Center deployment guide documented in [`MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md`](../MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md).
 
