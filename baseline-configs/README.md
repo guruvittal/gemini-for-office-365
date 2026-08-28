@@ -1,4 +1,6 @@
 # Baseline Cloud Run Configuration Snapshot & Rollback Guide
+**Author:** Carlos Augusto, Principal Architect, Google  
+**License:** Apache-2.0  
 
 **Snapshot Tags:** `snapshot-wif-baseline` (and `ca-snapshot-wif-baseline`)  
 **Snapshot Date:** August 25, 2026  

@@ -17,6 +17,15 @@ export function getActiveProxyUrl() {
   if (typeof process !== 'undefined' && process.env && process.env.GEMINI_PROXY_URL) {
     return process.env.GEMINI_PROXY_URL;
   }
+  if (typeof window !== 'undefined' && window.location && window.location.hostname) {
+    const host = window.location.hostname;
+    if (host.includes('1062675944253') || host.includes('agentspace-wif')) {
+      return 'https://auth-proxy-1062675944253.us-central1.run.app/askGeminiEnterprise';
+    }
+    if (host.includes('16933400417') || host.includes('agentspace-452714')) {
+      return 'https://auth-proxy-16933400417.us-central1.run.app/askGeminiEnterprise';
+    }
+  }
   return DEFAULT_AUTH_PROXY_URL;
 }
 

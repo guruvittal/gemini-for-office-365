@@ -1,4 +1,6 @@
 # Centralized Enterprise Deployment Guide (Microsoft 365 Admin Center)
+**Author:** Carlos Augusto, Principal Architect, Google  
+**License:** Apache-2.0  
 
 This guide provides step-by-step instructions for IT Administrators, Global Admins, and Exchange/Application Administrators to deploy and roll out the **Gemini Enterprise (Agentspace)** Microsoft 365 Add-in across an entire organization or targeted pilot groups using the **Microsoft 365 Admin Center**.
 
@@ -79,10 +81,15 @@ To deploy add-ins centrally, your account must have one of the following directo
   - **PowerPoint:** Desktop (Windows 10/11, macOS) and PowerPoint on the Web.
   - **Excel:** Desktop (Windows 10/11, macOS) and Excel on the Web.
 
-### Manifest File & Hosted URLs
-- **Manifest File:** [`manifest-ca.xml`](manifest-ca.xml)
-- **Manifest URL:** `https://gemini-frontend-16933400417.us-central1.run.app/manifest-ca.xml`
-- **Hosted Add-in UI:** `https://gemini-frontend-16933400417.us-central1.run.app/taskpane.html`
+### Manifest Files & Hosted URLs
+- **Track 1 (WIF Architecture):**
+  - **Manifest File:** [`manifest-wif.xml`](manifest-wif.xml)
+  - **Manifest URL:** `https://gemini-frontend-1062675944253.us-central1.run.app/manifest-wif.xml`
+  - **Hosted Add-in UI:** `https://gemini-frontend-1062675944253.us-central1.run.app/taskpane.html`
+- **Track 2 (GSuite / Cloud Identity Architecture):**
+  - **Manifest File:** [`manifest-gsuite.xml`](manifest-gsuite.xml)
+  - **Manifest URL:** `https://gemini-frontend-16933400417.us-central1.run.app/manifest-gsuite.xml`
+  - **Hosted Add-in UI:** `https://gemini-frontend-16933400417.us-central1.run.app/taskpane.html`
 
 ---
 
@@ -125,12 +132,17 @@ Microsoft 365 admin center
 ### Step 3.3: Select App Type and Provide Manifest
 1. In the **Upload App to deploy** panel:
    - **App type**: Select **Office Add-in**.
-2. Under **Choose how to upload the app**, you have two options:
-   - **Option A (Recommended — Direct URL):** Select **Provide link to manifest file** and enter:
+2. Under **Choose how to upload the app**, choose according to your architecture track:
+   - **For WIF Deployment (Option A - URL):**
      ```text
-     https://gemini-frontend-16933400417.us-central1.run.app/manifest-ca.xml
+     https://gemini-frontend-1062675944253.us-central1.run.app/manifest-wif.xml
      ```
-   - **Option B (File Upload):** Select **Upload manifest file (.xml) from device**, click **Browse**, and upload [`manifest-ca.xml`](manifest-ca.xml).
+     *(Or upload file [`manifest-wif.xml`](manifest-wif.xml))*
+   - **For GSuite Deployment (Option A - URL):**
+     ```text
+     https://gemini-frontend-16933400417.us-central1.run.app/manifest-gsuite.xml
+     ```
+     *(Or upload file [`manifest-gsuite.xml`](manifest-gsuite.xml))*
 3. Click **Validate**.
 
 ```
@@ -143,7 +155,7 @@ Microsoft 365 admin center
 │                                                                                        │
 │ Choose how to upload the app:                                                          │
 │ (o) Provide link to manifest file                                                      │
-│     [ https://gemini-frontend-16933400417.us-central1.run.app/manifest-ca.xml        ] │
+│     [ https://gemini-frontend-1062675944253.us-central1.run.app/manifest-wif.xml       ] │
 │ ( ) Upload manifest file (.xml) from device                                            │
 │                                                                                        │
 │                                                                 [ Validate ]           │

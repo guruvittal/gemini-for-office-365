@@ -104,8 +104,10 @@ jwks_client = jwt.PyJWKClient(JWKS_URL)
 ENTRA_APP_ID = os.environ.get("MICROSOFT_ENTRA_APP_ID", "")
 REQUIRE_ENTRA_AUTH = os.environ.get("REQUIRE_ENTRA_AUTH", "false").lower() in ("true", "1", "yes")
 DOWNSTREAM_BACKEND_URL = os.environ.get("DOWNSTREAM_BACKEND_URL", "").rstrip("/")
-GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "agentspace-452714")
-GCP_LOCATION = os.environ.get("GCP_LOCATION", "global")
+GE_GCP_PROJECT_ID = os.environ.get("GE_GCP_PROJECT_ID") or os.environ.get("GCP_PROJECT_ID", "agentspace-452714")
+GE_GCP_LOCATION = os.environ.get("GE_GCP_LOCATION") or os.environ.get("GCP_LOCATION", "global")
+GCP_PROJECT_ID = GE_GCP_PROJECT_ID
+GCP_LOCATION = GE_GCP_LOCATION
 USER_AUTH_MODE = os.environ.get("USER_AUTH_MODE", "auto").lower()
 GOOGLE_OAUTH_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
 WIF_AUDIENCE = os.environ.get("WIF_AUDIENCE", "")
@@ -1040,36 +1042,9 @@ async def proxy_addin_request(
                 location=GCP_LOCATION
             )
 
-        # Check for test identity bridge override (e.g. AlexW@5m4qby.onmicrosoft.com -> admin@caugusto.altostrat.com)
         effective_user_id = authenticated_user_id
         effective_email = user.email or authenticated_user_id
         effective_name = user.name or authenticated_user_id
-
-        raw_check = (user.email or user.user_id or "").lower()
-        if "alexw@5m4qby.onmicrosoft.com" in raw_check or user.user_id.lower() == "alexw@5m4qby.onmicrosoft.com":
-            effective_user_id = "admin@caugusto.altostrat.com"
-            effective_email = "admin@caugusto.altostrat.com"
-            effective_name = "Carlos Augusto (Bridged from AlexW)"
-            logger.info(
-                "[TEST_IDENTITY_BRIDGE] Intercepted test user 'AlexW@5m4qby.onmicrosoft.com'. Intentionally bridging identity to 'admin@caugusto.altostrat.com' (Carlos Augusto) for Gemini Enterprise live testing.",
-                extra={
-                    "test_mode": True,
-                    "original_user_id": user.user_id,
-                    "original_email": user.email,
-                    "bridged_user_id": effective_user_id,
-                    "bridged_email": effective_email,
-                    "reason": "EXPLICIT_TEST_OVERRIDE"
-                }
-            )
-
-            test_bridged_token = os.environ.get("TEST_BRIDGED_GOOGLE_TOKEN")
-            if not user_google_token and test_bridged_token:
-                user_google_token = test_bridged_token
-                auth_diag["token_resolution_status"] = "BRIDGED_TEST_TOKEN_ATTACHED"
-                logger.info(
-                    "[TEST_IDENTITY_BRIDGE] Attached TEST_BRIDGED_GOOGLE_TOKEN for bridged test user 'admin@caugusto.altostrat.com'.",
-                    extra={"token_status": "ATTACHED_FROM_ENV"}
-                )
 
         headers = {
             "Content-Type": "application/json",

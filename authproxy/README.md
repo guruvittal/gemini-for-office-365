@@ -1,4 +1,6 @@
 # GE Office 365 Assistant Auth-Proxy Service
+**Author:** Carlos Augusto, Principal Architect, Google  
+**License:** Apache-2.0  
 
 A decoupled, lightweight **FastAPI Python microservice** running on Google Cloud Run that validates **Microsoft Entra ID (Azure AD)** Single Sign-On JWT tokens and securely extracts authenticated end-user identities for the **GE Office 365 Assistant Add-On** (PowerPoint, Excel, Word).
 
@@ -21,8 +23,8 @@ A decoupled, lightweight **FastAPI Python microservice** running on Google Cloud
 
 For complete, step-by-step instructions on setting up your Entra ID App Registration, defining scopes, pre-authorizing Microsoft Office applications, and deploying to Google Cloud Run, see:
 
-👉 **[DEPLOYMENT_AND_ENTRA_GUIDE.md](file:///Users/caugusto/Documents/antigravity/retail-gemini-for-office-365/authproxy/DEPLOYMENT_AND_ENTRA_GUIDE.md)**  
-👉 **[DEVELOPER_ARCHITECTURE_GUIDE.md](file:///Users/caugusto/Documents/antigravity/retail-gemini-for-office-365/authproxy/DEVELOPER_ARCHITECTURE_GUIDE.md)**
+👉 **[DEPLOYMENT_INSTRUCTIONS.md (Master Runbook)](../DEPLOYMENT_INSTRUCTIONS.md)**  
+👉 **[DEVELOPER_ARCHITECTURE_GUIDE.md](DEVELOPER_ARCHITECTURE_GUIDE.md)**
 
 ---
 

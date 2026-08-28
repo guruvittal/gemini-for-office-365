@@ -1,4 +1,6 @@
 # Developer Architecture & System Evolution Guide: Gemini for Microsoft 365
+**Author:** Carlos Augusto, Principal Architect, Google  
+**License:** Apache-2.0  
 
 > **Target Audience:** Backend & Frontend Developers, Cloud Architects, and DevOps Engineers  
 > **Repository:** `retail-gemini-for-office-365`  
@@ -38,6 +40,43 @@ To solve this, we implemented an **Enterprise Decoupled Authentication Gateway**
 3. **Dedicated Service Account (`gemini-office365-sa`)**: `auth-proxy` runs under its own least-privilege service account. Upon authenticating an end user, it fetches a short-lived Google S2S IAM token and proxies the request to `askgemini-proxy`.
 4. **Verified End-User Context Propagation**: `auth-proxy` extracts authenticated corporate claims (`email`, `user_id`, `name`, `tenant_id`, `oid`) and forwards them via HTTP headers (`X-End-User-*`) to `geminiproxy`, which attaches them to Discovery Engine StreamAssist sessions.
 5. **Native GCP Structured JSON Logging**: All requests, claims, and latencies are formatted as structured JSON natively indexed by Google Cloud Logging, featuring a configurable `VERBOSE_LOGGING=true` diagnostic mode.
+
+### The Dual Authentication Boundary Model
+
+A common architectural question is: *“If using Google Workspace (GSuite) where users log in with Google, why is Microsoft Entra ID still configured?”*
+
+The architecture enforces **two distinct, decoupled security perimeters**:
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ 1. Microsoft 365 Client Tier (Office App & Webview)                                    │
+│    👤 User: AlexW@5m4qby.onmicrosoft.com                                              │
+│    🔑 Auth Mechanism: Microsoft Entra ID SSO (Office.auth.getAccessToken)              │
+└───────────────────────────────────────────┬────────────────────────────────────────────┘
+                                            │ (Passes Microsoft Bearer Token)
+                                            ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ 2. GCP Ingestion & API Gateway Tier (`auth-proxy` on Cloud Run)                        │
+│    🛡️ Gateway Defense: "Is this request coming from an authorized employee in our M365  │
+│                       tenant using our approved Office Add-in?"                       │
+└───────────────────────────────────────────┬────────────────────────────────────────────┘
+                                            │ (Passes Google User OAuth Token ya29...)
+                                            ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ 3. Google Gemini Enterprise Tier (Discovery Engine / Google Drive)                     │
+│    👤 User: caugusto@google.com                                                        │
+│    🔑 Auth Mechanism: Google 3-Legged OAuth                                            │
+│    🎯 Purpose: "Which Google Drive files and Cloud Identity permissions does user have?"│
+└────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+1. **Perimeter 1: API Gateway Ingestion Protection (Entra ID)**:
+   - Validates that the request originates from an authentic corporate employee inside the licensed Microsoft 365 tenant (`MICROSOFT_ENTRA_TENANT_ID`) using the authorized Office Add-in (`MICROSOFT_ENTRA_APP_ID`).
+   - Prevents unauthorized external traffic from invoking the Cloud Run endpoints or consuming Vertex AI/Discovery Engine quota.
+   - Enables seamless silent single sign-on inside Office via `<WebApplicationInfo>`.
+2. **Perimeter 2: Data Grounding & ACL Authorization (Google Cloud Identity / GSuite)**:
+   - Evaluates what corporate Google Drive documents, Google Workspace resources, or Enterprise Datastores the user is permitted to search.
+   - Ensures zero-trust data access control: responses are grounded only on documents the user has personal permission to read.
 
 ---
 
@@ -385,8 +424,9 @@ retail-gemini-for-office-365/
 │   └── DEPLOYMENT_AND_ENTRA_GUIDE.md         # End-to-end Entra ID & Cloud Run step-by-step guide
 ├── geminiproxy/
 │   └── index.js                              # [MODIFIED] Added X-End-User-* header extraction & user attribution
-├── manifest-ca.xml                           # [CONFIG] Office 365 manifest with <WebApplicationInfo> SSO binding
-├── DEPLOYMENT_INFO_CA.md                     # [DOC] Live GCP deployment references, endpoints & IAM state
+├── manifest-wif.xml                          # [CONFIG] Office 365 manifest for WIF with <WebApplicationInfo> SSO binding
+├── manifest-gsuite.xml                       # [CONFIG] Office 365 manifest for GSuite / Cloud Identity
+├── DEPLOYMENT_INSTRUCTIONS.md                # [DOC] Live GCP deployment references, endpoints & IAM state
 └── DEVELOPER_ARCHITECTURE_GUIDE.md           # [DOC] This document
 ```
 
@@ -563,12 +603,13 @@ export async function askGeminiEnterprise(prompt, history = [], sessionId = null
 The deployment lifecycle comprises manifest configuration, testing via sideloading across Office hosts, and tenant-wide distribution.
 
 ### 8.1 Manifest Configuration Check
-Ensure [`manifest-ca.xml`](manifest-ca.xml) has the correct `<WebApplicationInfo>` block configured at the bottom:
+Ensure [`manifest-wif.xml`](manifest-wif.xml) or [`manifest-gsuite.xml`](manifest-gsuite.xml) has the correct `<WebApplicationInfo>` block configured at the bottom:
 
+For WIF (`manifest-wif.xml`):
 ```xml
   <WebApplicationInfo>
-    <Id>b990d644-e47b-4575-97b3-2067c488042b</Id>
-    <Resource>api://gemini-frontend-16933400417.us-central1.run.app/b990d644-e47b-4575-97b3-2067c488042b</Resource>
+    <Id>85fb5428-6249-4131-9eeb-f2436d5d4d8c</Id>
+    <Resource>api://gemini-frontend-1062675944253.us-central1.run.app/85fb5428-6249-4131-9eeb-f2436d5d4d8c</Resource>
     <Scopes>
       <Scope>access_as_user</Scope>
     </Scopes>
@@ -580,23 +621,22 @@ Ensure [`manifest-ca.xml`](manifest-ca.xml) has the correct `<WebApplicationInfo
 #### 1. Office on the Web (PowerPoint / Word / Excel Online)
 1. Open [Office 365](https://www.office.com/) and launch **PowerPoint Online** or **Word Online**.
 2. Create a new blank presentation or document.
-3. In the top ribbon, select **Insert** -> **Add-ins** -> **Manage My Add-ins** -> **Upload My Add-in**.
-4. Browse to and select [`manifest-ca.xml`](manifest-ca.xml).
+3. In the top ribbon, select **Insert** -> **Add-ins** -> **Upload My Add-in**.
+4. Browse to and select [`manifest-wif.xml`](manifest-wif.xml) (or [`manifest-gsuite.xml`](manifest-gsuite.xml)).
 5. Click **Upload**. The **Gemini Enterprise** icon will appear on the Home ribbon.
 6. Click the icon to open the taskpane. Office will trigger SSO, and `auth-proxy` will authenticate the user.
 
 #### 2. Office Desktop (macOS / Windows)
-- **macOS**: Copy `manifest-ca.xml` to `~/Library/Containers/com.microsoft.Powerpoint/Data/Documents/wef/` (or the corresponding Word/Excel directory) and restart the application.
+- **macOS**: Run `./scripts/sideload_mac.sh manifest-wif.xml` (or `manifest-gsuite.xml`) and restart the Office application.
 - **Windows**: Use the Office Add-in Shared Folder Catalog or sideload via the Office 365 Developer Ribbon.
 
 ### 8.3 Enterprise Tenant-Wide Deployment
 To deploy to all corporate users without manual sideloading:
 1. Open the **[Microsoft 365 Admin Center](https://admin.microsoft.com/)**.
 2. Navigate to **Settings** -> **Integrated apps**.
-3. Click **Upload custom apps** -> Choose **Office Add-in** -> Select **Upload manifest file (.xml)**.
-4. Upload [`manifest-ca.xml`](manifest-ca.xml).
-5. Assign to **Entire organization** or specific test groups.
-6. Deployment will propagate to all corporate Office desktop and web apps within 6–24 hours.
+3. Click **Upload custom apps** -> Choose **Office Add-in** -> Provide URL or upload [`manifest-wif.xml`](manifest-wif.xml) / [`manifest-gsuite.xml`](manifest-gsuite.xml).
+4. Assign to **Entire organization** or specific test groups.
+5. Deployment will propagate to all corporate Office desktop and web apps within 6–24 hours.
 
 ---
 
@@ -664,7 +704,7 @@ jsonPayload.structured_context.httpRequest.latency:*
 | :---: | :--- | :--- | :--- |
 | `401` | `AUTH_HEADER_MISSING` | Request sent without `Authorization: Bearer <token>` header. | Ensure client calls `Office.auth.getAccessToken()` before making requests. |
 | `401` | `AUTH_EXPIRED` | JWT `exp` timestamp is in the past. | Force token refresh in `authService.js` (`getOfficeAuthToken(true)`). |
-| `401` | `AUTH_INVALID_AUDIENCE` | Token `aud` claim does not match `ENTRA_APP_ID` or Application ID URI. | Verify `manifest-ca.xml` `<Resource>` matches the exact Application ID URI configured in Entra ID. |
+| `401` | `AUTH_INVALID_AUDIENCE` | Token `aud` claim does not match `ENTRA_APP_ID` or Application ID URI. | Verify manifest `<Resource>` matches the exact Application ID URI configured in Entra ID. |
 | `401` | `AUTH_KEY_NOT_FOUND` | Token `kid` header not found in Microsoft JWKS endpoint. | Token may have been issued by a different tenant authority or is malformed. |
 | `403` | `Forbidden (Google IAM)` | `auth-proxy` failed to invoke `askgemini-proxy`. | Verify `gemini-office365-sa` has `roles/run.invoker` on `askgemini-proxy`. |
 | `502` | `DOWNSTREAM_COMMUNICATION_ERROR` | `askgemini-proxy` timed out or unreachable. | Verify `DOWNSTREAM_BACKEND_URL` environment variable and Cloud Run status. |
@@ -697,13 +737,13 @@ For engineering teams upgrading their existing add-in or backend codebase to thi
    });
    ```
 
-3. **Consolidate Manifest to Single `manifest-ca.xml`**:
-   - Ensure `<SourceLocation>` points to your frontend hosting domain (e.g., `https://gemini-frontend-16933400417.us-central1.run.app/taskpane.html`).
+3. **Configure Manifest (`manifest-wif.xml` or `manifest-gsuite.xml`)**:
+   - Ensure `<SourceLocation>` points to your frontend hosting domain (e.g., `https://gemini-frontend-1062675944253.us-central1.run.app/taskpane.html`).
    - Configure `<WebApplicationInfo>` with the exact Application ID URI:
      ```xml
      <WebApplicationInfo>
-       <Id>b990d644-e47b-4575-97b3-2067c488042b</Id>
-       <Resource>api://gemini-frontend-16933400417.us-central1.run.app/b990d644-e47b-4575-97b3-2067c488042b</Resource>
+       <Id>85fb5428-6249-4131-9eeb-f2436d5d4d8c</Id>
+       <Resource>api://gemini-frontend-1062675944253.us-central1.run.app/85fb5428-6249-4131-9eeb-f2436d5d4d8c</Resource>
        <Scopes>
          <Scope>access_as_user</Scope>
        </Scopes>

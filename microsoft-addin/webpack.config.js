@@ -23,9 +23,13 @@ async function getHttpsOptions() {
 
 module.exports = async (env, options) => {
   const dev = options.mode === "development";
-  const manifestSrc = fs.existsSync(path.resolve(__dirname, "manifest-ca.xml"))
-    ? "manifest-ca.xml"
-    : (fs.existsSync(path.resolve(__dirname, "../manifest-ca.xml")) ? path.resolve(__dirname, "../manifest-ca.xml") : null);
+  const manifestWifSrc = fs.existsSync(path.resolve(__dirname, "manifest-wif.xml"))
+    ? "manifest-wif.xml"
+    : (fs.existsSync(path.resolve(__dirname, "../manifest-wif.xml")) ? path.resolve(__dirname, "../manifest-wif.xml") : null);
+
+  const manifestGsuiteSrc = fs.existsSync(path.resolve(__dirname, "manifest-gsuite.xml"))
+    ? "manifest-gsuite.xml"
+    : (fs.existsSync(path.resolve(__dirname, "../manifest-gsuite.xml")) ? path.resolve(__dirname, "../manifest-gsuite.xml") : null);
 
   const copyPatterns = [
     {
@@ -44,10 +48,10 @@ module.exports = async (env, options) => {
     },
   ];
 
-  if (manifestSrc) {
+  if (manifestWifSrc) {
     copyPatterns.push({
-      from: manifestSrc,
-      to: "manifest-ca.xml",
+      from: manifestWifSrc,
+      to: "manifest-wif.xml",
       toType: "file",
       noErrorOnMissing: true,
       transform(content) {
@@ -59,10 +63,6 @@ module.exports = async (env, options) => {
       },
     });
   }
-
-  const manifestGsuiteSrc = fs.existsSync(path.resolve(__dirname, "manifest-gsuite.xml"))
-    ? "manifest-gsuite.xml"
-    : (fs.existsSync(path.resolve(__dirname, "../manifest-gsuite.xml")) ? path.resolve(__dirname, "../manifest-gsuite.xml") : null);
 
   if (manifestGsuiteSrc) {
     copyPatterns.push({

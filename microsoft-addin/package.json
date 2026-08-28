@@ -10,7 +10,7 @@
     "dev_server_port": 3000
   },
   "scripts": {
-    "prebuild": "node -e \"const fs=require('fs'); if(fs.existsSync('../manifest-ca.xml')) fs.copyFileSync('../manifest-ca.xml', './manifest-ca.xml');\"",
+    "prebuild": "node -e \"const fs=require('fs'); if(fs.existsSync('../manifest-wif.xml')) fs.copyFileSync('../manifest-wif.xml', './manifest-wif.xml'); if(fs.existsSync('../manifest-gsuite.xml')) fs.copyFileSync('../manifest-gsuite.xml', './manifest-gsuite.xml');\"",
     "build": "webpack --mode production",
     "build:dev": "webpack --mode development",
     "dev-server": "webpack serve --mode development",
@@ -19,9 +19,9 @@
     "prettier": "office-addin-lint prettier",
     "signin": "office-addin-dev-settings m365-account login",
     "signout": "office-addin-dev-settings m365-account logout",
-    "start": "office-addin-debugging start ../manifest-ca.xml",
-    "stop": "office-addin-debugging stop ../manifest-ca.xml",
-    "validate": "office-addin-manifest validate ../manifest-ca.xml",
+    "start": "office-addin-debugging start ../manifest-wif.xml",
+    "stop": "office-addin-debugging stop ../manifest-wif.xml",
+    "validate": "office-addin-manifest validate ../manifest-wif.xml",
     "watch": "webpack --mode development --watch"
   },
   "dependencies": {

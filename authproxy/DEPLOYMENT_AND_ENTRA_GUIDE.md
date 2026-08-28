@@ -1,4 +1,11 @@
 # Microsoft Entra ID Setup & Cloud Run Deployment Guide for `auth-proxy`
+**Author:** Carlos Augusto, Principal Architect, Google  
+**License:** Apache-2.0  
+
+> [!NOTE]
+> **Consolidated Master Guide Available:**  
+> This guide has been consolidated into the unified master runbook: **[`DEPLOYMENT_INSTRUCTIONS.md`](../DEPLOYMENT_INSTRUCTIONS.md)**.  
+> Please refer to **[`DEPLOYMENT_INSTRUCTIONS.md`](../DEPLOYMENT_INSTRUCTIONS.md)** for the complete, step-by-step first-time deployment instructions for both Track 1 (WIF) and Track 2 (GSuite), Entra ID app registration, manifest XML customizations, cross-project permissions, and full environment variables catalog.
 
 This guide provides complete, step-by-step instructions for:
 1. **Initial Microsoft Entra ID App Registration** to capture your Client ID.
@@ -59,7 +66,7 @@ Step 5: Deploy auth-proxy to Cloud Run with Entra Client ID, Backend URL & GOOGL
        │
 Step 6: In Entra ID ➔ Set Application ID URI, Add Scopes & Pre-authorize Office
        │
-Step 7: Update Office Manifest (manifest-ca.xml) & Verify in Office 365
+Step 7: Update Office Manifest (manifest-wif.xml / manifest-gsuite.xml) & Verify in Office 365
 ```
 
 ---
@@ -183,12 +190,12 @@ gcloud run deploy askgemini-proxy \
   --project YOUR_GCP_PROJECT_ID \
   --region us-central1 \
   --service-account gemini-office365-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com \
-  --no-allow-unauthenticated \
+  --allow-unauthenticated \
   --set-env-vars "\
-GCP_PROJECT_ID=YOUR_GCP_PROJECT_ID,\
+GE_GCP_PROJECT_ID=YOUR_GEMINI_ENTERPRISE_PROJECT_ID,\
 GEMINI_ENTERPRISE_APP_ID=YOUR_GEMINI_ENTERPRISE_APP_ID,\
 BACKEND_MODE=streamassist,\
-GCP_LOCATION=global,\
+GE_GCP_LOCATION=global,\
 ENTERPRISE_COLLECTION_ID=default_collection,\
 ENTERPRISE_ASSISTANT_ID=default_assistant,\
 ALLOW_SERVICE_ACCOUNT_FALLBACK=true"
@@ -198,15 +205,21 @@ ALLOW_SERVICE_ACCOUNT_FALLBACK=true"
 
 #### `askgemini-proxy` Environment Variable Reference
 
-| Parameter | Type | Required / Optional | Default | Description |
-| :--- | :---: | :---: | :---: | :--- |
-| `GCP_PROJECT_ID` | String | **Required** | *None* | Google Cloud Project ID hosting Discovery Engine & Vertex AI. |
-| `GEMINI_ENTERPRISE_APP_ID` | String | **Required** | *None* | Gemini Enterprise Search / Assist Engine ID. |
-| `BACKEND_MODE` | String | Optional | `streamassist` | Execution mode (`streamassist` for Discovery Engine, `vertex` for direct Vertex AI). |
-| `GCP_LOCATION` | String | Optional | `global` | Discovery Engine collection/engine location. |
-| `ENTERPRISE_COLLECTION_ID` | String | Optional | `default_collection` | Discovery Engine collection name. |
-| `ENTERPRISE_ASSISTANT_ID` | String | Optional | `default_assistant` | Discovery Engine assistant resource ID. |
-| `ALLOW_SERVICE_ACCOUNT_FALLBACK` | Boolean | Optional | `false` | When `true`, falls back to Service Account ADC if user token is absent, logging a prominent GCP `WARNING`. When `false`, strictly enforces end-user tokens (HTTP 403 on missing token). |
+| Parameter | Type | Required / Optional | Default Value | Example Value | Description & Impact |
+| :--- | :---: | :---: | :---: | :--- | :--- |
+| `GE_GCP_PROJECT_ID` | String | **Required** | `process.env.GCP_PROJECT_ID` | `agentspace-wif` / `jeansson-gem-ent-ci` | Google Cloud Project ID hosting Discovery Engine & Vertex AI. |
+| `GEMINI_ENTERPRISE_APP_ID` | String | **Required** *(in `streamassist` mode)* | `""` | `instance-demos1_1774616568648` / `gemini-enterprise-dummy-ap_1787693913560` | Gemini Enterprise Search / Assist Engine ID. |
+| `BACKEND_MODE` | String | Optional | `streamassist` | `streamassist` | Execution mode (`streamassist` for Discovery Engine, `vertex` for direct Vertex AI). |
+| `GE_GCP_LOCATION` | String | Optional | `global` | `global` / `us` | Discovery Engine collection/engine location (`global`, `us`, `eu`). |
+| `STREAM_ASSIST_ENDPOINT_LOCATION` | String | Optional | `global` | `global` / `us` | API endpoint subdomain routing prefix (`global` or regional e.g. `us`). |
+| `ENTERPRISE_COLLECTION_ID` | String | Optional | `default_collection` | `default_collection` | Discovery Engine collection name. |
+| `ENTERPRISE_ASSISTANT_ID` | String | Optional | `default_assistant` | `default_assistant` | Discovery Engine assistant resource ID. |
+| `ALLOW_SERVICE_ACCOUNT_FALLBACK` | Boolean | Optional | `false` | `false` (WIF) / `true` (GSuite) | When `true`, falls back to Service Account ADC if user token is absent. |
+| `GCP_REGION` | String | Optional | `us-central1` | `us-central1` | GCP region for direct Vertex AI client (used in `vertex` mode). |
+| `GEMINI_MODEL` | String | Optional | `gemini-2.5-flash` | `gemini-2.5-flash` | Generative text foundation model name for direct Vertex AI calls. |
+| `GEMINI_IMAGE_MODEL` | String | Optional | `gemini-2.5-flash-image` | `gemini-2.5-flash-image` | Multimodal visual generation model for charts and diagrams. |
+| `VERTEX_DATASTORE_ID` | String | Optional | `""` | `""` | Full resource name of Vertex AI Search Datastore in direct `vertex` mode. |
+| `PORT` | Integer | Optional | `8080` | `8080` | Container listen port (injected by Cloud Run runtime). |
 
 ---
 
@@ -225,8 +238,8 @@ gcloud run deploy auth-proxy \
   --set-env-vars "\
 MICROSOFT_ENTRA_APP_ID=YOUR_MICROSOFT_ENTRA_CLIENT_ID,\
 DOWNSTREAM_BACKEND_URL=https://askgemini-proxy-XXXXXXXX.us-central1.run.app,\
-GCP_PROJECT_ID=YOUR_GCP_PROJECT_ID,\
-GCP_LOCATION=global,\
+GE_GCP_PROJECT_ID=YOUR_GEMINI_ENTERPRISE_PROJECT_ID,\
+GE_GCP_LOCATION=global,\
 USER_AUTH_MODE=auto,\
 REQUIRE_ENTRA_AUTH=true,\
 VERBOSE_LOGGING=true"
@@ -234,17 +247,23 @@ VERBOSE_LOGGING=true"
 
 #### `auth-proxy` Environment Variable Reference
 
-| Parameter | Type | Required / Optional | Default | Description |
-| :--- | :---: | :---: | :---: | :--- |
-| `MICROSOFT_ENTRA_APP_ID` | String | **Required** | *None* | Entra ID (Azure AD) Application / Client ID. |
-| `DOWNSTREAM_BACKEND_URL` | URL | **Required** | `""` | HTTPS URL of the private `askgemini-proxy` Cloud Run service from Step 4.2. |
-| `GCP_PROJECT_ID` | String | **Required** | *None* | Target GCP project containing the Gemini Enterprise engine. |
-| `GCP_LOCATION` | String | Optional | `global` | Location of Discovery Engine resources (`global`, `us`, `eu`). |
-| `USER_AUTH_MODE` | String | Optional | `auto` | Token pass-through strategy: `auto` (auto-detects `GSUITE` vs `THIRD_PARTY` from `aclConfig`), `cloud_identity`, `wif`, or `none`. |
-| `WIF_AUDIENCE` | String | Optional *(WIF only)* | `""` | Explicit STS audience override URL. Leave empty for Cloud Identity. In WIF mode, auto-discovered from `aclConfig` if left blank. |
-| `WIF_PROVIDER_NAME` | String | Optional *(WIF only)* | `entra-id-oidc-pool-provider` | Workforce Identity Federation provider ID inside the workforce pool. Not used for Cloud Identity. |
-| `REQUIRE_ENTRA_AUTH` | Boolean | Optional | `true` | When `true`, rejects unauthenticated requests with HTTP 401. Set `false` only for local dev. |
-| `VERBOSE_LOGGING` | Boolean | Optional | `false` | When `true`, emits deep diagnostic JSON payload logs to Cloud Logging. |
+| Parameter | Type | Required / Optional | Default Value | Example Value | Description & Impact |
+| :--- | :---: | :---: | :---: | :--- | :--- |
+| `MICROSOFT_ENTRA_APP_ID` | String | **Required** | `""` | `85fb5428-6249-4131-9eeb-f2436d5d4d8c` / `e871aa77-54f7-4310-a549-cad3b1edee4a` | Entra ID (Azure AD) Application / Client ID. |
+| `DOWNSTREAM_BACKEND_URL` | URL | **Required** | `""` | `https://askgemini-proxy-1062675944253.us-central1.run.app` | HTTPS URL of the private `askgemini-proxy` Cloud Run service. |
+| `GE_GCP_PROJECT_ID` | String | Optional | `agentspace-452714` | `agentspace-wif` / `jeansson-gem-ent-ci` | Target GCP project containing the Gemini Enterprise engine. |
+| `GE_GCP_LOCATION` | String | Optional | `global` | `global` / `us` | Location of Discovery Engine resources (`global`, `us`, `eu`). |
+| `USER_AUTH_MODE` | String | Optional | `auto` | `auto` / `wif` / `cloud_identity` | Authentication mode: `auto` (auto-detects `GSUITE` vs `THIRD_PARTY`), `wif`, or `cloud_identity`. |
+| `MICROSOFT_ENTRA_TENANT_ID` | String | Optional | `""` *(any tenant)* | `464c0986-459d-42b9-a68d-aff41ccd3b16` / `8ea14f5d-d857-4ceb-b0f5-7e27b174f795` | Enforces single-tenant locking. Tokens from other tenants are rejected with `401`. |
+| `GOOGLE_OAUTH_CLIENT_ID` | String | Optional | `""` | `497524937986-66oh05fskrkufpv2he7fb00fmpd4nlt9.apps.googleusercontent.com` | Google Cloud OAuth 2.0 Web Client ID for 3-legged login in GSuite mode. |
+| `WIF_AUDIENCE` | String | Optional | `""` *(auto-detected)* | `//iam.googleapis.com/locations/global/workforcePools/ca-entra-id-oidc-pool/providers/entra-id-oidc-pool-provider` | Explicit Google STS Workforce Pool provider audience string. |
+| `WIF_PROVIDER_NAME` | String | Optional | `entra-id-oidc-pool-provider` | `entra-id-oidc-pool-provider` | Provider resource name under the workforce pool. |
+| `REQUIRE_ENTRA_AUTH` | Boolean | Optional | `false` | `false` (WIF auto) / `true` (GSuite) | When `true`, rejects unauthenticated requests with HTTP 401. |
+| `VERBOSE_LOGGING` | Boolean | Optional | `false` | `true` | When `true`, emits deep diagnostic JSON payload logs to Cloud Logging. |
+| `LOG_LEVEL` | String | Optional | `INFO` *(or `DEBUG` if verbose)* | `DEBUG` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
+| `DOWNSTREAM_TIMEOUT` | Integer | Optional | `300` | `300` | HTTP timeout in seconds when awaiting responses from `askgemini-proxy`. |
+| `ENTRA_JWKS_URL` | URL | Optional | `https://login.microsoftonline.com/common/discovery/v2.0/keys` | `https://login.microsoftonline.com/common/discovery/v2.0/keys` | Public JWKS endpoint URL for downloading Microsoft RS256 signing certificates. |
+| `PORT` | Integer | Optional | `8080` | `8080` | Container listen port (injected by Cloud Run runtime). |
 
 ---
 
@@ -395,21 +414,32 @@ You can configure Optional Claims using either the **Azure Portal UI** or by **e
 
 ## 6. Phase 4: Update the Office Add-in Manifest (XML)
 
-Once your Entra ID App Registration is fully configured, you must link the Microsoft Office client to it by modifying your Add-in's XML manifest file (e.g., `manifest-ca.xml`).
+Once your Entra ID App Registration is fully configured, you must link the Microsoft Office client to it by configuring your Add-in's XML manifest metadata file ([`manifest-wif.xml`](manifest-wif.xml) or [`manifest-gsuite.xml`](manifest-gsuite.xml)).
 
-1. Open `manifest-ca.xml` in your code editor.
-2. Locate the `<WebApplicationInfo>` section near the bottom of the file.
-3. Update the `<Id>` tag with your Entra ID Application (client) ID.
-4. Update the `<Resource>` tag with the Application ID URI you set in Step 5.1.
+### Step 6.1: Field-by-Field Manifest Modification Reference
 
-**Example Modification:**
+| XML Element / Attribute | What to Update | Why It Must Be Updated | Example Value |
+| :--- | :--- | :--- | :--- |
+| `<Id>` *(top-level GUID)* | Unique Add-in GUID | Identifies the add-in in the Office catalog. If deploying both WIF and GSuite or running multiple environments, each manifest **must have a distinct GUID** to prevent ribbon conflicts. | `6b9f4a12-8923-4d32-bb15-99d9b89e9001` |
+| `<ProviderName>` | Organization Name | Displayed in Microsoft 365 Admin Center and the Add-in info dialog. | `Google Cloud Architecture Team` |
+| `<DisplayName DefaultValue="...">` | Display Label | The button title on the Word/PowerPoint/Excel Home ribbon. | `Gemini Assistant (WIF)` |
+| `<IconUrl>` / `<HighResolutionIconUrl>` | URL to icon assets | HTTPS URLs pointing to your `gemini-frontend` Cloud Run service (`icon-32.png` and `icon-80.png`). | `https://gemini-frontend-1062675944253.us-central1.run.app/assets/icon-32.png` |
+| `<SourceLocation DefaultValue="...">` | Taskpane HTML entrypoint | The exact HTTPS URL of `taskpane.html` on `gemini-frontend`. Office loads this in the webview. | `https://gemini-frontend-1062675944253.us-central1.run.app/taskpane.html` |
+| `<AppDomains>` | Whitelisted origins | Office blocks unauthorized network calls. Must include your `gemini-frontend` domain. | `<AppDomain>https://gemini-frontend-1062675944253.us-central1.run.app</AppDomain>` |
+| `<bt:Url id="msg.Taskpane.Url" DefaultValue="...">` | Taskpane URL resource string | Resource string reference for Office UI. Must match `<SourceLocation>`. | `https://gemini-frontend-1062675944253.us-central1.run.app/taskpane.html` |
+| `<WebApplicationInfo><Id>` | Microsoft Entra App ID | Links the Office client to your Entra ID App. Office sends this to Entra ID for SSO. | `85fb5428-6249-4131-9eeb-f2436d5d4d8c` |
+| `<WebApplicationInfo><Resource>` | Application ID URI | Must **exactly match** the Application ID URI configured in Entra ID (Step 5.1). Office checks this against token audience. | `api://gemini-frontend-1062675944253.us-central1.run.app/85fb5428-6249-4131-9eeb-f2436d5d4d8c` |
+| `<WebApplicationInfo><Scopes><Scope>` | OAuth Permission Scope | **CRITICAL: Must have exactly ONE scope: `access_as_user`**. Having 0 or >1 scopes will fail manifest validation. | `<Scope>access_as_user</Scope>` |
+
+### Step 6.2: Example `<WebApplicationInfo>` Snippet
+
 ```xml
     <WebApplicationInfo>
       <!-- Replace with your Microsoft Entra ID Client ID -->
       <Id>85fb5428-6249-4131-9eeb-f2436d5d4d8c</Id>
       
-      <!-- Replace with your Application ID URI (must exactly match Entra ID) -->
-      <Resource>api://gemini-frontend-16933400417.us-central1.run.app/85fb5428-6249-4131-9eeb-f2436d5d4d8c</Resource>
+      <!-- Replace with your Application ID URI (must exactly match Step 5.1) -->
+      <Resource>api://gemini-frontend-1062675944253.us-central1.run.app/85fb5428-6249-4131-9eeb-f2436d5d4d8c</Resource>
       
       <Scopes>
         <Scope>access_as_user</Scope>
@@ -417,8 +447,8 @@ Once your Entra ID App Registration is fully configured, you must link the Micro
     </WebApplicationInfo>
 ```
 
-> [!NOTE]
-> If the `Id` and `Resource` in the XML do not perfectly match the Microsoft Entra ID configuration, the silent SSO call `Office.auth.getAccessToken()` will fail with error 13003 or 13005.
+> [!WARNING]
+> If `<Resource>` does not exactly match the Application ID URI set in Step 5.1, or if `<Id>` does not match the Application (Client) ID, Office silent SSO (`Office.auth.getAccessToken()`) will fail with error `13003` or `13005`.
 
 ---
 
@@ -624,14 +654,30 @@ FastAPI provides built-in interactive OpenAPI Swagger documentation for all rout
 
 ---
 
-## 8. Configuration Reference
+## 8. Configuration Reference & Live Environment Examples
+
+### Live Environment Examples Matrix
+
+| Setting | 🅰️ WIF Deployment (`agentspace-wif`) | 🅱️ GSuite Deployment (`agentspace-452714`) |
+| :--- | :--- | :--- |
+| `GE_GCP_PROJECT_ID` | `agentspace-wif` | `jeansson-gem-ent-ci` |
+| `GE_GCP_LOCATION` | `global` | `us` |
+| `MICROSOFT_ENTRA_APP_ID` | `85fb5428-6249-4131-9eeb-f2436d5d4d8c` | `e871aa77-54f7-4310-a549-cad3b1edee4a` |
+| `MICROSOFT_ENTRA_TENANT_ID` | `464c0986-459d-42b9-a68d-aff41ccd3b16` (`5m4qby.onmicrosoft.com`) | `8ea14f5d-d857-4ceb-b0f5-7e27b174f795` (GSuite M365 Tenant) |
+| `USER_AUTH_MODE` | `auto` (or `wif`) | `cloud_identity` |
+| `GOOGLE_OAUTH_CLIENT_ID` | *None* | `497524937986-66oh05fskrkufpv2he7fb00fmpd4nlt9.apps.googleusercontent.com` |
+| `WIF_AUDIENCE` | `//iam.googleapis.com/locations/global/workforcePools/ca-entra-id-oidc-pool/providers/entra-id-oidc-pool-provider` | *None* |
+| Office Manifest | [`manifest-wif.xml`](../manifest-wif.xml) | [`manifest-gsuite.xml`](../manifest-gsuite.xml) |
+
+### Parameter Reference
 
 | Variable | Type | Required / Optional | Default | Description |
 | :--- | :---: | :---: | :---: | :--- |
 | `MICROSOFT_ENTRA_APP_ID` | String | **Required** | *None* | Entra ID (Azure AD) Client Application GUID. |
+| `MICROSOFT_ENTRA_TENANT_ID` | String | Optional | *None* | Entra ID Directory (Tenant) GUID. |
 | `DOWNSTREAM_BACKEND_URL` | URL | **Required** | `""` | HTTPS endpoint of the downstream `askgemini-proxy` Cloud Run service. |
-| `GCP_PROJECT_ID` | String | **Required** | *None* | Target GCP project containing the Discovery Engine instance. |
-| `GCP_LOCATION` | String | Optional | `global` | Discovery Engine collection/engine location (`global`, `us`, `eu`). |
+| `GE_GCP_PROJECT_ID` | String | **Required** | *None* | Target GCP project containing the Discovery Engine instance. (Legacy `GCP_PROJECT_ID` supported as fallback). |
+| `GE_GCP_LOCATION` | String | Optional | `global` | Discovery Engine collection/engine location (`global`, `us`, `eu`). |
 | `USER_AUTH_MODE` | String | Optional | `auto` | Identity strategy: `auto` (detects `GSUITE` vs `THIRD_PARTY`), `cloud_identity`, `wif`, or `none`. |
 | `WIF_AUDIENCE` | String | Optional *(WIF only)* | `""` | Explicit STS audience override URL. Leave blank in WIF mode to auto-discover via `aclConfig`. Not used for Cloud Identity. |
 | `WIF_PROVIDER_NAME` | String | Optional *(WIF only)* | `entra-id-oidc-pool-provider` | Workforce pool provider ID name. Not used for Cloud Identity. |
@@ -666,5 +712,48 @@ gcloud logging read "resource.type=cloud_run_revision AND resource.labels.servic
    resource.labels.service_name="auth-proxy"
    ```
 3. Expand any log entry to filter by `jsonPayload.structured_context.user_context` or `jsonPayload.structured_context.user_id`.
+
+---
+
+## 10. Cross-Project Deployment (Cross-Project Gemini Enterprise)
+
+When the **Cloud Run microservices** (`auth-proxy`, `askgemini-proxy`, `gemini-frontend`) are deployed in one GCP project (e.g., `PROJECT_A`), but the **Gemini Enterprise (Discovery Engine) instance** resides in a different GCP project (e.g., `PROJECT_B`), cross-project IAM access must be granted.
+
+### Option A: Configure Cross-Project Access via `gcloud` (Recommended)
+
+Run the following commands as an **Owner** or **IAM Admin** on the **Gemini Enterprise target project (Project B)**:
+
+```bash
+# Set your target project and Cloud Run service account
+TARGET_GEMINI_PROJECT="YOUR_GEMINI_ENTERPRISE_PROJECT_ID"
+CLOUD_RUN_SERVICE_ACCOUNT="YOUR_SERVICE_ACCOUNT@YOUR_CLOUD_RUN_PROJECT_ID.iam.gserviceaccount.com"
+
+# 1. Grant Discovery Engine Editor access on the Gemini Enterprise project
+gcloud projects add-iam-policy-binding "${TARGET_GEMINI_PROJECT}" \
+  --member="serviceAccount:${CLOUD_RUN_SERVICE_ACCOUNT}" \
+  --role="roles/discoveryengine.editor"
+
+# 2. Grant Service Usage Consumer permission on the Gemini Enterprise project
+gcloud projects add-iam-policy-binding "${TARGET_GEMINI_PROJECT}" \
+  --member="serviceAccount:${CLOUD_RUN_SERVICE_ACCOUNT}" \
+  --role="roles/serviceusage.serviceUsageConsumer"
+```
+
+### Option B: Configure via Google Cloud Console
+1. Navigate to the **Gemini Enterprise GCP Project** in the [Google Cloud Console](https://console.cloud.google.com/).
+2. Go to **IAM & Admin** ➔ **IAM** ➔ Click **+ Grant Access**.
+3. **New principals**: Enter the Cloud Run service account (`YOUR_SERVICE_ACCOUNT@YOUR_CLOUD_RUN_PROJECT_ID.iam.gserviceaccount.com`).
+4. **Assign roles**:
+   - `Discovery Engine Editor` (`roles/discoveryengine.editor`)
+   - `Service Usage Consumer` (`roles/serviceusage.serviceUsageConsumer`)
+5. Click **Save**.
+
+### Cloud Run Service Configuration for Cross-Project:
+Set the following environment variables on the `askgemini-proxy` and `auth-proxy` Cloud Run services in Project A:
+- `GE_GCP_PROJECT_ID`: Target project ID hosting Gemini Enterprise (e.g., `YOUR_GEMINI_ENTERPRISE_PROJECT_ID`)
+- `GEMINI_ENTERPRISE_APP_ID`: Target Engine/App ID (e.g., `YOUR_GEMINI_ENTERPRISE_APP_ID`)
+- `GE_GCP_LOCATION`: Location of collection/engine resource (`global`, `us`, or `eu`)
+- `STREAM_ASSIST_ENDPOINT_LOCATION`: Regional API endpoint prefix (`global`, `us`, or `eu`)
+
 
 

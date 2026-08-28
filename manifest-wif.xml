@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0" xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="TaskPaneApp">
-  <Id>c4b9f1d8-7e2a-4933-91b5-88a4e321e901</Id>
+  <Id>e19a4280-7249-4131-9eeb-f2436d5d4d8e</Id>
   <Version>1.0.0.0</Version>
-  <ProviderName>Google Cloud (Carlos Augusto)</ProviderName>
+  <ProviderName>Google Cloud</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-    <DisplayName DefaultValue="Gemini Enterprise (Agentspace)"/>
-  <Description DefaultValue="Gemini Enterprise AI Assistant for Microsoft Word, PowerPoint, and Excel grounded in Agentspace."/>
-  <IconUrl DefaultValue="https://gemini-frontend-16933400417.us-central1.run.app/assets/icon-32.png"/>
-  <HighResolutionIconUrl DefaultValue="https://gemini-frontend-16933400417.us-central1.run.app/assets/icon-64.png"/>
+  <DisplayName DefaultValue="Gemini Enterprise (WIF)"/>
+  <Description DefaultValue="Gemini Enterprise AI Assistant (WIF) for Microsoft Word, PowerPoint, and Excel."/>
+  <IconUrl DefaultValue="https://gemini-frontend-1062675944253.us-central1.run.app/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://gemini-frontend-1062675944253.us-central1.run.app/assets/icon-64.png"/>
   <SupportUrl DefaultValue="https://cloud.google.com/vertex-ai"/>
   <AppDomains>
-    <AppDomain>https://gemini-frontend-16933400417.us-central1.run.app</AppDomain>
-    <AppDomain>https://auth-proxy-16933400417.us-central1.run.app</AppDomain>
+    <AppDomain>https://gemini-frontend-1062675944253.us-central1.run.app</AppDomain>
+    <AppDomain>https://auth-proxy-1062675944253.us-central1.run.app</AppDomain>
   </AppDomains>
   <Hosts>
     <Host Name="Document"/>
@@ -19,7 +19,7 @@
     <Host Name="Presentation"/>
   </Hosts>
   <DefaultSettings>
-    <SourceLocation DefaultValue="https://gemini-frontend-16933400417.us-central1.run.app/taskpane.html?backend=streamassist"/>
+    <SourceLocation DefaultValue="https://gemini-frontend-1062675944253.us-central1.run.app/taskpane.html?backend=streamassist"/>
   </DefaultSettings>
   <Permissions>ReadWriteDocument</Permissions>
 
@@ -35,14 +35,14 @@
           <FunctionFile resid="Commands.Url"/>
           <ExtensionPoint xsi:type="PrimaryCommandSurface">
             <OfficeTab id="TabHome">
-              <Group id="CommandsGroupWord">
+              <Group id="CommandsGroupWordWIF">
                 <Label resid="CommandsGroup.Label"/>
                 <Icon>
                   <bt:Image size="16" resid="Icon.16x16"/>
                   <bt:Image size="32" resid="Icon.32x32"/>
                   <bt:Image size="80" resid="Icon.80x80"/>
                 </Icon>
-                <Control xsi:type="Button" id="TaskpaneButtonWord">
+                <Control xsi:type="Button" id="TaskpaneButtonWordWIF">
                   <Label resid="TaskpaneButton.Label"/>
                   <Supertip>
                     <Title resid="TaskpaneButton.Label"/>
@@ -54,7 +54,7 @@
                     <bt:Image size="80" resid="Icon.80x80"/>
                   </Icon>
                   <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>ButtonIdWord</TaskpaneId>
+                    <TaskpaneId>ButtonIdWordWIF</TaskpaneId>
                     <SourceLocation resid="Taskpane.Url"/>
                   </Action>
                 </Control>
@@ -74,14 +74,14 @@
           <FunctionFile resid="Commands.Url"/>
           <ExtensionPoint xsi:type="PrimaryCommandSurface">
             <OfficeTab id="TabHome">
-              <Group id="CommandsGroupExcel">
+              <Group id="CommandsGroupExcelWIF">
                 <Label resid="CommandsGroup.Label"/>
                 <Icon>
                   <bt:Image size="16" resid="Icon.16x16"/>
                   <bt:Image size="32" resid="Icon.32x32"/>
                   <bt:Image size="80" resid="Icon.80x80"/>
                 </Icon>
-                <Control xsi:type="Button" id="TaskpaneButtonExcel">
+                <Control xsi:type="Button" id="TaskpaneButtonExcelWIF">
                   <Label resid="TaskpaneButton.Label"/>
                   <Supertip>
                     <Title resid="TaskpaneButton.Label"/>
@@ -93,7 +93,7 @@
                     <bt:Image size="80" resid="Icon.80x80"/>
                   </Icon>
                   <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>ButtonIdExcel</TaskpaneId>
+                    <TaskpaneId>ButtonIdExcelWIF</TaskpaneId>
                     <SourceLocation resid="Taskpane.Url"/>
                   </Action>
                 </Control>
@@ -113,14 +113,14 @@
           <FunctionFile resid="Commands.Url"/>
           <ExtensionPoint xsi:type="PrimaryCommandSurface">
             <OfficeTab id="TabHome">
-              <Group id="CommandsGroupPPT">
+              <Group id="CommandsGroupPPTWIF">
                 <Label resid="CommandsGroup.Label"/>
                 <Icon>
                   <bt:Image size="16" resid="Icon.16x16"/>
                   <bt:Image size="32" resid="Icon.32x32"/>
                   <bt:Image size="80" resid="Icon.80x80"/>
                 </Icon>
-                <Control xsi:type="Button" id="TaskpaneButtonPPT">
+                <Control xsi:type="Button" id="TaskpaneButtonPPTWIF">
                   <Label resid="TaskpaneButton.Label"/>
                   <Supertip>
                     <Title resid="TaskpaneButton.Label"/>
@@ -132,7 +132,7 @@
                     <bt:Image size="80" resid="Icon.80x80"/>
                   </Icon>
                   <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>ButtonIdPPT</TaskpaneId>
+                    <TaskpaneId>ButtonIdPPTWIF</TaskpaneId>
                     <SourceLocation resid="Taskpane.Url"/>
                   </Action>
                 </Control>
@@ -145,7 +145,7 @@
 
     <WebApplicationInfo>
       <Id>85fb5428-6249-4131-9eeb-f2436d5d4d8c</Id>
-      <Resource>api://gemini-frontend-16933400417.us-central1.run.app/85fb5428-6249-4131-9eeb-f2436d5d4d8c</Resource>
+      <Resource>api://gemini-frontend-1062675944253.us-central1.run.app/85fb5428-6249-4131-9eeb-f2436d5d4d8c</Resource>
       <Scopes>
         <Scope>access_as_user</Scope>
       </Scopes>
@@ -153,23 +153,23 @@
 
     <Resources>
       <bt:Images>
-        <bt:Image id="Icon.16x16" DefaultValue="https://gemini-frontend-16933400417.us-central1.run.app/assets/icon-16.png"/>
-        <bt:Image id="Icon.32x32" DefaultValue="https://gemini-frontend-16933400417.us-central1.run.app/assets/icon-32.png"/>
-        <bt:Image id="Icon.80x80" DefaultValue="https://gemini-frontend-16933400417.us-central1.run.app/assets/icon-80.png"/>
+        <bt:Image id="Icon.16x16" DefaultValue="https://gemini-frontend-1062675944253.us-central1.run.app/assets/icon-16.png"/>
+        <bt:Image id="Icon.32x32" DefaultValue="https://gemini-frontend-1062675944253.us-central1.run.app/assets/icon-32.png"/>
+        <bt:Image id="Icon.80x80" DefaultValue="https://gemini-frontend-1062675944253.us-central1.run.app/assets/icon-80.png"/>
       </bt:Images>
       <bt:Urls>
         <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://go.microsoft.com/fwlink/?LinkId=276812"/>
-        <bt:Url id="Commands.Url" DefaultValue="https://gemini-frontend-16933400417.us-central1.run.app/commands.html"/>
-        <bt:Url id="Taskpane.Url" DefaultValue="https://gemini-frontend-16933400417.us-central1.run.app/taskpane.html?backend=streamassist"/>
+        <bt:Url id="Commands.Url" DefaultValue="https://gemini-frontend-1062675944253.us-central1.run.app/commands.html"/>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://gemini-frontend-1062675944253.us-central1.run.app/taskpane.html?backend=streamassist"/>
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="GetStarted.Title" DefaultValue="Gemini Enterprise"/>
-        <bt:String id="CommandsGroup.Label" DefaultValue="Gemini Enterprise"/>
-        <bt:String id="TaskpaneButton.Label" DefaultValue="Gemini Assistant"/>
+        <bt:String id="GetStarted.Title" DefaultValue="Gemini Enterprise (WIF)"/>
+        <bt:String id="CommandsGroup.Label" DefaultValue="Gemini Enterprise (WIF)"/>
+        <bt:String id="TaskpaneButton.Label" DefaultValue="Gemini (WIF)"/>
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="Gemini Enterprise AI Assistant for Microsoft Word, PowerPoint, and Excel."/>
-        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open Gemini Enterprise AI Assistant."/>
+        <bt:String id="GetStarted.Description" DefaultValue="Gemini Enterprise AI Assistant (WIF) for Microsoft Word, PowerPoint, and Excel."/>
+        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open Gemini Enterprise AI Assistant (WIF)."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

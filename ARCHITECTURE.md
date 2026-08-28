@@ -1,5 +1,5 @@
 # Architecture & System Design: Gemini for Microsoft 365
-**Author:** Sathya AG, Principal Architect, Google  
+**Author:** Carlos Augusto, Principal Architect, Google  
 **License:** Apache-2.0  
 
 ---

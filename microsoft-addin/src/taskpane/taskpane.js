@@ -50,10 +50,16 @@ Office.onReady(async (info) => {
     { host: info.host, platform: info.platform }
   );
 
-  // Wire Google Drive 1-click connect button
+  // Wire Google Drive 1-click connect button (used in GSuite / Cloud Identity mode)
   const googleDriveBtn = document.getElementById("googleDriveBtn");
   if (googleDriveBtn) {
     googleDriveBtn.onclick = async () => {
+      const config = await fetchAppConfig();
+      const isWifMode = config?.user_auth_mode === 'wif' || (config?.user_auth_mode === 'auto' && !config?.google_oauth_client_id);
+      if (isWifMode) {
+        console.log("WIF SSO active: Google OAuth login not required.");
+        return;
+      }
       console.log("Triggering Google OAuth 3-legged sign-in flow...");
       googleDriveBtn.innerHTML = "⏳ Logging in...";
       const profile = getUserProfile();
@@ -204,16 +210,28 @@ async function initAuthUI() {
       }
     }
 
-    // 2. Google / Gemini OAuth status
+    // 2. Google / Gemini OAuth status vs WIF SSO mode
     if (googleDriveBtn) {
-      if (isGoogleTokenValid()) {
+      googleDriveBtn.style.display = "inline-flex";
+      const config = await fetchAppConfig();
+      const isWifMode = config?.user_auth_mode === 'wif' || (config?.user_auth_mode === 'auto' && !config?.google_oauth_client_id);
+
+      if (isWifMode) {
+        // In WIF mode, user is authenticated via Microsoft Entra ID with automatic Google STS token exchange
+        googleDriveBtn.className = "google-drive-btn connected";
+        googleDriveBtn.innerHTML = "✅ WIF SSO Active";
+        googleDriveBtn.title = "Workforce Identity Federation SSO active (Entra ID tokens exchanged automatically with Google STS)";
+        googleDriveBtn.style.cursor = "default";
+      } else if (isGoogleTokenValid()) {
         googleDriveBtn.className = "google-drive-btn connected";
         googleDriveBtn.innerHTML = "✅ Gemini Connected";
         googleDriveBtn.title = "Gemini Enterprise grounding active (OAuth token valid)";
+        googleDriveBtn.style.cursor = "pointer";
       } else {
         googleDriveBtn.className = "google-drive-btn";
         googleDriveBtn.innerHTML = "Login with Google";
         googleDriveBtn.title = "Click to sign into Google for Gemini Enterprise grounding";
+        googleDriveBtn.style.cursor = "pointer";
       }
     }
   } catch (err) {

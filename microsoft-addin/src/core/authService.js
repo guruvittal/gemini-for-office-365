@@ -178,6 +178,26 @@ let googleTokenExpiry = 0;
 let cachedAppConfig = null;
 let googleAuthDialog = null;
 
+export function getProxyBaseUrl() {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const override = window.localStorage.getItem('gemini_proxy_url');
+    if (override) return override.replace(/\/askGeminiEnterprise$/, '');
+  }
+  if (typeof process !== 'undefined' && process.env && process.env.GEMINI_PROXY_URL) {
+    return process.env.GEMINI_PROXY_URL.replace(/\/askGeminiEnterprise$/, '');
+  }
+  if (typeof window !== 'undefined' && window.location && window.location.hostname) {
+    const host = window.location.hostname;
+    if (host.includes('1062675944253') || host.includes('agentspace-wif')) {
+      return 'https://auth-proxy-1062675944253.us-central1.run.app';
+    }
+    if (host.includes('16933400417') || host.includes('agentspace-452714')) {
+      return 'https://auth-proxy-16933400417.us-central1.run.app';
+    }
+  }
+  return 'https://auth-proxy-16933400417.us-central1.run.app';
+}
+
 /**
  * Loads dynamic frontend configuration from the backend auth-proxy (/api/config)
  * so that Google OAuth Client IDs and settings are never hardcoded in client code.
@@ -195,7 +215,7 @@ export async function fetchAppConfig() {
   }
 
   try {
-    const configUrl = 'https://auth-proxy-16933400417.us-central1.run.app/api/config';
+    const configUrl = `${getProxyBaseUrl()}/api/config`;
     const resp = await fetch(configUrl);
     if (resp.ok) {
       cachedAppConfig = await resp.json();

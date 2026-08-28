@@ -8,7 +8,7 @@ build/
 *.zip
 scratch/
 */scratch/
-microsoft-addin/manifest-ca.xml
+microsoft-addin/manifest-*.xml
 
 # Environment & Secrets
 .env

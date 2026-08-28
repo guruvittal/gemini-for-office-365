@@ -1,4 +1,6 @@
 # Google OAuth 2.0 Web Client Setup & Deployment Ordering Guide
+**Author:** Carlos Augusto, Principal Architect, Google  
+**License:** Apache-2.0  
 
 **Target Environment:** Gemini Enterprise configured with **Cloud Identity / Google Workspace**  
 **Integration:** Microsoft Office 365 Add-in (Word, PowerPoint, Excel)  

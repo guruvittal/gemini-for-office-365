@@ -1,4 +1,7 @@
 # Google Workspace Domain-Wide Delegation (DWD) Setup Guide
+**Author:** Carlos Augusto, Principal Architect, Google  
+**License:** Apache-2.0  
+
 **Integration:** Gemini Enterprise for Microsoft Office 365  
 **Target:** Google Drive End-User Access & Grounding  
 

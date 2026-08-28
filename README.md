@@ -83,9 +83,9 @@ gemini-for-office-365/
 │
 ├── README.md                                   # Main project overview & quick-start guide
 ├── ARCHITECTURE.md                             # Detailed architecture, grounding, visual & auth diagrams
-├── DEPLOYMENT_INFO_CA.md                       # Active deployment environment & configuration reference
-├── MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md    # Microsoft 365 Admin Center enterprise distribution guide
-├── manifest-ca.xml                             # Single canonical Office 365 Add-in XML Manifest
+├── manifest-wif.xml                            # Office 365 Add-in XML Manifest for WIF
+├── manifest-gsuite.xml                         # Office 365 Add-in XML Manifest for GSuite / Cloud Identity
+├── manifest.xml                                # Legacy / Base Add-in XML Manifest
 ├── LICENSE                                     # Apache-2.0 License
 ├── .gitignore                                  # Root gitignore
 │
@@ -115,147 +115,31 @@ gemini-for-office-365/
 │   └── README.md                               # Backend configuration guide
 │
 └── scripts/
+    ├── generate_manifest.py                    # Interactive & CLI tool to generate custom Office XML manifests
     └── sideload_mac.sh                         # macOS local development sideloading automation script
 ```
 
 ---
 
-## 🚀 Quick Start & Deployment
+## 📚 Documentation & Deployment Guides
 
-For complete, detailed instructions on setting up Microsoft Entra ID, Google Cloud IAM, and deploying the microservices, consult:
-- 📖 [DEVELOPER_ARCHITECTURE_GUIDE.md](authproxy/DEVELOPER_ARCHITECTURE_GUIDE.md)
-- 🚀 [DEPLOYMENT_AND_ENTRA_GUIDE.md](authproxy/DEPLOYMENT_AND_ENTRA_GUIDE.md)
-- 🏢 [MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md](MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md)
-- 📋 [DEPLOYMENT_INFO_CA.md](DEPLOYMENT_INFO_CA.md)
+For setup instructions, deployment steps, architecture deep-dives, and admin guides, consult the dedicated documentation files:
 
-### Deployment Ordering & Prerequisites
-
-When Gemini Enterprise uses **Cloud Identity / Google Workspace Identity**, end users authenticate via **3-Legged Google User OAuth** to search personal/shared Google Drive files without requiring Domain-Wide Delegation (DWD).
-
-Because the Google Cloud OAuth 2.0 Web Client requires an exact **Authorized JavaScript Origin** and **Authorized Redirect URI**, you must deploy the frontend and backend microservices **first** to obtain the canonical URLs before creating the OAuth Client.
-
-```
-Deployment Sequence:
-1. Deploy askgemini-proxy (Backend) ➔ 2. Deploy gemini-frontend (Frontend Host) ➔ 3. Create Google OAuth Web Client (GCP Console) ➔ 4. Deploy auth-proxy with GOOGLE_OAUTH_CLIENT_ID ➔ 5. Sideload Manifest
-```
-
----
-
-### Step 1: Deploy Backend Proxy (`geminiproxy/`)
-```bash
-cd geminiproxy
-gcloud run deploy askgemini-proxy \
-  --source . \
-  --project YOUR_GCP_PROJECT_ID \
-  --region us-central1 \
-  --service-account gemini-office365-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com \
-  --no-allow-unauthenticated \
-  --set-env-vars "\
-GCP_PROJECT_ID=YOUR_GEMINI_ENTERPRISE_PROJECT_ID,\
-GEMINI_ENTERPRISE_APP_ID=YOUR_GEMINI_ENTERPRISE_APP_ID,\
-BACKEND_MODE=streamassist,\
-GCP_LOCATION=us,\
-ENTERPRISE_COLLECTION_ID=default_collection,\
-ENTERPRISE_ASSISTANT_ID=default_assistant,\
-ALLOW_SERVICE_ACCOUNT_FALLBACK=true"
-```
-
-### Step 2: Deploy Frontend Add-in (`microsoft-addin/`)
-```bash
-cd ../microsoft-addin
-npm install
-npm run build
-
-gcloud run deploy gemini-frontend \
-  --source . \
-  --region us-central1 \
-  --project YOUR_GCP_PROJECT_ID \
-  --service-account gemini-office365-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com \
-  --allow-unauthenticated
-```
-*Note your deployed URL (e.g. `https://gemini-frontend-16933400417.us-central1.run.app`).*
-
-### Step 3: Create Google OAuth 2.0 Web Client (Cloud Identity Mode)
-In the GCP project hosting your Gemini Enterprise instance (e.g., `jeansson-gem-ent-ci`):
-1. Go to **APIs & Services** ➔ **OAuth consent screen** ➔ Select **Internal** ➔ Add scopes:
-   `openid`, `email`, `profile`, `https://www.googleapis.com/auth/cloud-platform`, `https://www.googleapis.com/auth/drive.readonly`.
-2. Go to **Credentials** ➔ **+ CREATE CREDENTIALS** ➔ **OAuth client ID** ➔ **Web application**.
-3. Set **Authorized JavaScript origins**: `https://<gemini-frontend-url>`
-4. Set **Authorized redirect URIs**: `https://<gemini-frontend-url>/google-callback.html`
-5. Copy the generated **Client ID**. *(See [GOOGLE_OAUTH_SETUP_GUIDE.md](GOOGLE_OAUTH_SETUP_GUIDE.md) for full step-by-step guidance)*.
-
-### Step 4: Deploy Auth Gateway Proxy (`authproxy/`)
-```bash
-cd ../authproxy
-gcloud run deploy auth-proxy \
-  --source . \
-  --project YOUR_GCP_PROJECT_ID \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --service-account gemini-office365-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com \
-  --set-env-vars "\
-MICROSOFT_ENTRA_APP_ID=YOUR_MICROSOFT_ENTRA_CLIENT_ID,\
-MICROSOFT_ENTRA_TENANT_ID=YOUR_MICROSOFT_ENTRA_TENANT_ID,\
-DOWNSTREAM_BACKEND_URL=https://askgemini-proxy-XXXXXXXX.us-central1.run.app,\
-GCP_PROJECT_ID=YOUR_GEMINI_ENTERPRISE_PROJECT_ID,\
-GCP_LOCATION=us,\
-USER_AUTH_MODE=cloud_identity,\
-REQUIRE_ENTRA_AUTH=true,\
-GOOGLE_OAUTH_CLIENT_ID=YOUR_GOOGLE_OAUTH_CLIENT_ID,\
-VERBOSE_LOGGING=true"
-```
-
-### Step 5: Sideload into Microsoft Office 365
-- **macOS Quick Sideload**: Run `./scripts/sideload_mac.sh` and restart Word, PowerPoint, or Excel.
-- **Office for Web**: Open document on [office.com](https://www.office.com), navigate to **Insert** > **Add-ins** > **Upload My Add-in**, and select `manifest-ca.xml`.
-- **Microsoft 365 Admin Center**: Upload `manifest-ca.xml` under **Settings** > **Integrated apps** for tenant-wide deployment.
-
-
----
-
-## 🌐 Cross-Project Deployment (Cross-Project Gemini Enterprise)
-
-When the **Cloud Run microservices** (`auth-proxy`, `askgemini-proxy`, `gemini-frontend`) are deployed in one GCP project (e.g., `PROJECT_A`), but the **Gemini Enterprise (Discovery Engine) instance** resides in a different GCP project (e.g., `PROJECT_B`), cross-project IAM access must be granted.
-
-### Option A: Configure Cross-Project Access via `gcloud` (Recommended)
-
-Run the following commands as an **Owner** or **IAM Admin** on the **Gemini Enterprise target project (Project B)**:
-
-```bash
-# Set your target project and Cloud Run service account
-TARGET_GEMINI_PROJECT="YOUR_GEMINI_ENTERPRISE_PROJECT_ID"
-CLOUD_RUN_SERVICE_ACCOUNT="YOUR_SERVICE_ACCOUNT@YOUR_CLOUD_RUN_PROJECT_ID.iam.gserviceaccount.com"
-
-# 1. Grant Discovery Engine Editor access on the Gemini Enterprise project
-gcloud projects add-iam-policy-binding "${TARGET_GEMINI_PROJECT}" \
-  --member="serviceAccount:${CLOUD_RUN_SERVICE_ACCOUNT}" \
-  --role="roles/discoveryengine.editor"
-
-# 2. Grant Service Usage Consumer permission on the Gemini Enterprise project
-gcloud projects add-iam-policy-binding "${TARGET_GEMINI_PROJECT}" \
-  --member="serviceAccount:${CLOUD_RUN_SERVICE_ACCOUNT}" \
-  --role="roles/serviceusage.serviceUsageConsumer"
-```
-
-### Option B: Configure via Google Cloud Console
-1. Navigate to the **Gemini Enterprise GCP Project** in the [Google Cloud Console](https://console.cloud.google.com/).
-2. Go to **IAM & Admin** ➔ **IAM** ➔ Click **+ Grant Access**.
-3. **New principals**: Enter the Cloud Run service account (`YOUR_SERVICE_ACCOUNT@YOUR_CLOUD_RUN_PROJECT_ID.iam.gserviceaccount.com`).
-4. **Assign roles**:
-   - `Discovery Engine Editor` (`roles/discoveryengine.editor`)
-   - `Service Usage Consumer` (`roles/serviceusage.serviceUsageConsumer`)
-5. Click **Save**.
-
-### Cloud Run Service Configuration for Cross-Project:
-Set the following environment variables on the `askgemini-proxy` Cloud Run service in Project A:
-- `GCP_PROJECT_ID`: Target project ID hosting Gemini Enterprise (e.g., `YOUR_GEMINI_ENTERPRISE_PROJECT_ID`)
-- `GEMINI_ENTERPRISE_APP_ID`: Target Engine/App ID (e.g., `YOUR_GEMINI_ENTERPRISE_APP_ID`)
-- `GCP_LOCATION`: Location of collection/engine resource (`global`, `us`, or `eu`)
-- `STREAM_ASSIST_ENDPOINT_LOCATION`: Regional API endpoint prefix (`global`, `us`, or `eu`)
+| Guide | Description |
+| :--- | :--- |
+| 📋 **[`DEPLOYMENT_INSTRUCTIONS.md`](DEPLOYMENT_INSTRUCTIONS.md)** | **Primary Deployment Runbook:** End-to-end first-time setup for **Track 1 (WIF)** and **Track 2 (GSuite)**, live environment configuration, dual security boundary explanation, manifest customization reference, and full Cloud Run environment variables catalog. |
+| 🚀 **[`authproxy/DEPLOYMENT_AND_ENTRA_GUIDE.md`](authproxy/DEPLOYMENT_AND_ENTRA_GUIDE.md)** | **Microsoft Entra ID & Auth Gateway Guide:** Step-by-step Entra ID App Registration, OAuth 2.0 v2 token versioning, optional claims configuration, service account provisioning, and cross-project deployment. |
+| 📖 **[`authproxy/DEVELOPER_ARCHITECTURE_GUIDE.md`](authproxy/DEVELOPER_ARCHITECTURE_GUIDE.md)** | **Architecture & Security Deep-Dive:** Token exchange flows (Entra ID JWT ➔ Google STS Workforce Pool ➔ Gemini Enterprise), Service-to-Service IAM authentication, and comprehensive error resolution matrix. |
+| 🏢 **[`MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md`](MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md)** | **Centralized IT Admin Deployment:** Enterprise-wide rollout guide via Microsoft 365 Admin Center Integrated Apps. |
+| 🏗️ **[`ARCHITECTURE.md`](ARCHITECTURE.md)** | **System Architecture:** Detailed client adapter lifecycle (`WordAdapter`, `PPTAdapter`, `ExcelAdapter`), multimodal visual generation pipeline, and document injection flows. |
+| ⚙️ **[`geminiproxy/README.md`](geminiproxy/README.md)** | **Backend Proxy Reference:** Configuration, environment variables, and deployment for the Node.js Express inference backend. |
+| 💻 **[`microsoft-addin/README.md`](microsoft-addin/README.md)** | **Office Add-in Frontend Reference:** Build, local development server, Nginx container packaging, and manifest sideloading. |
 
 ---
 
 ## 🔒 Security & Privacy
-- **Zero API Keys in Client:** All client-side calls route through authenticated Google Cloud microservices.
+
+- **Zero API Keys in Client:** All client-side calls route through authenticated Google Cloud microservices using Microsoft Entra ID SSO tokens or Google OAuth.
 - **Enterprise Isolation:** Documents, slides, and spreadsheet data stay strictly inside your Google Cloud tenant boundary.
-- **CORS Configured:** Permissive for enterprise Office webviews while protecting internal execution pipelines.
+- **Principle of Least Privilege:** Fine-grained IAM service accounts isolate gateway authentication from backend Gemini Enterprise execution.
+

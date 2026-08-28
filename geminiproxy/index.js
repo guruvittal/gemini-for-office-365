@@ -16,7 +16,7 @@ import corsLib from 'cors';
 const cors = corsLib({ origin: true });
 
 // Environment Configuration (Configured via .env or GCP Cloud Run environment variables)
-const PROJECT_ID = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
+const PROJECT_ID = process.env.GE_GCP_PROJECT_ID || process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
 const REGION = process.env.GCP_REGION || 'us-central1';
 const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const IMAGE_MODEL_NAME = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
@@ -25,7 +25,7 @@ const DATASTORE_ID = process.env.VERTEX_DATASTORE_ID || process.env.VERTEX_DATAS
 // Gemini Enterprise StreamAssist API Configuration
 const BACKEND_MODE = (process.env.BACKEND_MODE || 'streamassist').toLowerCase();
 const STREAM_ASSIST_ENDPOINT_LOCATION = process.env.STREAM_ASSIST_ENDPOINT_LOCATION || 'global';
-const GCP_LOCATION = process.env.GCP_LOCATION || 'global';
+const GCP_LOCATION = process.env.GE_GCP_LOCATION || process.env.GCP_LOCATION || 'global';
 const ENTERPRISE_APP_ID = process.env.GEMINI_ENTERPRISE_APP_ID || process.env.VERTEX_DATASTORE_ID || '';
 const ENTERPRISE_COLLECTION_ID = process.env.GEMINI_ENTERPRISE_COLLECTION_ID || 'default_collection';
 const ENTERPRISE_ASSISTANT_ID = process.env.GEMINI_ENTERPRISE_ASSISTANT_ID || 'default_assistant';
@@ -36,7 +36,7 @@ const auth = new GoogleAuth({
 });
 
 if (!PROJECT_ID) {
-  console.warn('WARNING: GCP_PROJECT_ID environment variable is not set. Vertex AI client will use default credentials.');
+  console.warn('WARNING: GE_GCP_PROJECT_ID environment variable is not set. Vertex AI client will use default credentials.');
 }
 
 // Pre-warmed global VertexAI client instance (connection pooling & token caching)
@@ -511,7 +511,7 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
 
 async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, userGoogleToken, authMode }) {
   if (!PROJECT_ID) {
-    throw new Error('GCP_PROJECT_ID environment variable is required for StreamAssist');
+    throw new Error('GE_GCP_PROJECT_ID environment variable is required for StreamAssist');
   }
   if (!ENTERPRISE_APP_ID) {
     throw new Error('GEMINI_ENTERPRISE_APP_ID environment variable is required for StreamAssist');
