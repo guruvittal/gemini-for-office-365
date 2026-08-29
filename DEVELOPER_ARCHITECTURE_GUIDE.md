@@ -727,3 +727,77 @@ For engineering teams upgrading their existing add-in or backend codebase to thi
 - [x] **Milestone 2 Complete**: Office.js SSO token acquisition (`Office.auth.getAccessToken()`), Domain Matching resolution, and UI identity indicator verified.
 - [x] **Milestone 3 Complete**: Centralized Microsoft 365 Admin Center deployment guide documented in [`MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md`](MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md).
 
+---
+
+## 12. 🛠️ Optional: Zero-Auth Development & Service Account Fallback Mode
+
+> [!WARNING]
+> **Non-Production & Testing Only**: This mode completely disables Microsoft Entra ID authentication and user-level ACL enforcement. It is designed **strictly for local development**, rapid prototyping (e.g. running PowerPoint locally on `localhost:3000`), or offline test environments where Microsoft Entra ID tenant registration is not yet configured.
+
+### 12.1 Overview & Architecture
+In standard enterprise deployments, every call is gated by Microsoft Entra ID SSO tokens and user-level Google OAuth / WIF tokens. However, when developing locally or running in sandbox environments without an active Microsoft 365 tenant, you can toggle the system into **Service Account Fallback Mode**.
+
+```
+[Local PowerPoint / Word (localhost:3000 / Sideload)]
+          │
+          │ 1. POST /askGeminiEnterprise (No Authorization Header)
+          ▼
+   [Cloud Run: auth-proxy]
+          │ ⚙️ REQUIRE_ENTRA_AUTH=false
+          │ ⚙️ USER_AUTH_MODE=service_account
+          │
+          │ 2. Ingests request as 'anonymous_dev_user'
+          │ 3. Issues S2S IAM token for askgemini-proxy
+          ▼
+   [Cloud Run: askgemini-proxy]
+          │ ⚙️ ALLOW_SERVICE_ACCOUNT_FALLBACK=true
+          │
+          │ 4. Detects absence of end-user Google token
+          │ 5. Mints Google Cloud ADC access token from Service Account
+          ▼
+   [Discovery Engine streamAssist API]
+          │ Authorization: Bearer <Service_Account_ADC_Token>
+          ▼
+ [Grounded Gemini Response Returned]
+```
+
+### 12.2 What Works vs. What Is Bypassed
+
+| Capability | Dev / Service Account Fallback Mode | Full Enterprise Production Mode |
+| :--- | :--- | :--- |
+| **Microsoft Entra ID Requirement** | **None** (Bypassed). | Required (Office.js SSO). |
+| **Discovery Engine Datastores** (GCS, Web, BigQuery, Unstructured docs) | **Fully functional** (Uses Service Account permissions). | Fully functional. |
+| **Multi-turn Chat & Conversational History** | **Fully functional** within active session. | Fully functional. |
+| **Personal Google Drive Grounding** | **Bypassed / Not Accessible** (Service account cannot read personal Drives). | **Full** (User's personal and shared Drives). |
+| **User-Level Document ACLs** | Bypassed (Grounds across all datastores accessible to SA). | Enforced per-user. |
+| **License Attribution** | Logged under Service Account principal. | Attributed to employee UPN. |
+
+### 12.3 Environment Variable Configuration
+
+To toggle to Zero-Auth Dev Mode:
+```bash
+# 1. Update auth-proxy to disable Entra ID requirement
+gcloud run services update auth-proxy \
+  --set-env-vars="REQUIRE_ENTRA_AUTH=false,USER_AUTH_MODE=service_account" \
+  --region=us-central1
+
+# 2. Update askgemini-proxy to allow Service Account ADC fallback
+gcloud run services update askgemini-proxy \
+  --set-env-vars="ALLOW_SERVICE_ACCOUNT_FALLBACK=true" \
+  --region=us-central1
+```
+
+To restore Full Enterprise Security:
+```bash
+# 1. Re-enable Entra ID verification on auth-proxy
+gcloud run services update auth-proxy \
+  --set-env-vars="REQUIRE_ENTRA_AUTH=true,USER_AUTH_MODE=auto" \
+  --region=us-central1
+
+# 2. Enforce end-user token requirement on askgemini-proxy
+gcloud run services update askgemini-proxy \
+  --set-env-vars="ALLOW_SERVICE_ACCOUNT_FALLBACK=false" \
+  --region=us-central1
+```
+
+

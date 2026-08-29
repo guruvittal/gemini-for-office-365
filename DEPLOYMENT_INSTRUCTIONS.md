@@ -714,4 +714,45 @@ Complete reference for all environment variables supported across the three micr
 | `GEMINI_PROXY_URL` | Optional | `""` *(auto-derived from origin or `/api/config`)* | `https://auth-proxy-1062675944253.us-central1.run.app/askGeminiEnterprise` | `https://auth-proxy-16933400417.us-central1.run.app/askGeminiEnterprise` | Injected into the taskpane bundle or environment config to specify the `auth-proxy` entrypoint. |
 | `PORT` | Optional | `80` | `80` | `80` | Web server HTTP listen port. |
 
+---
+
+## 10. 🛠️ Optional: Zero-Auth Development & Service Account Fallback Mode
+
+> [!WARNING]
+> **Non-Production & Testing Only**: This mode completely disables Microsoft Entra ID authentication and user-level ACL enforcement. It is designed **strictly for local development**, rapid prototyping (e.g. running PowerPoint locally on `localhost:3000`), or offline test environments where Microsoft Entra ID tenant registration is not yet configured.
+
+### Overview
+In standard production, requests require verified Microsoft Entra ID JWTs and user-level Google tokens. In **Zero-Auth Dev Mode**, all layers fall back to Google Cloud Service Account Application Default Credentials (ADC):
+
+1. **`auth-proxy` (`REQUIRE_ENTRA_AUTH=false`, `USER_AUTH_MODE=service_account`)**: Ingests requests without an `Authorization` header, treating the caller as `anonymous_dev_user`, and forwards them downstream via Google Cloud S2S IAM.
+2. **`askgemini-proxy` (`ALLOW_SERVICE_ACCOUNT_FALLBACK=true`)**: Catches the missing user token, mints a Google Cloud ADC access token from `gemini-office365-sa`, and queries `streamAssist`.
+3. **Office Add-in UI**: Detects `service_account` mode and displays `🤖 Service Account Active` on the status badge.
+
+### What Works vs. What Is Bypassed
+* **Works:** Discovery Engine Datastores (GCS, BigQuery, Unstructured docs, Web Search), conversational chat, multi-turn history.
+* **Bypassed / Not Accessible:** Personal Google Drive grounding ("My Drive"), user-level document ACL filtering, employee UPN seat licensing attribution.
+
+### Quick Commands
+
+```bash
+# Enable Zero-Auth Dev Mode
+gcloud run services update auth-proxy \
+  --set-env-vars="REQUIRE_ENTRA_AUTH=false,USER_AUTH_MODE=service_account" \
+  --region=us-central1
+
+gcloud run services update askgemini-proxy \
+  --set-env-vars="ALLOW_SERVICE_ACCOUNT_FALLBACK=true" \
+  --region=us-central1
+
+# Restore Production Mode (Enforce Auth)
+gcloud run services update auth-proxy \
+  --set-env-vars="REQUIRE_ENTRA_AUTH=true,USER_AUTH_MODE=auto" \
+  --region=us-central1
+
+gcloud run services update askgemini-proxy \
+  --set-env-vars="ALLOW_SERVICE_ACCOUNT_FALLBACK=false" \
+  --region=us-central1
+```
+
+
 

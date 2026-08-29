@@ -653,3 +653,82 @@ flowchart LR
 * **Redirect URI & Origin Dependency:** The Google OAuth 2.0 Web Client credentials must specify the exact JavaScript Origin (`https://gemini-frontend-...run.app`) and Redirect URI (`https://gemini-frontend-...run.app/google-callback.html`). These values are only known once the frontend Cloud Run service is deployed.
 * **Dynamic Configuration Delivery:** By passing `GOOGLE_OAUTH_CLIENT_ID` to `auth-proxy` as an environment variable, the Office 365 add-in dynamically retrieves it at runtime via `/api/config`, preventing any static credential baking or build rebuilds when migrating across environments.
 
+---
+
+## 8. 🛠️ Optional Developer Mode: Zero-Auth / Service Account Fallback
+
+> [!WARNING]
+> **Non-Production & Testing Only**: This mode completely disables Microsoft Entra ID authentication and user-level ACL enforcement. It is designed **strictly for local development**, rapid prototyping (e.g. running PowerPoint locally on `localhost:3000`), or offline test environments where Microsoft Entra ID tenant registration is not yet configured.
+
+```
+[Local PowerPoint / Word / Webview]
+          │
+          │ 1. POST /askGeminiEnterprise (No Authorization Header)
+          ▼
+   [Cloud Run: auth-proxy]
+          │ ⚙️ REQUIRE_ENTRA_AUTH=false
+          │ ⚙️ USER_AUTH_MODE=service_account
+          │
+          │ 2. Ingests request as 'anonymous_dev_user'
+          │ 3. Issues S2S IAM token for askgemini-proxy
+          ▼
+   [Cloud Run: askgemini-proxy]
+          │ ⚙️ ALLOW_SERVICE_ACCOUNT_FALLBACK=true
+          │
+          │ 4. Detects absence of end-user Google token
+          │ 5. Mints Google Cloud ADC access token from Service Account
+          ▼
+   [Discovery Engine streamAssist API]
+          │ Authorization: Bearer <Service_Account_ADC_Token>
+          ▼
+ [Grounded Gemini Response Returned]
+```
+
+### 8.1 How It Works
+1. **Perimeter Auth Bypass (`auth-proxy`):**
+   When `REQUIRE_ENTRA_AUTH=false`, `auth-proxy` skips Microsoft JWKS signature verification if no `Authorization: Bearer` header is present. The request is assigned a default development profile (`anonymous_dev_user`).
+2. **Identity Resolution Bypass:**
+   When `USER_AUTH_MODE=service_account`, `auth-proxy` skips WIF token exchange and DWD minting, forwarding the request across the Google S2S IAM boundary without an `X-End-User-Google-Token` header.
+3. **Service Account ADC Fallback (`askgemini-proxy`):**
+   When `ALLOW_SERVICE_ACCOUNT_FALLBACK=true`, `askgemini-proxy` catches the missing user token, requests a standard Google Cloud Application Default Credentials (ADC) access token for the `gemini-office365-sa` service account via `google.auth.getClient()`, and invokes `streamAssist`.
+4. **Office Add-in UI Badge:**
+   The frontend add-in detects `user_auth_mode: "service_account"` via `/api/config` and renders `🤖 Service Account Active` on the top status badge, suppressing the Google Sign-In prompt.
+
+### 8.2 Outcome of API Calls in This Mode
+
+| Capability | Behavior in Service Account Fallback Mode |
+| :--- | :--- |
+| **Discovery Engine Datastores** (GCS, Web Search, BigQuery, Unstructured docs) | **Fully functional** — Grounding operates normally against all datastores attached to the engine that the Service Account has permissions to read. |
+| **Multi-turn Chat & Conversational Memory** | **Fully functional** — Session continuity works across turns within the active session. |
+| **Personal Google Drive Grounding** | **Bypassed / Not Accessible** — The Service Account cannot access individual users' private Google Drive files unless those files are explicitly shared with the service account email. |
+| **Zero-Trust User ACL Filtering** | **Bypassed** — Results returned reflect the Service Account's global access permissions rather than individual user permissions. |
+| **User Seat Licensing Attribution** | **Unattributed** — Queries are logged in Google Cloud under the Service Account identity rather than individual employee UPNs. |
+
+### 8.3 Enabling & Disabling via Environment Variables
+
+To enable Zero-Auth Dev Mode:
+```bash
+# 1. Disable Entra ID requirement and set auth mode on auth-proxy
+gcloud run services update auth-proxy \
+  --set-env-vars="REQUIRE_ENTRA_AUTH=false,USER_AUTH_MODE=service_account" \
+  --region=us-central1
+
+# 2. Allow Service Account ADC fallback on askgemini-proxy
+gcloud run services update askgemini-proxy \
+  --set-env-vars="ALLOW_SERVICE_ACCOUNT_FALLBACK=true" \
+  --region=us-central1
+```
+
+To restore Full Enterprise Production Security:
+```bash
+# 1. Re-enable Entra ID verification on auth-proxy
+gcloud run services update auth-proxy \
+  --set-env-vars="REQUIRE_ENTRA_AUTH=true,USER_AUTH_MODE=auto" \
+  --region=us-central1
+
+# 2. Enforce end-user token requirement on askgemini-proxy
+gcloud run services update askgemini-proxy \
+  --set-env-vars="ALLOW_SERVICE_ACCOUNT_FALLBACK=false" \
+  --region=us-central1
+```
+

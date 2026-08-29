@@ -55,7 +55,12 @@ Office.onReady(async (info) => {
   if (googleDriveBtn) {
     googleDriveBtn.onclick = async () => {
       const config = await fetchAppConfig();
+      const isServiceAccountMode = config?.user_auth_mode === 'service_account' || (!config?.require_entra_auth && !config?.google_oauth_client_id && config?.user_auth_mode !== 'wif');
       const isWifMode = config?.user_auth_mode === 'wif' || (config?.user_auth_mode === 'auto' && !config?.google_oauth_client_id);
+      if (isServiceAccountMode) {
+        console.log("Service Account mode active: Google OAuth login not required (using backend ADC credentials).");
+        return;
+      }
       if (isWifMode) {
         console.log("WIF SSO active: Google OAuth login not required.");
         return;
@@ -210,13 +215,20 @@ async function initAuthUI() {
       }
     }
 
-    // 2. Google / Gemini OAuth status vs WIF SSO mode
+    // 2. Google / Gemini OAuth status vs WIF SSO vs Service Account mode
     if (googleDriveBtn) {
       googleDriveBtn.style.display = "inline-flex";
       const config = await fetchAppConfig();
+      const isServiceAccountMode = config?.user_auth_mode === 'service_account' || (!config?.require_entra_auth && !config?.google_oauth_client_id && config?.user_auth_mode !== 'wif');
       const isWifMode = config?.user_auth_mode === 'wif' || (config?.user_auth_mode === 'auto' && !config?.google_oauth_client_id);
 
-      if (isWifMode) {
+      if (isServiceAccountMode) {
+        // In Service Account mode, requests use backend ADC credentials without user login
+        googleDriveBtn.className = "google-drive-btn connected";
+        googleDriveBtn.innerHTML = "🤖 Service Account Active";
+        googleDriveBtn.title = "Service Account ADC fallback active (Grounding enabled via backend Service Account credentials)";
+        googleDriveBtn.style.cursor = "default";
+      } else if (isWifMode) {
         // In WIF mode, user is authenticated via Microsoft Entra ID with automatic Google STS token exchange
         googleDriveBtn.className = "google-drive-btn connected";
         googleDriveBtn.innerHTML = "✅ WIF SSO Active";
