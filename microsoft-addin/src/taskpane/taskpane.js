@@ -177,6 +177,7 @@ Office.onReady(async (info) => {
 });
 
 async function initAuthUI() {
+  const userAuthBar = document.getElementById("userAuthBar");
   const userEmailText = document.getElementById("userEmailText");
   const userStatusDot = document.getElementById("userStatusDot");
   const googleDriveBtn = document.getElementById("googleDriveBtn");
@@ -185,53 +186,64 @@ async function initAuthUI() {
     const token = await getOfficeAuthToken();
     const profile = getUserProfile();
     const lastErr = getLastAuthError();
+    const config = await fetchAppConfig();
+    const isWifMode = config?.user_auth_mode === 'wif' || (config?.user_auth_mode === 'auto' && !config?.google_oauth_client_id);
 
-    // 1. Entra ID / Microsoft 365 status
+    // 1. Entra ID / Microsoft 365 status & WIF status
     if (token && profile.is_authenticated) {
       if (userEmailText) {
         userEmailText.innerText = profile.email || profile.name;
         userEmailText.className = "user-email-text";
-        userEmailText.title = `Connected to Microsoft 365 as ${profile.email} (Tenant: ${profile.tenant_id || 'Entra ID'})`;
+        userEmailText.title = isWifMode
+          ? `WIF SSO Active (Connected as ${profile.email || profile.name})`
+          : `Connected to Microsoft 365 as ${profile.email || profile.name} (Tenant: ${profile.tenant_id || 'Entra ID'})`;
       }
       if (userStatusDot) {
         userStatusDot.className = "user-status-dot";
-        userStatusDot.title = "Connected to Microsoft 365";
+        userStatusDot.title = isWifMode
+          ? `WIF SSO Active (Connected as ${profile.email || profile.name})`
+          : `Connected to Microsoft 365 as ${profile.email || profile.name}`;
+      }
+      if (userAuthBar) {
+        userAuthBar.title = isWifMode
+          ? `WIF SSO Active (Connected as ${profile.email || profile.name})`
+          : `Microsoft 365 Identity: ${profile.email || profile.name}`;
       }
     } else {
-      const errHint = lastErr ? `SSO: ${lastErr.message || lastErr.code || JSON.stringify(lastErr)}` : "Not connected to Microsoft 365";
+      const errHint = lastErr ? (lastErr.message || lastErr.code || JSON.stringify(lastErr)) : "Not connected to Microsoft 365";
       if (userEmailText) {
         userEmailText.innerText = profile.email && profile.email !== 'user@organization.com' ? profile.email : "Not Connected";
         userEmailText.className = "user-email-text offline";
-        userEmailText.title = errHint;
+        userEmailText.title = isWifMode ? `WIF SSO Inactive (${errHint})` : `SSO: ${errHint}`;
       }
       if (userStatusDot) {
         userStatusDot.className = "user-status-dot offline";
-        userStatusDot.title = errHint;
+        userStatusDot.title = isWifMode ? `WIF SSO Inactive (${errHint})` : `SSO: ${errHint}`;
+      }
+      if (userAuthBar) {
+        userAuthBar.title = isWifMode ? `WIF SSO Inactive (${errHint})` : `SSO: ${errHint}`;
       }
     }
 
-    // 2. Google / Gemini OAuth status vs WIF SSO mode
+    // 2. Google OAuth button (Used only in GSuite / Cloud Identity mode, hidden in WIF mode)
     if (googleDriveBtn) {
-      googleDriveBtn.style.display = "inline-flex";
-      const config = await fetchAppConfig();
-      const isWifMode = config?.user_auth_mode === 'wif' || (config?.user_auth_mode === 'auto' && !config?.google_oauth_client_id);
-
       if (isWifMode) {
-        // In WIF mode, user is authenticated via Microsoft Entra ID with automatic Google STS token exchange
-        googleDriveBtn.className = "google-drive-btn connected";
-        googleDriveBtn.innerHTML = "✅ WIF SSO Active";
-        googleDriveBtn.title = "Workforce Identity Federation SSO active (Entra ID tokens exchanged automatically with Google STS)";
-        googleDriveBtn.style.cursor = "default";
-      } else if (isGoogleTokenValid()) {
-        googleDriveBtn.className = "google-drive-btn connected";
-        googleDriveBtn.innerHTML = "✅ Gemini Connected";
-        googleDriveBtn.title = "Gemini Enterprise grounding active (OAuth token valid)";
-        googleDriveBtn.style.cursor = "pointer";
+        // In WIF mode, user identity is purely Microsoft Entra ID exchanged silently with Google STS.
+        // No secondary badge or button is shown.
+        googleDriveBtn.style.display = "none";
       } else {
-        googleDriveBtn.className = "google-drive-btn";
-        googleDriveBtn.innerHTML = "Login with Google";
-        googleDriveBtn.title = "Click to sign into Google for Gemini Enterprise grounding";
-        googleDriveBtn.style.cursor = "pointer";
+        googleDriveBtn.style.display = "inline-flex";
+        if (isGoogleTokenValid()) {
+          googleDriveBtn.className = "google-drive-btn connected";
+          googleDriveBtn.innerHTML = "✅ Gemini Connected";
+          googleDriveBtn.title = "Gemini Enterprise grounding active (OAuth token valid)";
+          googleDriveBtn.style.cursor = "pointer";
+        } else {
+          googleDriveBtn.className = "google-drive-btn";
+          googleDriveBtn.innerHTML = "Login with Google";
+          googleDriveBtn.title = "Click to sign into Google for Gemini Enterprise grounding";
+          googleDriveBtn.style.cursor = "pointer";
+        }
       }
     }
   } catch (err) {
@@ -239,8 +251,12 @@ async function initAuthUI() {
     if (userEmailText) {
       userEmailText.innerText = "Unauthenticated";
       userEmailText.className = "user-email-text offline";
+      userEmailText.title = "Auth error: " + (err.message || String(err));
     }
-    if (userStatusDot) userStatusDot.className = "user-status-dot offline";
+    if (userStatusDot) {
+      userStatusDot.className = "user-status-dot offline";
+      userStatusDot.title = "Auth error: " + (err.message || String(err));
+    }
   } finally {
     updateDiagnosticsPanel().catch(() => {});
   }
