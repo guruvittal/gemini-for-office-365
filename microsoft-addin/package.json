@@ -10,6 +10,7 @@
     "dev_server_port": 3000
   },
   "scripts": {
+    "prebuild": "node -e \"const fs=require('fs'); if(fs.existsSync('../manifest-wif.xml')) fs.copyFileSync('../manifest-wif.xml', './manifest-wif.xml'); if(fs.existsSync('../manifest-gsuite.xml')) fs.copyFileSync('../manifest-gsuite.xml', './manifest-gsuite.xml');\"",
     "build": "webpack --mode production",
     "build:dev": "webpack --mode development",
     "dev-server": "webpack serve --mode development",

@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gemini for Office 365 - PR #1 Key Changes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --google-blue: #1a73e8;
+      --google-red: #ea4335;
+      --google-yellow: #fbbc04;
+      --google-green: #34a853;
+      --ms-blue: #0078d4;
+      --bg-gradient: radial-gradient(circle at 10% 10%, #f8faff 0%, #eef3fc 100%);
+      --card-bg: rgba(255, 255, 255, 0.92);
+      --card-border: #e2e8f0;
+      --text-main: #1e293b;
+      --text-muted: #64748b;
+      --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+      --shadow-md: 0 10px 15px -3px rgba(0, 0, 0, 0.07), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+      --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 10px 10px -5px rgba(0, 0, 0, 0.03);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #0f172a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    /* 16:9 Slide Canvas */
+    .slide-canvas {
+      width: 100%;
+      max-width: 1440px;
+      aspect-ratio: 16 / 9;
+      background: var(--bg-gradient);
+      border-radius: 20px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      padding: 40px 48px;
+    }
+
+    /* Top Accent Line */
+    .top-accent-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 6px;
+      background: linear-gradient(90deg, #4285F4, #EA4335, #FBBC05, #34A853);
+    }
+
+    /* Header Section */
+    .slide-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 24px;
+    }
+
+    .title-group h1 {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      letter-spacing: -0.5px;
+    }
+
+    .title-group h1 .gemini-sparkle {
+      background: linear-gradient(135deg, #1a73e8 0%, #d93025 50%, #f9ab00 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .title-group p {
+      font-size: 15px;
+      color: var(--text-muted);
+      margin-top: 6px;
+      font-weight: 500;
+    }
+
+    .badge-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .pill-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 9999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid transparent;
+    }
+
+    .pill-blue {
+      background: #e8f0fe;
+      color: var(--google-blue);
+      border-color: #d2e3fc;
+    }
+
+    .pill-green {
+      background: #e6f4ea;
+      color: var(--google-green);
+      border-color: #ceead6;
+    }
+
+    .pill-purple {
+      background: #f3e8fd;
+      color: #9334e6;
+      border-color: #e9d5ff;
+    }
+
+    /* Main 3-Column Grid */
+    .columns-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      flex: 1;
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow-sm);
+      backdrop-filter: blur(8px);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .card-icon-box {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+
+    .card-icon-blue { background: #eff6ff; color: var(--google-blue); }
+    .card-icon-green { background: #f0fdf4; color: var(--google-green); }
+    .card-icon-orange { background: #fff7ed; color: #ea580c; }
+
+    .card-title-box h3 {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .card-title-box span {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .card-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      flex: 1;
+    }
+
+    .card-list li {
+      font-size: 13.5px;
+      line-height: 1.45;
+      color: #334155;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .card-list li .bullet {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--google-blue);
+      margin-top: 7px;
+      flex-shrink: 0;
+    }
+
+    .card-list li strong {
+      color: var(--text-main);
+      font-weight: 600;
+    }
+
+    /* Bottom Architecture Strip */
+    .arch-bar {
+      background: #ffffff;
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .arch-flow {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .node {
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #1e293b;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .node-arrow {
+      color: #94a3b8;
+      font-size: 14px;
+      font-weight: bold;
+    }
+
+    .node-highlight {
+      background: #eff6ff;
+      border-color: #93c5fd;
+      color: var(--google-blue);
+    }
+
+    .stats-group {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .stat-item {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .stat-badge-add { color: var(--google-green); font-weight: 700; }
+    .stat-badge-del { color: var(--google-red); font-weight: 700; }
+  </style>
+</head>
+<body>
+
+  <div class="slide-canvas">
+    <div class="top-accent-bar"></div>
+
+    <!-- Header -->
+    <header class="slide-header">
+      <div class="title-group">
+        <h1>
+          <span class="gemini-sparkle">✨ Gemini for Microsoft 365</span>
+          <span style="font-weight: 400; color: #94a3b8;">|</span>
+          <span>Enhancements & Architecture</span>
+        </h1>
+        <p>Pull Request #1 Overview (<code>feature/argolis-containers-and-pptx-enhancements</code> &rarr; <code>main</code>)</p>
+      </div>
+      <div class="badge-group">
+        <span class="pill-badge pill-purple">PR #1 OPEN</span>
+        <span class="pill-badge pill-blue">Google Cloud Run</span>
+        <span class="pill-badge pill-green">vertexsearch-447722</span>
+      </div>
+    </header>
+
+    <!-- 3 Core Feature Columns -->
+    <main class="columns-grid">
+      
+      <!-- Card 1: PowerPoint Engine -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-icon-box card-icon-blue">🎨</div>
+          <div class="card-title-box">
+            <h3>PowerPoint Engine</h3>
+            <span>microsoft-addin/src/adapters</span>
+          </div>
+        </div>
+        <ul class="card-list">
+          <li>
+            <div class="bullet"></div>
+            <div><strong>PptxGenJS Integration:</strong> Builds native 16:9 presentation decks with executive cards and Google Blue header styling.</div>
+          </li>
+          <li>
+            <div class="bullet"></div>
+            <div><strong>4-Tier Layout Parser:</strong> Intelligent fallback cascade (HTML DOM &rarr; Markdown Regex &rarr; Paragraph Chunking &rarr; Single Slide).</div>
+          </li>
+          <li>
+            <div class="bullet"></div>
+            <div><strong>Canvas Compression:</strong> Resizes AI-generated visuals to lightweight PNGs (~120KB) for instant Office.js sync.</div>
+          </li>
+        </ul>
+      </section>
+
+      <!-- Card 2: UX & Grounding -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-icon-box card-icon-orange">🛡️</div>
+          <div class="card-title-box">
+            <h3>UX & Grounding</h3>
+            <span>microsoft-addin/src/taskpane</span>
+          </div>
+        </div>
+        <ul class="card-list">
+          <li>
+            <div class="bullet"></div>
+            <div><strong>✨ Gemini Guru UI:</strong> Rebranded taskpane interface equipped with live Gemini 2.5 Flash status indicator.</div>
+          </li>
+          <li>
+            <div class="bullet"></div>
+            <div><strong>StreamAssist Grounding:</strong> Dynamic mode detection (<code>?backend=streamassist</code>) with 🍔 Wendy's KB search context.</div>
+          </li>
+          <li>
+            <div class="bullet"></div>
+            <div><strong>60s Async Safeguard:</strong> <code>Promise.race</code> timeout protection preventing taskpane UI freezes on heavy insertions.</div>
+          </li>
+        </ul>
+      </section>
+
+      <!-- Card 3: Cloud Run DevOps -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-icon-box card-icon-green">⚙️</div>
+          <div class="card-title-box">
+            <h3>DevOps & Cloud Run</h3>
+            <span>/deploy.sh & manifests</span>
+          </div>
+        </div>
+        <ul class="card-list">
+          <li>
+            <div class="bullet"></div>
+            <div><strong>1-Click deploy.sh:</strong> Automated root deployment script provisioning backend proxy and Nginx frontend.</div>
+          </li>
+          <li>
+            <div class="bullet"></div>
+            <div><strong>Multi-Stage Docker:</strong> Node 22 build &rarr; Nginx Alpine runner with security headers and caching optimization.</div>
+          </li>
+          <li>
+            <div class="bullet"></div>
+            <div><strong>Cleaned Structure:</strong> Eliminated redundant subfolders; provided standalone manifests with distinct GUIDs.</div>
+          </li>
+        </ul>
+      </section>
+
+    </main>
+
+    <!-- Bottom Architecture & Stats Bar -->
+    <footer class="arch-bar">
+      <div class="arch-flow">
+        <div class="node">📄 Office 365 (Word/PPT/Excel)</div>
+        <span class="node-arrow">&rarr;</span>
+        <div class="node node-highlight">🌐 gemini-frontend (Nginx)</div>
+        <span class="node-arrow">&rarr;</span>
+        <div class="node node-highlight">⚡ gemini-proxy (Node 22)</div>
+        <span class="node-arrow">&rarr;</span>
+        <div class="node">🤖 Vertex AI (Gemini 2.5 Flash)</div>
+      </div>
+      <div class="stats-group">
+        <div class="stat-item">Files: <strong>8 changed</strong></div>
+        <div class="stat-item">Diff: <span class="stat-badge-add">+918</span> / <span class="stat-badge-del">-326</span></div>
+      </div>
+    </footer>
+
+  </div>
+
+</body>
+</html>

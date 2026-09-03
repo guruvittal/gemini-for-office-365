@@ -7,9 +7,21 @@
  * @author Sathya AG, Principal Architect, Google
  */
 
-import { askGeminiEnterprise, getActiveProxyUrl, setProxyUrlOverride, getGoogleAccessToken, setGoogleAccessToken } from '../core/geminiClient.js';
+import { askGeminiEnterprise, getActiveProxyUrl, setProxyUrlOverride } from '../core/geminiClient.js';
+import { 
+  getOfficeAuthToken, 
+  getUserProfile, 
+  getLastAuthError, 
+  initiateGoogleSignIn, 
+  isGoogleTokenValid, 
+  getGoogleAccessToken,
+  setGoogleAccessToken,
+  getGoogleOAuthClientId,
+  fetchAppConfig
+} from '../core/authService.js';
 import { parseMarkdown } from '../core/markdownParser.js';
 import { HostAdapterFactory } from '../adapters/HostAdapterFactory.js';
+import { initPowerPointDiagnostics } from '../adapters/ppt/pptDiagnostics.js';
 
 let currentSessionId = null;
 let chatHistoryState = [];
@@ -17,11 +29,62 @@ let isProcessingInDocCommand = false;
 let hostAdapter = null;
 let currentSelectedText = "";
 
-Office.onReady((info) => {
+Office.onReady(async (info) => {
   // Detect active Microsoft Office host (Word, PowerPoint, Excel) dynamically
   hostAdapter = HostAdapterFactory.getAdapter();
 
+  // Pre-fetch dynamic backend configuration (Google OAuth Client ID)
+  fetchAppConfig().catch(e => console.warn("Background config fetch failed:", e));
+
+  // Initialize Entra ID & Google Drive Identity in UI
+  await initAuthUI();
+
+  // Initialize Collapsible Troubleshooting & Diagnostics Panel
+  initTroubleshootPanel();
+
+  // Log Add-in startup and host context to Cloud Logging
+  sendDiagnosticLogToCloud(
+    `Office Add-in initialized on host '${info.host || 'Unknown'}' (${info.platform || 'Unknown platform'})`,
+    "INFO",
+    "STARTUP",
+    { host: info.host, platform: info.platform }
+  );
+
+  // Wire Google Drive 1-click connect button (used in GSuite / Cloud Identity mode)
+  const googleDriveBtn = document.getElementById("googleDriveBtn");
+  if (googleDriveBtn) {
+    googleDriveBtn.onclick = async () => {
+      const config = await fetchAppConfig();
+      const isWifMode = config?.user_auth_mode === 'wif' || (config?.user_auth_mode === 'auto' && !config?.google_oauth_client_id);
+      if (isWifMode) {
+        console.log("WIF SSO active: Google OAuth login not required.");
+        return;
+      }
+      console.log("Triggering Google OAuth 3-legged sign-in flow...");
+      googleDriveBtn.innerHTML = "⏳ Logging in...";
+      const profile = getUserProfile();
+      const res = await initiateGoogleSignIn(profile?.email || null, 'select_account');
+      if (res.status === 'success') {
+        appendBubble("✅ Google login successful! Gemini Enterprise grounding is now active.", "system");
+      } else {
+        console.warn("Google Sign-In was not completed:", res.error);
+      }
+      await initAuthUI();
+    };
+  }
+
   document.getElementById("run").onclick = () => callGeminiProxy();
+  
+  const promptText = document.getElementById("promptText");
+  if (promptText) {
+    promptText.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        callGeminiProxy();
+      }
+    });
+  }
+
   const clearSessionBtn = document.getElementById("clearSession");
   if (clearSessionBtn) {
     clearSessionBtn.onclick = resetChatSession;
@@ -30,137 +93,6 @@ Office.onReady((info) => {
   const scanBtn = document.getElementById("scanInDoc");
   if (scanBtn) {
     scanBtn.onclick = () => checkForInDocumentCommands(true);
-  }
-
-  // Google Enterprise Auth Panel Setup
-  const authBtn = document.getElementById("authBtn");
-  const authPanel = document.getElementById("authPanel");
-  const closeAuthPanel = document.getElementById("closeAuthPanel");
-  const googleTokenInput = document.getElementById("googleTokenInput");
-  const saveTokenBtn = document.getElementById("saveTokenBtn");
-  const clearTokenBtn = document.getElementById("clearTokenBtn");
-  const tokenStatusMsg = document.getElementById("tokenStatusMsg");
-
-  if (authBtn && authPanel) {
-    const existingToken = getGoogleAccessToken();
-    if (existingToken) {
-      authBtn.style.color = '#107c41';
-      authBtn.style.borderColor = '#107c41';
-      authBtn.innerHTML = '🔑 Google (Auth)';
-    }
-
-    authBtn.onclick = () => {
-      authPanel.style.display = authPanel.style.display === 'none' ? 'block' : 'none';
-      if (googleTokenInput) {
-        googleTokenInput.value = getGoogleAccessToken();
-      }
-    };
-  }
-
-  if (closeAuthPanel && authPanel) {
-    closeAuthPanel.onclick = () => { authPanel.style.display = 'none'; };
-  }
-
-  if (saveTokenBtn) {
-    saveTokenBtn.onclick = () => {
-      const val = googleTokenInput ? googleTokenInput.value.trim() : '';
-      setGoogleAccessToken(val);
-      if (val) {
-        if (tokenStatusMsg) {
-          tokenStatusMsg.style.color = '#107c41';
-          tokenStatusMsg.innerText = '✅ Google User OAuth Token Saved!';
-        }
-        if (authBtn) {
-          authBtn.style.color = '#107c41';
-          authBtn.style.borderColor = '#107c41';
-          authBtn.innerHTML = '🔑 Google (Auth)';
-        }
-      } else {
-        if (tokenStatusMsg) {
-          tokenStatusMsg.style.color = '#605e5c';
-          tokenStatusMsg.innerText = 'Token cleared.';
-        }
-        if (authBtn) {
-          authBtn.style.color = '#323130';
-          authBtn.style.borderColor = '#8a8886';
-          authBtn.innerHTML = '🔑 Google Auth';
-        }
-      }
-      setTimeout(() => { if (authPanel) authPanel.style.display = 'none'; }, 1000);
-    };
-  }
-
-  if (clearTokenBtn) {
-    clearTokenBtn.onclick = () => {
-      setGoogleAccessToken('');
-      if (googleTokenInput) googleTokenInput.value = '';
-      if (tokenStatusMsg) {
-        tokenStatusMsg.style.color = '#605e5c';
-        tokenStatusMsg.innerText = 'Token cleared.';
-      }
-      if (authBtn) {
-        authBtn.style.color = '#323130';
-        authBtn.style.borderColor = '#8a8886';
-        authBtn.innerHTML = '🔑 Google Auth';
-      }
-    };
-  }
-
-  const googleSignInBtn = document.getElementById("googleSignInBtn");
-  if (googleSignInBtn) {
-    googleSignInBtn.onclick = () => {
-      try {
-        if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
-          if (tokenStatusMsg) {
-            tokenStatusMsg.style.color = '#a4262c';
-            tokenStatusMsg.innerText = 'Google Identity SDK loading... please wait a moment or paste token below.';
-          }
-          return;
-        }
-
-        const clientId = window.localStorage ? (window.localStorage.getItem('google_oauth_client_id') || '36841365232-oauth.apps.googleusercontent.com') : '36841365232-oauth.apps.googleusercontent.com';
-
-        const client = google.accounts.oauth2.initTokenClient({
-          client_id: clientId,
-          scope: 'https://www.googleapis.com/auth/cloud-platform',
-          callback: (tokenResponse) => {
-            if (tokenResponse && tokenResponse.access_token) {
-              setGoogleAccessToken(tokenResponse.access_token);
-              if (googleTokenInput) googleTokenInput.value = tokenResponse.access_token;
-              if (tokenStatusMsg) {
-                tokenStatusMsg.style.color = '#107c41';
-                tokenStatusMsg.innerText = '✅ Successfully Signed in with Google!';
-              }
-              if (authBtn) {
-                authBtn.style.color = '#107c41';
-                authBtn.style.borderColor = '#107c41';
-                authBtn.innerHTML = '🔑 Google (Auth)';
-              }
-              setTimeout(() => { if (authPanel) authPanel.style.display = 'none'; }, 1200);
-            } else if (tokenResponse && tokenResponse.error) {
-              if (tokenStatusMsg) {
-                tokenStatusMsg.style.color = '#a4262c';
-                tokenStatusMsg.innerText = `Sign in: ${tokenResponse.error_description || tokenResponse.error}`;
-              }
-            }
-          },
-          error_callback: (err) => {
-            if (tokenStatusMsg) {
-              tokenStatusMsg.style.color = '#a4262c';
-              tokenStatusMsg.innerText = `Sign in: ${err.message || 'Popup blocked or cancelled'}`;
-            }
-          }
-        });
-
-        client.requestAccessToken();
-      } catch (err) {
-        console.error('Google Sign in error:', err);
-        if (tokenStatusMsg) {
-          tokenStatusMsg.style.color = '#a4262c';
-          tokenStatusMsg.innerText = `Sign in: ${err.message}`;
-        }
-      }
-    };
   }
 
   // Target Proxy Endpoint selector setup
@@ -183,6 +115,10 @@ Office.onReady((info) => {
   // Adapt UI titles, top banners, and action chips to the active Microsoft product
   adaptUIForHost(hostAdapter.name);
 
+  if (hostAdapter.name === "PowerPoint") {
+    initPowerPointDiagnostics();
+  }
+
   // Setup Document Intelligence Chips (Feature 1: Full Document Q&A)
   setupDocToolsChips();
 
@@ -198,7 +134,133 @@ Office.onReady((info) => {
   } catch (e) {
     console.warn("Could not attach selection handler:", e);
   }
+  // Wire interactive sign-in click on user profile badge
+  const userAuthBadge = document.getElementById("userAuthBadge");
+  const userStatusDot = document.getElementById("userStatusDot");
+  const userProfileBar = document.getElementById("userProfileBar");
+  
+  const handleAuthClick = async () => {
+    console.log("Triggering explicit Office Entra ID SSO sign-in...");
+    if (userAuthBadge) userAuthBadge.innerText = "Signing in...";
+    const token = await getOfficeAuthToken(true);
+    await initAuthUI();
+    const lastErr = getLastAuthError();
+    if (!token && lastErr) {
+      console.warn("Explicit sign-in attempt did not yield token:", lastErr);
+      if (lastErr.code === 13007) {
+        alert("Office SSO Error 13007: Application ID URI mismatch or client app not authorized in Entra ID.\n\n" +
+              "1. In Entra ID App '85fb5428-6249-4131-9eeb-f2436d5d4d8c' -> Expose an API:\n" +
+              "   Set App ID URI: api://gemini-frontend-16933400417.us-central1.run.app/85fb5428-6249-4131-9eeb-f2436d5d4d8c\n" +
+              "   Authorized Client IDs:\n" +
+              "   - 00000002-0000-0ff1-ce00-000000000000 (Office Desktop)\n" +
+              "   - ea5a67f6-b6f3-4338-b240-c655ddc3cc8e (Office Web)\n" +
+              "   - d3590ed6-52b3-4102-aeff-aad2292ab01c (Office Web / WAC)\n" +
+              "2. Restart Office.");
+      } else if (lastErr.code === 13001) {
+        alert("Office SSO Error 13001: You are not currently signed into Microsoft Office with a corporate Microsoft Entra ID account.");
+      } else if (lastErr.code === 13002) {
+        alert("Office SSO Error 13002: Sign-in or consent was cancelled.");
+      } else if (lastErr.code === 13012) {
+        alert("Office SSO Error 13012: SSO API is not supported on this platform version or requires Office restart.");
+      } else if (lastErr.code) {
+        alert(`Office SSO Code ${lastErr.code}: ${lastErr.message || JSON.stringify(lastErr)}`);
+      }
+    }
+  };
+
+  if (userAuthBadge) userAuthBadge.onclick = handleAuthClick;
+  if (userStatusDot) userStatusDot.onclick = handleAuthClick;
+  if (userProfileBar) {
+    userProfileBar.style.cursor = "pointer";
+    userProfileBar.onclick = handleAuthClick;
+  }
 });
+
+async function initAuthUI() {
+  const userAuthBar = document.getElementById("userAuthBar");
+  const userEmailText = document.getElementById("userEmailText");
+  const userStatusDot = document.getElementById("userStatusDot");
+  const googleDriveBtn = document.getElementById("googleDriveBtn");
+
+  try {
+    const token = await getOfficeAuthToken();
+    const profile = getUserProfile();
+    const lastErr = getLastAuthError();
+    const config = await fetchAppConfig();
+    const isWifMode = config?.user_auth_mode === 'wif' || (config?.user_auth_mode === 'auto' && !config?.google_oauth_client_id);
+
+    // 1. Entra ID / Microsoft 365 status & WIF status
+    if (token && profile.is_authenticated) {
+      if (userEmailText) {
+        userEmailText.innerText = profile.email || profile.name;
+        userEmailText.className = "user-email-text";
+        userEmailText.title = isWifMode
+          ? `WIF SSO Active (Connected as ${profile.email || profile.name})`
+          : `Connected to Microsoft 365 as ${profile.email || profile.name} (Tenant: ${profile.tenant_id || 'Entra ID'})`;
+      }
+      if (userStatusDot) {
+        userStatusDot.className = "user-status-dot";
+        userStatusDot.title = isWifMode
+          ? `WIF SSO Active (Connected as ${profile.email || profile.name})`
+          : `Connected to Microsoft 365 as ${profile.email || profile.name}`;
+      }
+      if (userAuthBar) {
+        userAuthBar.title = isWifMode
+          ? `WIF SSO Active (Connected as ${profile.email || profile.name})`
+          : `Microsoft 365 Identity: ${profile.email || profile.name}`;
+      }
+    } else {
+      const errHint = lastErr ? (lastErr.message || lastErr.code || JSON.stringify(lastErr)) : "Not connected to Microsoft 365";
+      if (userEmailText) {
+        userEmailText.innerText = profile.email && profile.email !== 'user@organization.com' ? profile.email : "Not Connected";
+        userEmailText.className = "user-email-text offline";
+        userEmailText.title = isWifMode ? `WIF SSO Inactive (${errHint})` : `SSO: ${errHint}`;
+      }
+      if (userStatusDot) {
+        userStatusDot.className = "user-status-dot offline";
+        userStatusDot.title = isWifMode ? `WIF SSO Inactive (${errHint})` : `SSO: ${errHint}`;
+      }
+      if (userAuthBar) {
+        userAuthBar.title = isWifMode ? `WIF SSO Inactive (${errHint})` : `SSO: ${errHint}`;
+      }
+    }
+
+    // 2. Google OAuth button (Used only in GSuite / Cloud Identity mode, hidden in WIF mode)
+    if (googleDriveBtn) {
+      if (isWifMode) {
+        // In WIF mode, user identity is purely Microsoft Entra ID exchanged silently with Google STS.
+        // No secondary badge or button is shown.
+        googleDriveBtn.style.display = "none";
+      } else {
+        googleDriveBtn.style.display = "inline-flex";
+        if (isGoogleTokenValid()) {
+          googleDriveBtn.className = "google-drive-btn connected";
+          googleDriveBtn.innerHTML = "✅ Gemini Connected";
+          googleDriveBtn.title = "Gemini Enterprise grounding active (OAuth token valid)";
+          googleDriveBtn.style.cursor = "pointer";
+        } else {
+          googleDriveBtn.className = "google-drive-btn";
+          googleDriveBtn.innerHTML = "Login with Google";
+          googleDriveBtn.title = "Click to sign into Google for Gemini Enterprise grounding";
+          googleDriveBtn.style.cursor = "pointer";
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Auth UI init error:", err);
+    if (userEmailText) {
+      userEmailText.innerText = "Unauthenticated";
+      userEmailText.className = "user-email-text offline";
+      userEmailText.title = "Auth error: " + (err.message || String(err));
+    }
+    if (userStatusDot) {
+      userStatusDot.className = "user-status-dot offline";
+      userStatusDot.title = "Auth error: " + (err.message || String(err));
+    }
+  } finally {
+    updateDiagnosticsPanel().catch(() => {});
+  }
+}
 
 function adaptUIForHost(hostName) {
   const tipBannerText = document.getElementById("tipBannerText");
@@ -238,27 +300,6 @@ function adaptUIForHost(hostName) {
     if (chipActionItems) chipActionItems.innerHTML = `✅ Action Items`;
     if (chipExecBox) chipExecBox.innerHTML = `💡 Executive Card`;
     if (welcomeBubble) welcomeBubble.innerHTML = `Type a prompt below, click a <strong>Doc Chip</strong> above, or highlight text in Word!`;
-  }
-
-  // Detect Gemini Enterprise StreamAssist Mode
-  if (typeof window !== 'undefined' && window.location) {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('backend') === 'streamassist') {
-      const titleEl = document.querySelector(".header h3");
-      if (titleEl) {
-        titleEl.innerHTML = `✨ Gemini Enterprise <span class="header-badge" style="background:#e8f5e9; color:#1b5e20;">🍔 Wendy's KB</span>`;
-      }
-      if (welcomeBubble) {
-        welcomeBubble.innerHTML = `Connected to <strong>Wendy's Gemini Enterprise Assistant</strong> (HR, Sales, SharePoint, Box, ServiceNow). Answers are grounded on Wendy's internal records with citations!`;
-      }
-      const promptInput = document.getElementById("promptText");
-      if (promptInput) {
-        promptInput.placeholder = "Ask Wendy's Enterprise Knowledge Base (HR, Sales, SharePoint)...";
-      }
-      if (debugStatus) {
-        debugStatus.innerText = `Enterprise: Wendy's (${hostName})`;
-      }
-    }
   }
 }
 
@@ -490,6 +531,12 @@ async function callGeminiProxy(customPrompt = null) {
   }
 
   if (promptInput) promptInput.value = "";
+  
+  if (hostAdapter.name === "PowerPoint") {
+    const { enhancePromptForPowerPoint } = await import('../adapters/ppt/promptEnhancer.js');
+    fullPrompt = enhancePromptForPowerPoint(fullPrompt);
+  }
+
   await executeGeminiWorkflow(fullPrompt, displayUserBubble);
 }
 
@@ -500,8 +547,7 @@ async function executeGeminiWorkflow(fullPrompt, displayUserBubble) {
 
   if (runButton) runButton.disabled = true;
   if (loadingText) {
-    const isEnterprise = typeof window !== 'undefined' && window.location && new URLSearchParams(window.location.search).get('backend') === 'streamassist';
-    loadingText.innerText = isEnterprise ? "⚡ Gemini Enterprise is thinking..." : "⚡ Gemini Guru is thinking...";
+    loadingText.innerText = "⚡ Gemini Enterprise is thinking...";
     loadingText.style.display = "block";
   }
 
@@ -647,13 +693,7 @@ async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {
   }
 
   try {
-    const insertPromise = hostAdapter.insertContent(htmlContent, rawText);
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("Operation timed out after 60 seconds")), 60000)
-    );
-
-    await Promise.race([insertPromise, timeoutPromise]);
-
+    await hostAdapter.insertContent(htmlContent, rawText);
     const debugStatus = document.getElementById("debugStatus");
     if (debugStatus) {
       const host = hostAdapter?.name || 'Office';
@@ -661,10 +701,377 @@ async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {
     }
   } catch (err) {
     console.error("Document insertion error:", err);
-    appendBubble(`🔴 Insertion Notice: ${err.message || err}`, "system");
+    appendBubble(`🔴 Insertion Error: ${err.message || err}`, "system");
   } finally {
     if (runButton) runButton.disabled = false;
     if (loadingText) loadingText.style.display = "none";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cloud Logging Dispatcher for Client Diagnostics & Troubleshooting
+// ---------------------------------------------------------------------------
+let pendingDiagLogs = [];
+let diagLogFlushTimeout = null;
+
+export function sendDiagnosticLogToCloud(message, level = "INFO", category = "DIAGNOSTICS", details = {}) {
+  const entry = {
+    timestamp: new Date().toISOString(),
+    level: (level || "INFO").toUpperCase(),
+    category: category || "DIAGNOSTICS",
+    message: String(message),
+    details: details || {}
+  };
+
+  pendingDiagLogs.push(entry);
+
+  if (!diagLogFlushTimeout) {
+    diagLogFlushTimeout = setTimeout(flushDiagnosticLogsToCloud, 600);
+  }
+}
+
+async function flushDiagnosticLogsToCloud() {
+  diagLogFlushTimeout = null;
+  if (pendingDiagLogs.length === 0) return;
+
+  const logsToSend = [...pendingDiagLogs];
+  pendingDiagLogs = [];
+
+  const profile = getUserProfile();
+  const baseUrl = getActiveProxyUrl().replace(/\/askGeminiEnterprise$/, '');
+  const logUrl = `${baseUrl}/api/diagnostics/log`;
+
+  const payload = {
+    logs: logsToSend,
+    client_context: {
+      host: hostAdapter?.name || (typeof Office !== "undefined" && Office.context?.host) || "UnknownHost",
+      platform: (typeof Office !== "undefined" && Office.context?.platform) || "UnknownPlatform",
+      user_id: profile?.user_id || "anonymous",
+      user_email: profile?.email || null,
+      tenant_id: profile?.tenant_id || null,
+      session_id: currentSessionId || null,
+      user_agent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+      addin_version: "1.0.0"
+    }
+  };
+
+  try {
+    const res = await fetch(logUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      keepalive: true
+    });
+    if (!res.ok) {
+      console.warn("Cloud log ingestion HTTP error:", res.status);
+    }
+  } catch (err) {
+    console.debug("Failed to dispatch diagnostic logs to Cloud Logging:", err);
+  }
+}
+
+export function logToDiagBox(msg, isError = false, category = "DIAGNOSTICS", details = {}) {
+  const box = document.getElementById("diagLogBox");
+  if (box) {
+    const time = new Date().toLocaleTimeString();
+    box.innerText += `\n[${time}] ${msg}`;
+    box.scrollTop = box.scrollHeight;
+  }
+  // Stream directly to GCP Cloud Logging
+  const level = isError ? "ERROR" : "INFO";
+  sendDiagnosticLogToCloud(msg, level, category, details);
+}
+window.logToDiagBox = logToDiagBox;
+window.sendDiagnosticLogToCloud = sendDiagnosticLogToCloud;
+
+async function updateDiagnosticsPanel() {
+  try {
+    // 1. Entra ID SSO diagnostics
+    const ssoStatus = document.getElementById("diagSsoStatus");
+    const ssoUser = document.getElementById("diagSsoUser");
+    const ssoTenant = document.getElementById("diagSsoTenant");
+    const profile = getUserProfile();
+    const token = await getOfficeAuthToken().catch(() => null);
+    const lastErr = getLastAuthError();
+
+    if (token && profile.is_authenticated) {
+      if (ssoStatus) {
+        ssoStatus.innerText = "✅ Authenticated";
+        ssoStatus.style.color = "#107c41";
+      }
+      if (ssoUser) ssoUser.innerText = profile.email || profile.name || "Signed In";
+      if (ssoTenant) ssoTenant.innerText = profile.tenant_id ? (profile.tenant_id.length > 20 ? profile.tenant_id.substring(0, 18) + '...' : profile.tenant_id) : "Default Tenant";
+    } else {
+      if (ssoStatus) {
+        ssoStatus.innerText = lastErr ? `⚠️ ${lastErr.code || lastErr.message || 'Not Authenticated'}` : "Not Authenticated";
+        ssoStatus.style.color = "#a4262c";
+      }
+      if (ssoUser) ssoUser.innerText = profile.email && profile.email !== 'user@organization.com' ? profile.email : "--";
+      if (ssoTenant) ssoTenant.innerText = "--";
+    }
+
+    // 2. Google OAuth diagnostics
+    const googleStatus = document.getElementById("diagGoogleStatus");
+    const googleClientId = document.getElementById("diagGoogleClientId");
+    const googleExpiry = document.getElementById("diagGoogleExpiry");
+    const gToken = getGoogleAccessToken();
+    const gClientId = await getGoogleOAuthClientId();
+
+    if (googleClientId) {
+      googleClientId.innerText = gClientId ? (gClientId.length > 24 ? gClientId.substring(0, 22) + '...' : gClientId) : 'Not Configured';
+      googleClientId.title = gClientId || 'Google OAuth Client ID not configured';
+    }
+
+    if (gToken) {
+      if (googleStatus) {
+        googleStatus.innerText = "✅ Connected";
+        googleStatus.style.color = "#107c41";
+      }
+      const exp = parseInt(window.sessionStorage?.getItem('google_user_token_expiry') || '0', 10);
+      const remainingMin = exp ? Math.max(0, Math.round((exp - Date.now()) / 60000)) : 0;
+      if (googleExpiry) googleExpiry.innerText = `${remainingMin} min remaining`;
+    } else {
+      if (googleStatus) {
+        googleStatus.innerText = "⚪ Not Connected";
+        googleStatus.style.color = "#605e5c";
+      }
+      if (googleExpiry) googleExpiry.innerText = "--";
+    }
+
+    // 3. Backend & Config
+    const proxyUrl = document.getElementById("diagProxyUrl");
+    const authMode = document.getElementById("diagAuthMode");
+    const projId = document.getElementById("diagProjectId");
+
+    const appConfig = await fetchAppConfig();
+    if (proxyUrl) {
+      const activeUrl = getActiveProxyUrl();
+      proxyUrl.innerText = activeUrl.replace('https://', '').split('/')[0];
+      proxyUrl.title = activeUrl;
+    }
+    if (authMode) authMode.innerText = appConfig?.user_auth_mode || "Office SSO + Google OAuth";
+    if (projId) projId.innerText = appConfig?.project_id || "agentspace-452714";
+
+    // PowerPoint & Office.js Engine Status
+    const pptApiStatus = document.getElementById("diagPptApiStatus");
+    if (pptApiStatus) {
+      if (typeof Office !== "undefined" && Office.context?.requirements) {
+        const v15 = Office.context.requirements.isSetSupported("PowerPointApi", "1.5");
+        const v14 = Office.context.requirements.isSetSupported("PowerPointApi", "1.4");
+        const v13 = Office.context.requirements.isSetSupported("PowerPointApi", "1.3");
+        const v12 = Office.context.requirements.isSetSupported("PowerPointApi", "1.2");
+        const v11 = Office.context.requirements.isSetSupported("PowerPointApi", "1.1");
+        const highest = v15 ? "1.5" : v14 ? "1.4" : v13 ? "1.3" : v12 ? "1.2" : v11 ? "1.1" : "Base";
+        pptApiStatus.innerText = `PowerPointApi ${highest} Supported`;
+        pptApiStatus.style.color = "#107c41";
+      } else {
+        const isPPT = typeof PowerPoint !== "undefined";
+        pptApiStatus.innerText = isPPT ? "PowerPoint.js Ready" : (Office?.context?.host || "Office Environment");
+      }
+    }
+
+  } catch (e) {
+    console.warn("Diagnostics update error:", e);
+  }
+}
+
+function initTroubleshootPanel() {
+  const panel = document.getElementById("troubleshootPanel");
+  if (panel) {
+    panel.ontoggle = () => {
+      if (panel.open) {
+        updateDiagnosticsPanel();
+        logToDiagBox("Troubleshooting panel expanded.");
+      }
+    };
+  }
+
+  const btnRefreshSso = document.getElementById("diagRefreshSso");
+  if (btnRefreshSso) {
+    btnRefreshSso.onclick = async () => {
+      logToDiagBox("Forcing Entra ID SSO token refresh...", false, "SSO");
+      btnRefreshSso.innerText = "⏳ Refreshing...";
+      try {
+        const token = await getOfficeAuthToken(true);
+        if (token) {
+          const profile = getUserProfile();
+          logToDiagBox("✅ SSO Token refreshed successfully.", false, "SSO", { email: profile?.email, tenant: profile?.tenant_id });
+        } else {
+          logToDiagBox("⚠️ Token refresh returned empty.", true, "SSO");
+        }
+      } catch (err) {
+        logToDiagBox(`❌ SSO Refresh error: ${err.message || err}`, true, "SSO", { error: String(err) });
+      } finally {
+        btnRefreshSso.innerText = "🔄 Refresh SSO Token";
+        await initAuthUI();
+        await updateDiagnosticsPanel();
+      }
+    };
+  }
+
+  const btnSignInGoogle = document.getElementById("diagSignInGoogle");
+  if (btnSignInGoogle) {
+    btnSignInGoogle.onclick = async () => {
+      logToDiagBox("Launching Google OAuth sign-in flow...", false, "GOOGLE_OAUTH");
+      btnSignInGoogle.innerText = "⏳ Signing in...";
+      try {
+        const profile = getUserProfile();
+        const res = await initiateGoogleSignIn(profile?.email || null, 'select_account');
+        if (res.status === 'success') {
+          logToDiagBox("✅ Google Sign-In succeeded.", false, "GOOGLE_OAUTH", { status: 'success' });
+        } else {
+          logToDiagBox(`⚠️ Google Sign-In canceled/failed: ${res.error || 'Unknown'}`, true, "GOOGLE_OAUTH", { error: res.error });
+        }
+      } catch (err) {
+        logToDiagBox(`❌ Google Sign-In error: ${err.message || err}`, true, "GOOGLE_OAUTH", { error: String(err) });
+      } finally {
+        btnSignInGoogle.innerText = "🔑 Sign In with Google";
+        await initAuthUI();
+        await updateDiagnosticsPanel();
+      }
+    };
+  }
+
+  const btnClearGoogle = document.getElementById("diagClearGoogle");
+  if (btnClearGoogle) {
+    btnClearGoogle.onclick = async () => {
+      setGoogleAccessToken(null);
+      logToDiagBox("🗑️ Google access token cleared.", false, "GOOGLE_OAUTH");
+      await initAuthUI();
+      await updateDiagnosticsPanel();
+    };
+  }
+
+  const btnPingBackend = document.getElementById("diagPingBackend");
+  if (btnPingBackend) {
+    btnPingBackend.onclick = async () => {
+      const startTime = Date.now();
+      btnPingBackend.innerText = "⏳ Pinging...";
+      const baseUrl = getActiveProxyUrl().replace(/\/askGeminiEnterprise$/, '');
+      const configUrl = `${baseUrl}/api/config`;
+      logToDiagBox(`Testing backend connectivity -> ${configUrl}`, false, "BACKEND_PING");
+      try {
+        const res = await fetch(configUrl, { cache: 'no-store' });
+        const latency = Date.now() - startTime;
+        if (res.ok) {
+          const cfg = await res.json();
+          logToDiagBox(`✅ Backend reachable (${latency}ms). Project: ${cfg.project_id || 'OK'}, AuthMode: ${cfg.user_auth_mode || 'OK'}`, false, "BACKEND_PING", { latency, config: cfg });
+        } else {
+          logToDiagBox(`⚠️ Backend HTTP ${res.status} (${latency}ms)`, true, "BACKEND_PING", { latency, status: res.status });
+        }
+      } catch (err) {
+        logToDiagBox(`❌ Connectivity failed: ${err.message || err}`, true, "BACKEND_PING", { error: String(err) });
+      } finally {
+        btnPingBackend.innerText = "📡 Test Connection";
+        await updateDiagnosticsPanel();
+      }
+    };
+  }
+
+  // PowerPoint Diagnostic & Live Test Actions
+  const btnDiagCheckApi = document.getElementById("btnDiagCheckApi");
+  if (btnDiagCheckApi) {
+    btnDiagCheckApi.onclick = async () => {
+      logToDiagBox("Checking PowerPoint Office.js environment...", false, "POWERPOINT_API");
+      try {
+        const hasOffice = typeof Office !== "undefined";
+        const hasPPT = typeof PowerPoint !== "undefined";
+        const host = (hasOffice && Office.context?.host) || "Unknown";
+        const platform = (hasOffice && Office.context?.platform) || "Unknown";
+
+        let versions = {};
+        if (hasOffice && Office.context?.requirements) {
+          versions = {
+            v11: Office.context.requirements.isSetSupported("PowerPointApi", "1.1"),
+            v12: Office.context.requirements.isSetSupported("PowerPointApi", "1.2"),
+            v13: Office.context.requirements.isSetSupported("PowerPointApi", "1.3"),
+            v14: Office.context.requirements.isSetSupported("PowerPointApi", "1.4"),
+            v15: Office.context.requirements.isSetSupported("PowerPointApi", "1.5")
+          };
+          logToDiagBox(`Host: ${host}, Platform: ${platform}, PowerPointApi: 1.1=${versions.v11}, 1.2=${versions.v12}, 1.3=${versions.v13}, 1.4=${versions.v14}, 1.5=${versions.v15}`, false, "POWERPOINT_API", { host, platform, versions });
+        } else {
+          logToDiagBox(`Host: ${host}, Platform: ${platform}, PPT Namespace: ${hasPPT}`, false, "POWERPOINT_API", { host, platform, hasPPT });
+        }
+      } catch (e) {
+        logToDiagBox(`❌ API Check Error: ${e.message}`, true, "POWERPOINT_API", { error: String(e) });
+      }
+    };
+  }
+
+  const btnDiagTestSlide = document.getElementById("btnDiagTestSlide");
+  if (btnDiagTestSlide) {
+    btnDiagTestSlide.onclick = async () => {
+      logToDiagBox("Calling PowerPoint.run(presentation.slides.add())...", false, "POWERPOINT_TEST");
+      const startTime = Date.now();
+      try {
+        if (typeof PowerPoint === "undefined") {
+          throw new Error("PowerPoint namespace is not available in current host.");
+        }
+        await PowerPoint.run(async (context) => {
+          context.presentation.slides.add();
+          logToDiagBox("Slide add queued. Calling context.sync()...", false, "POWERPOINT_TEST");
+          await context.sync();
+        });
+        const elapsed = Date.now() - startTime;
+        logToDiagBox(`✅ Successfully added 1 blank slide via PowerPoint.run! (${elapsed}ms)`, false, "POWERPOINT_TEST", { test: "add_slide", elapsed });
+      } catch (e) {
+        logToDiagBox(`❌ Slide Add Error: ${e.message} (code: ${e.code || "N/A"})`, true, "POWERPOINT_TEST", { error: String(e), code: e.code });
+      }
+    };
+  }
+
+  const btnDiagTestText = document.getElementById("btnDiagTestText");
+  if (btnDiagTestText) {
+    btnDiagTestText.onclick = async () => {
+      logToDiagBox("Testing Add Slide + Title Textbox + Body Textbox via getCount()...", false, "POWERPOINT_TEST");
+      const startTime = Date.now();
+      try {
+        if (typeof PowerPoint === "undefined") {
+          throw new Error("PowerPoint namespace is not available in current host.");
+        }
+        await PowerPoint.run(async (context) => {
+          const slides = context.presentation.slides;
+          slides.add();
+          await context.sync();
+
+          const countResult = slides.getCount();
+          await context.sync();
+
+          const slideCount = countResult.value;
+          logToDiagBox(`Slide count: ${slideCount}. Fetching slide at index ${slideCount - 1}...`, false, "POWERPOINT_TEST");
+          const slide = slides.getItemAt(slideCount - 1);
+
+          slide.shapes.addTextBox("🧪 Diagnostic Test Title", {
+            left: 50,
+            top: 40,
+            width: 650,
+            height: 55
+          });
+
+          slide.shapes.addTextBox("• Bullet item 1: Official Microsoft Office.js pattern\n• Bullet item 2: Direct geometry textbox creation verified", {
+            left: 50,
+            top: 110,
+            width: 650,
+            height: 300
+          });
+
+          await context.sync();
+        });
+        const elapsed = Date.now() - startTime;
+        logToDiagBox(`✅ Successfully created Slide with Title & Body Textbox! (${elapsed}ms)`, false, "POWERPOINT_TEST", { test: "add_slide_textbox", elapsed });
+      } catch (e) {
+        logToDiagBox(`❌ Slide Text Error: ${e.message} (code: ${e.code || "N/A"})`, true, "POWERPOINT_TEST", { error: String(e), code: e.code });
+      }
+    };
+  }
+
+  const btnClearLog = document.getElementById("diagClearLog");
+  if (btnClearLog) {
+    btnClearLog.onclick = (e) => {
+      e.stopPropagation();
+      const box = document.getElementById("diagLogBox");
+      if (box) box.innerText = "[Ready] Log cleared.";
+    };
   }
 }
 

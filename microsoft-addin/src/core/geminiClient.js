@@ -4,8 +4,29 @@
  * @author Sathya AG, Principal Architect, Google
  */
 
+import { getOfficeAuthToken, getUserProfile, getGoogleAccessToken } from './authService.js';
+
+// Default endpoint points directly to the secure auth-proxy gateway
+const DEFAULT_AUTH_PROXY_URL = 'https://auth-proxy-16933400417.us-central1.run.app/askGeminiEnterprise';
+
 export function getActiveProxyUrl() {
-  return 'https://gemini-proxy-j43mxpthfa-uc.a.run.app/askGeminiEnterprise';
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const override = window.localStorage.getItem('gemini_proxy_url');
+    if (override) return override;
+  }
+  if (typeof process !== 'undefined' && process.env && process.env.GEMINI_PROXY_URL) {
+    return process.env.GEMINI_PROXY_URL;
+  }
+  if (typeof window !== 'undefined' && window.location && window.location.hostname) {
+    const host = window.location.hostname;
+    if (host.includes('1062675944253') || host.includes('agentspace-wif')) {
+      return 'https://auth-proxy-1062675944253.us-central1.run.app/askGeminiEnterprise';
+    }
+    if (host.includes('16933400417') || host.includes('agentspace-452714')) {
+      return 'https://auth-proxy-16933400417.us-central1.run.app/askGeminiEnterprise';
+    }
+  }
+  return DEFAULT_AUTH_PROXY_URL;
 }
 
 export function setProxyUrlOverride(url) {
@@ -18,68 +39,43 @@ export function setProxyUrlOverride(url) {
   }
 }
 
-function getOfficeUserId() {
-  try {
-    if (typeof Office !== 'undefined' && Office.context) {
-      if (Office.context.user && Office.context.user.email) {
-        return Office.context.user.email;
-      }
-      if (Office.context.mailbox && Office.context.mailbox.userProfile && Office.context.mailbox.userProfile.emailAddress) {
-        return Office.context.mailbox.userProfile.emailAddress;
-      }
-    }
-  } catch (e) {
-    console.warn('Could not read Office user context:', e);
-  }
-  if (typeof window !== 'undefined' && window.localStorage) {
-    let localUserId = window.localStorage.getItem('gemini_user_pseudo_id');
-    if (!localUserId) {
-      localUserId = 'office_user_' + Math.random().toString(36).substring(2, 10);
-      window.localStorage.setItem('gemini_user_pseudo_id', localUserId);
-    }
-    return localUserId;
-  }
-  return 'office_365_user';
-}
-
-export function getGoogleAccessToken() {
-  if (typeof window !== 'undefined' && window.localStorage) {
-    return window.localStorage.getItem('google_access_token') || '';
-  }
-  return '';
-}
-
-export function setGoogleAccessToken(token) {
-  if (typeof window !== 'undefined' && window.localStorage) {
-    if (token) {
-      window.localStorage.setItem('google_access_token', token.trim());
-    } else {
-      window.localStorage.removeItem('google_access_token');
-    }
-  }
-}
-
 export async function askGeminiEnterprise(prompt, history = [], sessionId = null, enableGrounding = true) {
   const functionUrl = getActiveProxyUrl();
+  const userProfile = getUserProfile();
+
+  // 1. Acquire Microsoft Entra ID SSO token
+  let authToken = null;
+  try {
+    authToken = await getOfficeAuthToken();
+  } catch (authErr) {
+    console.warn('Proceeding without SSO token (server may reject if REQUIRE_ENTRA_AUTH=true):', authErr);
+  }
+
+  // 2. Check for 3-legged Google User OAuth token (for Google Drive grounding without DWD)
+  const googleUserToken = getGoogleAccessToken();
 
   const payload = { 
     prompt: prompt,
     history: history,
     enableGrounding: enableGrounding,
-    userPseudoId: getOfficeUserId()
+    userPseudoId: userProfile.email || userProfile.user_id || 'office_365_user'
   };
   if (sessionId) {
     payload.sessionId = sessionId;
   }
 
-  const token = getGoogleAccessToken();
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-    payload.userAccessToken = token;
+  const headers = { 
+    'Content-Type': 'application/json' 
+  };
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+  if (googleUserToken) {
+    headers['X-End-User-Google-Token'] = googleUserToken;
+    console.log('Attaching 3-legged Google User Token to request header.');
   }
 
-  console.log(`Sending request to proxy endpoint: ${functionUrl} (Auth: ${token ? 'USER_TOKEN' : 'ANONYMOUS'})`);
+  console.log(`Sending authenticated request to proxy endpoint: ${functionUrl}`);
 
   const response = await fetch(functionUrl, {
     method: 'POST',
@@ -89,7 +85,7 @@ export async function askGeminiEnterprise(prompt, history = [], sessionId = null
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.details || errorData.error || `Server returned status ${response.status}`);
+    throw new Error(errorData.detail || errorData.details || errorData.error || `Server returned status ${response.status}`);
   }
 
   return await response.json();

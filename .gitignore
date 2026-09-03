@@ -1,11 +1,16 @@
 # Dependencies
 node_modules/
 package-lock.json
+.venv/
+venv/
+__pycache__/
+*.pyc
 
 # Build outputs
 dist/
 build/
 *.zip
+microsoft-addin/manifest-*.xml
 
 # Environment & Secrets
 .env

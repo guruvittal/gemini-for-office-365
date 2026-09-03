@@ -6,13 +6,15 @@
 
 /* eslint-disable no-undef */
 
+const fs = require("fs");
+const path = require("path");
 const webpack = require("webpack");
 const devCerts = require("office-addin-dev-certs");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 
 const urlDev = "https://localhost:3000/";
-const urlProd = "https://gemini-frontend-133594738129.us-central1.run.app/"; // Production Cloud Run deployment endpoint
+const urlProd = "https://gemini-frontend-16933400417.us-central1.run.app/"; // Production Cloud Run deployment endpoint
 
 async function getHttpsOptions() {
   const httpsOptions = await devCerts.getHttpsServerOptions();
@@ -21,6 +23,63 @@ async function getHttpsOptions() {
 
 module.exports = async (env, options) => {
   const dev = options.mode === "development";
+  const manifestWifSrc = fs.existsSync(path.resolve(__dirname, "manifest-wif.xml"))
+    ? "manifest-wif.xml"
+    : (fs.existsSync(path.resolve(__dirname, "../manifest-wif.xml")) ? path.resolve(__dirname, "../manifest-wif.xml") : null);
+
+  const manifestGsuiteSrc = fs.existsSync(path.resolve(__dirname, "manifest-gsuite.xml"))
+    ? "manifest-gsuite.xml"
+    : (fs.existsSync(path.resolve(__dirname, "../manifest-gsuite.xml")) ? path.resolve(__dirname, "../manifest-gsuite.xml") : null);
+
+  const copyPatterns = [
+    {
+      from: "Dockerfile",
+      to: "Dockerfile",
+      toType: "file",
+    },
+    {
+      from: "nginx.conf",
+      to: "nginx.conf",
+      toType: "file",
+    },
+    {
+      from: "assets/*",
+      to: "assets/[name][ext][query]",
+    },
+  ];
+
+  if (manifestWifSrc) {
+    copyPatterns.push({
+      from: manifestWifSrc,
+      to: "manifest-wif.xml",
+      toType: "file",
+      noErrorOnMissing: true,
+      transform(content) {
+        if (dev) {
+          return content;
+        } else {
+          return content.toString().replace(new RegExp(urlDev, "g"), urlProd);
+        }
+      },
+    });
+  }
+
+  if (manifestGsuiteSrc) {
+    copyPatterns.push({
+      from: manifestGsuiteSrc,
+      to: "manifest-gsuite.xml",
+      toType: "file",
+      noErrorOnMissing: true,
+      transform(content) {
+        if (dev) {
+          return content;
+        } else {
+          return content.toString().replace(new RegExp(urlDev, "g"), urlProd);
+        }
+      },
+    });
+  }
+
   const config = {
     devtool: "source-map",
     entry: {
@@ -65,40 +124,25 @@ module.exports = async (env, options) => {
         filename: "taskpane.html",
         template: "./src/taskpane/taskpane.html",
         chunks: ["polyfill", "taskpane"],
+        hash: true,
       }),
       new CopyWebpackPlugin({
-        patterns: [
-          {
-            from: "Dockerfile",
-            to: "Dockerfile",
-            toType: "file",
-          },
-          {
-            from: "nginx.conf",
-            to: "nginx.conf",
-            toType: "file",
-          },
-          {
-            from: "assets/*",
-            to: "assets/[name][ext][query]",
-          },
-          {
-            from: "manifest*.xml",
-            to: "[name]" + "[ext]",
-            transform(content) {
-              if (dev) {
-                return content;
-              } else {
-                return content.toString().replace(new RegExp(urlDev, "g"), urlProd);
-              }
-            },
-          },
-        ],
+        patterns: copyPatterns,
       }),
       new HtmlWebpackPlugin({
         filename: "commands.html",
         template: "./src/commands/commands.html",
         chunks: ["polyfill", "commands"],
+      }),
+      new HtmlWebpackPlugin({
+        filename: "google-auth.html",
+        template: "./src/auth/google-auth.html",
+        chunks: [],
+      }),
+      new HtmlWebpackPlugin({
+        filename: "google-callback.html",
+        template: "./src/auth/google-callback.html",
+        chunks: [],
       }),
     ],
     devServer: {

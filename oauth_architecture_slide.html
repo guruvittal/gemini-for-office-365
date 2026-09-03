@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gemini for Office 365 - OAuth & SSO Architecture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --google-blue: #1a73e8;
+      --google-red: #ea4335;
+      --google-yellow: #fbbc04;
+      --google-green: #34a853;
+      --ms-blue: #0078d4;
+      --ms-dark-blue: #106ebe;
+      --bg-gradient: radial-gradient(circle at 10% 10%, #f8faff 0%, #eef3fc 100%);
+      --card-bg: rgba(255, 255, 255, 0.95);
+      --card-border: #e2e8f0;
+      --text-main: #1e293b;
+      --text-muted: #64748b;
+      --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+      --shadow-md: 0 10px 15px -3px rgba(0, 0, 0, 0.07), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #0b1120;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    /* 16:9 Slide Canvas */
+    .slide-canvas {
+      width: 100%;
+      max-width: 1440px;
+      aspect-ratio: 16 / 9;
+      background: var(--bg-gradient);
+      border-radius: 20px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      padding: 36px 44px;
+    }
+
+    /* Top Accent Line */
+    .top-accent-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 6px;
+      background: linear-gradient(90deg, #0078D4, #4285F4, #34A853, #FBBC05);
+    }
+
+    /* Header Section */
+    .slide-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 20px;
+    }
+
+    .title-group h1 {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 30px;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      letter-spacing: -0.5px;
+    }
+
+    .title-group p {
+      font-size: 14.5px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-weight: 500;
+    }
+
+    .badge-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .pill-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 9999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .pill-ms { background: #e5f2fc; color: var(--ms-blue); border: 1px solid #c7e0f4; }
+    .pill-gcp { background: #e8f0fe; color: var(--google-blue); border: 1px solid #d2e3fc; }
+    .pill-auth { background: #e6f4ea; color: var(--google-green); border: 1px solid #ceead6; }
+
+    /* Visual End-to-End Sequence Flow */
+    .flow-diagram-container {
+      background: #ffffff;
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 18px 24px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .flow-title {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .steps-row {
+      display: grid;
+      grid-template-columns: 1fr auto 1.1fr auto 1.1fr auto 1fr;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .step-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      position: relative;
+    }
+
+    .step-box-blue { border-top: 3px solid var(--ms-blue); }
+    .step-box-purple { border-top: 3px solid #8b5cf6; }
+    .step-box-green { border-top: 3px solid var(--google-green); }
+    .step-box-red { border-top: 3px solid var(--google-red); }
+
+    .step-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+
+    .step-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .step-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.35;
+    }
+
+    .step-arrow {
+      color: #94a3b8;
+      font-size: 18px;
+      font-weight: bold;
+      text-align: center;
+    }
+
+    /* Main 3-Column Pillar Cards */
+    .columns-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      flex: 1;
+      margin-bottom: 16px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .card-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .icon-ms { background: #eff6ff; color: var(--ms-blue); }
+    .icon-gcp { background: #f0fdf4; color: var(--google-green); }
+    .icon-sec { background: #faf5ff; color: #9333ea; }
+
+    .card-title-box h3 {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .card-title-box span {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .card-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+    }
+
+    .card-list li {
+      font-size: 12.5px;
+      line-height: 1.45;
+      color: #334155;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .card-list li .bullet {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--google-blue);
+      margin-top: 7px;
+      flex-shrink: 0;
+    }
+
+    .card-list li strong {
+      color: var(--text-main);
+      font-weight: 600;
+    }
+
+    /* Bottom Value Summary Strip */
+    .summary-strip {
+      background: #ffffff;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .summary-items {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+    }
+
+    .summary-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    .summary-icon {
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="slide-canvas">
+    <div class="top-accent-bar"></div>
+
+    <!-- Header -->
+    <header class="slide-header">
+      <div class="title-group">
+        <h1>
+          <span>🔐 OAuth & Single Sign-On (SSO) Architecture</span>
+        </h1>
+        <p>Enterprise Identity Flow: Microsoft Entra ID (Azure AD) &harr; Google Cloud Vertex AI</p>
+      </div>
+      <div class="badge-group">
+        <span class="pill-badge pill-ms">Microsoft Entra ID</span>
+        <span class="pill-badge pill-gcp">Cloud Run / Vertex AI</span>
+        <span class="pill-badge pill-auth">Zero-Prompt SSO</span>
+      </div>
+    </header>
+
+    <!-- End-to-End Visual Sequence Flow -->
+    <section class="flow-diagram-container">
+      <div class="flow-title">
+        <span>End-to-End Authentication & Request Pipeline</span>
+        <span style="font-family: 'JetBrains Mono'; font-weight: 500;">OAuth 2.0 / OIDC Bearer Token</span>
+      </div>
+      <div class="steps-row">
+        
+        <!-- Step 1 -->
+        <div class="step-box step-box-blue">
+          <span class="step-tag">STEP 1: CLIENT</span>
+          <span class="step-name">Office.auth.getAccessToken()</span>
+          <span class="step-desc">Silently requests signed Entra ID JWT using pre-authorized tenant app scope.</span>
+        </div>
+
+        <div class="step-arrow">&rarr;</div>
+
+        <!-- Step 2 -->
+        <div class="step-box step-box-purple">
+          <span class="step-tag">STEP 2: TRANSPORT</span>
+          <span class="step-name">Bearer Token Request</span>
+          <span class="step-desc">Passes JWT in <code>Authorization: Bearer</code> header to Cloud Run <code>gemini-proxy</code>.</span>
+        </div>
+
+        <div class="step-arrow">&rarr;</div>
+
+        <!-- Step 3 -->
+        <div class="step-box step-box-green">
+          <span class="step-tag">STEP 3: PROXY AUTH</span>
+          <span class="step-name">JWKS Validation & Claims</span>
+          <span class="step-desc">Validates signature via Microsoft public keys, verifies Tenant ID, extracts user email.</span>
+        </div>
+
+        <div class="step-arrow">&rarr;</div>
+
+        <!-- Step 4 -->
+        <div class="step-box step-box-red">
+          <span class="step-tag">STEP 4: VERTEX AI</span>
+          <span class="step-name">ACL-Aware Generation</span>
+          <span class="step-desc">Backend calls Vertex AI using GCP Service Account with user context for grounded search.</span>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 3 Strategic Pillar Cards -->
+    <main class="columns-grid">
+
+      <!-- Card 1: Microsoft 365 Client SSO -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-icon icon-ms">🪪</div>
+          <div class="card-title-box">
+            <h3>Office 365 Client SSO</h3>
+            <span>microsoft-addin & manifest.xml</span>
+          </div>
+        </div>
+        <ul class="card-list">
+          <li>
+            <div class="bullet"></div>
+            <div><strong>Native Entra ID Binding:</strong> Manifest declares <code>&lt;WebApplicationInfo&gt;</code> with Azure App Registration ID.</div>
+          </li>
+          <li>
+            <div class="bullet"></div>
+            <div><strong>Zero-Prompt Experience:</strong> Pre-authorized Office client IDs eliminate consent prompts for corporate users.</div>
+          </li>
+          <li>
+            <div class="bullet"></div>
+            <div><strong>Fallback Mechanism:</strong> Graceful degradation to MSAL.js popup dialog if SSO is restricted by client host.</div>
+          </li>
+        </ul>
+      </section>
+
+      <!-- Card 2: Cloud Run Backend Validation -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-icon icon-gcp">🛡️</div>
+          <div class="card-title-box">
+            <h3>Backend JWT Verification</h3>
+            <span>geminiproxy/index.js</span>
+          </div>
+        </div>
+        <ul class="card-list">
+          <li>
+            <div class="bullet"></div>
+            <div><strong>Stateless Key Discovery:</strong> Uses <code>jwks-rsa</code> to cache & verify Microsoft signing keys dynamically.</div>
+          </li>
+          <li>
+            <div class="bullet"></div>
+            <div><strong>Tenant Allowlisting:</strong> Validates <code>tid</code> (Tenant ID) to restrict access to authorized enterprise domains.</div>
+          </li>
+          <li>
+            <div class="bullet"></div>
+            <div><strong>User Audit & Telemetry:</strong> Injects verified <code>req.user.email</code> into Cloud Logging & quota meters.</div>
+          </li>
+        </ul>
+      </section>
+
+      <!-- Card 3: Enterprise Grounding & Security -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-icon icon-sec">🔒</div>
+          <div class="card-title-box">
+            <h3>ACL Grounding & Security</h3>
+            <span>Vertex AI & StreamAssist</span>
+          </div>
+        </div>
+        <ul class="card-list">
+          <li>
+            <div class="bullet"></div>
+            <div><strong>ACL-Aware Search:</strong> Propagates user identity to Vertex AI Search ensuring users only retrieve permitted docs.</div>
+          </li>
+          <li>
+            <div class="bullet"></div>
+            <div><strong>Least-Privilege IAM:</strong> Cloud Run connects via Workload Identity / Service Account with <code>roles/aiplatform.user</code>.</div>
+          </li>
+          <li>
+            <div class="bullet"></div>
+            <div><strong>Cross-Cloud Trust:</strong> Secure bridge linking Microsoft corporate logins directly to Google GenAI capabilities.</div>
+          </li>
+        </ul>
+      </section>
+
+    </main>
+
+    <!-- Bottom Summary Strip -->
+    <footer class="summary-strip">
+      <div class="summary-items">
+        <div class="summary-item"><span class="summary-icon">✅</span> Zero Friction Login (No Passwords)</div>
+        <div class="summary-item"><span class="summary-icon">🏢</span> Multi-Tenant Isolation & Domain Whitelisting</div>
+        <div class="summary-item"><span class="summary-icon">📊</span> Per-User Quota & Compliance Audit Trail</div>
+      </div>
+      <div style="font-family: 'JetBrains Mono'; font-size: 11px; color: var(--text-muted);">
+        Standard: RFC 6749 (OAuth 2.0) &amp; OpenID Connect
+      </div>
+    </footer>
+
+  </div>
+
+</body>
+</html>
