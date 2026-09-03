@@ -188,6 +188,13 @@ export function getProxyBaseUrl() {
   }
   if (typeof window !== 'undefined' && window.location && window.location.hostname) {
     const host = window.location.hostname;
+    if (host.includes('36841365232') || host.includes('vertexsearch-447722') || host.includes('j43mxpthfa-uc')) {
+      return 'https://auth-proxy-j43mxpthfa-uc.a.run.app';
+    }
+    const match = host.match(/gemini-frontend-(?:(\d+)|([a-z0-9]+-[a-z0-9]+))\.([a-z0-9-]+)\.run\.app/);
+    if (match) {
+      return `https://auth-proxy-${match[1] || match[2]}.${match[3]}.run.app`;
+    }
     if (host.includes('1062675944253') || host.includes('agentspace-wif')) {
       return 'https://auth-proxy-1062675944253.us-central1.run.app';
     }
@@ -195,7 +202,7 @@ export function getProxyBaseUrl() {
       return 'https://auth-proxy-16933400417.us-central1.run.app';
     }
   }
-  return 'https://auth-proxy-16933400417.us-central1.run.app';
+  return 'https://auth-proxy-j43mxpthfa-uc.a.run.app';
 }
 
 /**

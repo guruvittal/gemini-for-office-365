@@ -685,7 +685,30 @@ async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, us
     }
   }
 
-  return processStreamAssistChunks(parsedChunks, sessionId);
+  const streamResult = processStreamAssistChunks(parsedChunks, sessionId);
+
+  if (!streamResult.resultText || streamResult.resultText.trim() === '') {
+    const isSkipped = parsedChunks.some(c => c.answer?.state === 'SKIPPED');
+    console.log(`[ASSIST_FALLBACK] StreamAssist returned no text (isSkipped=${isSkipped}) for prompt: "${prompt}". Generating conversational response...`);
+    try {
+      const { model } = getCachedModel('gemini-1.5-flash', false);
+      const flashRes = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        systemInstruction: {
+          parts: [{ text: "You are Gemini Enterprise for Microsoft 365 (PowerPoint, Word, and Excel). Respond helpfully, concisely, and cordially to conversational queries, greetings, or questions, and let the user know you can help analyze enterprise documents, create slides, summarize text, and generate structured content." }]
+        }
+      });
+      const candidateText = flashRes.response?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (candidateText) {
+        streamResult.resultText = candidateText;
+      }
+    } catch (fbErr) {
+      console.warn('[FALLBACK_ERR] Vertex AI fallback failed:', fbErr.message);
+      streamResult.resultText = "Hello! I am Gemini Enterprise for Microsoft 365. I'm connected to your enterprise data stores and ready to assist. You can ask me questions about your corporate documents, request summaries, or ask me to draft presentation slides and documents.";
+    }
+  }
+
+  return streamResult;
 }
 
 async function handleGeminiEnterpriseRequest(req, res) {

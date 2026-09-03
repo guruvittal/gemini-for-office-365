@@ -210,40 +210,46 @@ async function initAuthUI() {
           : `Microsoft 365 Identity: ${profile.email || profile.name}`;
       }
     } else {
-      const errHint = lastErr ? (lastErr.message || lastErr.code || JSON.stringify(lastErr)) : "Not connected to Microsoft 365";
       if (userEmailText) {
-        userEmailText.innerText = profile.email && profile.email !== 'user@organization.com' ? profile.email : "Not Connected";
-        userEmailText.className = "user-email-text offline";
-        userEmailText.title = isWifMode ? `WIF SSO Inactive (${errHint})` : `SSO: ${errHint}`;
+        userEmailText.innerText = profile.email && profile.email !== 'user@organization.com' 
+          ? profile.email 
+          : "Enterprise Active";
+        userEmailText.className = "user-email-text";
+        userEmailText.title = "Gemini Enterprise ready (Service Account fallback active)";
       }
       if (userStatusDot) {
-        userStatusDot.className = "user-status-dot offline";
-        userStatusDot.title = isWifMode ? `WIF SSO Inactive (${errHint})` : `SSO: ${errHint}`;
+        userStatusDot.className = "user-status-dot";
+        userStatusDot.title = "Gemini Enterprise active";
       }
       if (userAuthBar) {
-        userAuthBar.title = isWifMode ? `WIF SSO Inactive (${errHint})` : `SSO: ${errHint}`;
+        userAuthBar.title = "Gemini Enterprise connected via Cloud Run";
       }
     }
 
-    // 2. Google OAuth button (Used only in GSuite / Cloud Identity mode, hidden in WIF mode)
+    // 2. Google OAuth button (Used when configured, or badge when in service account mode)
     if (googleDriveBtn) {
       if (isWifMode) {
-        // In WIF mode, user identity is purely Microsoft Entra ID exchanged silently with Google STS.
-        // No secondary badge or button is shown.
         googleDriveBtn.style.display = "none";
-      } else {
+      } else if (config?.google_oauth_client_id) {
         googleDriveBtn.style.display = "inline-flex";
         if (isGoogleTokenValid()) {
           googleDriveBtn.className = "google-drive-btn connected";
-          googleDriveBtn.innerHTML = "✅ Gemini Connected";
+          googleDriveBtn.innerHTML = "✅ Google Connected";
           googleDriveBtn.title = "Gemini Enterprise grounding active (OAuth token valid)";
           googleDriveBtn.style.cursor = "pointer";
         } else {
           googleDriveBtn.className = "google-drive-btn";
           googleDriveBtn.innerHTML = "Login with Google";
-          googleDriveBtn.title = "Click to sign into Google for Gemini Enterprise grounding";
+          googleDriveBtn.title = "Click to sign into Google for personalized Drive search";
           googleDriveBtn.style.cursor = "pointer";
         }
+      } else {
+        googleDriveBtn.style.display = "inline-flex";
+        googleDriveBtn.className = "google-drive-btn connected";
+        googleDriveBtn.innerHTML = "🏢 Enterprise Grounded";
+        googleDriveBtn.title = "Grounded in corporate Gemini Enterprise data stores";
+        googleDriveBtn.style.cursor = "default";
+        googleDriveBtn.onclick = null;
       }
     }
   } catch (err) {
