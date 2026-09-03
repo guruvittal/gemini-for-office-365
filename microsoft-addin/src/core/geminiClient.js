@@ -19,11 +19,18 @@ export function getActiveProxyUrl() {
   }
   if (typeof window !== 'undefined' && window.location && window.location.hostname) {
     const host = window.location.hostname;
+    const match = host.match(/^gemini-frontend-([a-z0-9-]+)\.([a-z0-9-]+)\.run\.app$/i);
+    if (match) {
+      return `https://auth-proxy-${match[1]}.${match[2]}.run.app/askGeminiEnterprise`;
+    }
     if (host.includes('1062675944253') || host.includes('agentspace-wif')) {
       return 'https://auth-proxy-1062675944253.us-central1.run.app/askGeminiEnterprise';
     }
     if (host.includes('16933400417') || host.includes('agentspace-452714')) {
       return 'https://auth-proxy-16933400417.us-central1.run.app/askGeminiEnterprise';
+    }
+    if (host.includes('36841365232') || host.includes('vertexsearch-447722')) {
+      return 'https://auth-proxy-36841365232.us-central1.run.app/askGeminiEnterprise';
     }
   }
   return DEFAULT_AUTH_PROXY_URL;
