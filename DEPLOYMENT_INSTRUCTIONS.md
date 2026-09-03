@@ -28,6 +28,7 @@ This runbook is the complete, single-source-of-truth guide for deploying and con
 - [Appendix A: Verification, Testing & GCP Cloud Logging](#appendix-a-verification-testing--gcp-cloud-logging)
 - [Appendix B: Cross-Project Deployment (Optional)](#appendix-b-cross-project-deployment-optional--only-required-if-gemini-enterprise-is-in-a-different-gcp-project)
 - [Appendix C: Cloud Run Environment Variables Reference](#appendix-c-cloud-run-environment-variables-reference)
+- [👨‍💻 Multi-Developer Onboarding & Central Admin Guide (MULTI_DEVELOPER_ONBOARDING_GUIDE.md)](MULTI_DEVELOPER_ONBOARDING_GUIDE.md)
 
 ---
 
