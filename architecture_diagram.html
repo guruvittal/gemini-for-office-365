@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gemini for Office 365 - Architecture Diagrams</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --google-blue: #1a73e8;
+      --google-blue-hover: #1557b0;
+      --google-blue-light: #e8f0fe;
+      --google-green: #34a853;
+      --google-green-light: #e6f4ea;
+      --google-red: #ea4335;
+      --google-red-light: #fce8e6;
+      --google-amber: #f9ab00;
+      --ms-blue: #0078d4;
+      --ms-dark-blue: #106ebe;
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --surface-light: #334155;
+      --card-bg: rgba(30, 41, 59, 0.95);
+      --border: #334155;
+      --border-accent: #475569;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+    }
+
+    header {
+      max-width: 1200px;
+      margin: 0 auto 24px;
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 20px;
+    }
+
+    .brand-container {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo-badge {
+      width: 44px;
+      height: 44px;
+      background: linear-gradient(135deg, #1a73e8, #4285f4);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Google Sans', sans-serif;
+      font-weight: 700;
+      font-size: 22px;
+      color: white;
+      box-shadow: 0 4px 12px rgba(26, 115, 232, 0.35);
+    }
+
+    .header-text h1 {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header-text p {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .tag {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: rgba(26, 115, 232, 0.2);
+      color: #8ab4f8;
+      border: 1px solid rgba(138, 180, 248, 0.3);
+    }
+
+    .tab-nav {
+      display: flex;
+      background: var(--surface);
+      border-radius: 10px;
+      padding: 4px;
+      gap: 4px;
+      border: 1px solid var(--border);
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 10px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+
+    .tab-btn:hover {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .tab-btn.active {
+      background: var(--google-blue);
+      color: white;
+      box-shadow: 0 2px 8px rgba(26, 115, 232, 0.4);
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      width: 100%;
+      flex: 1;
+    }
+
+    .diagram-panel {
+      visibility: hidden;
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+      width: 100%;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+      transition: opacity 0.25s ease;
+    }
+
+    .diagram-panel.active {
+      visibility: visible;
+      position: relative;
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .panel-header {
+      margin-bottom: 24px;
+    }
+
+    .panel-title {
+      font-family: 'Google Sans', sans-serif;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .panel-subtitle {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-top: 6px;
+      line-height: 1.5;
+    }
+
+    .mermaid-wrapper {
+      background: #0b1120;
+      border-radius: 12px;
+      border: 1px solid var(--border-accent);
+      padding: 32px;
+      overflow-x: auto;
+      display: flex;
+      justify-content: center;
+      min-height: 380px;
+      align-items: center;
+    }
+
+    .mermaid {
+      width: 100%;
+      text-align: center;
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .metric-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+    }
+
+    .metric-card.legacy {
+      border-left: 4px solid var(--google-red);
+    }
+
+    .metric-card.enterprise {
+      border-left: 4px solid var(--google-green);
+    }
+
+    .metric-card.flow {
+      border-left: 4px solid var(--google-blue);
+    }
+
+    .metric-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .metric-card.legacy .metric-header { color: #f87171; }
+    .metric-card.enterprise .metric-header { color: #4ade80; }
+    .metric-card.flow .metric-header { color: #60a5fa; }
+
+    .metric-body {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .metric-body strong {
+      color: var(--text-main);
+    }
+
+    footer {
+      max-width: 1200px;
+      margin: 32px auto 0;
+      width: 100%;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border);
+      padding-top: 20px;
+    }
+
+    /* Mermaid text readability tweaks in dark mode */
+    .node rect, .node circle, .node polygon {
+      stroke-width: 2px !important;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand-container">
+      <div class="logo-badge">G</div>
+      <div class="header-text">
+        <h1>Gemini for Office 365 <span class="tag">Architecture v2.0</span></h1>
+        <p>3-Tier Microservices, Entra ID SSO & Google Enterprise Identity Integration</p>
+      </div>
+    </div>
+    <div class="tab-nav">
+      <button class="tab-btn active" onclick="switchTab('evolution', event)">Architecture Evolution</button>
+      <button class="tab-btn" onclick="switchTab('tokenflow', event)">Identity & Token Flow</button>
+      <button class="tab-btn" onclick="switchTab('deployment', event)">Deployment Pipeline</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- TAB 1: Evolution Comparison -->
+    <div id="panel-evolution" class="diagram-panel active">
+      <div class="panel-header">
+        <h2 class="panel-title">2-Tier vs. 3-Tier Enterprise Architecture</h2>
+        <p class="panel-subtitle">Comparing the legacy direct-proxy model against the new 3-tier enterprise gateway architecture with decoupled authentication, session recovery, and per-user ACLs.</p>
+      </div>
+      <div class="mermaid-wrapper">
+        <pre class="mermaid">
+%%{init: {'theme': 'dark', 'themeVariables': { 'darkMode': true, 'background': '#0b1120', 'primaryColor': '#1e293b', 'primaryTextColor': '#f8fafc', 'primaryBorderColor': '#475569', 'lineColor': '#94a3b8' }}}%%
+flowchart LR
+    subgraph Previous["Previous Local Architecture (2-Tier)"]
+        direction TB
+        F1["gemini-frontend<br/>(Static Taskpane)"] -->|"Direct / Shared SA"| B1["gemini-proxy<br/>(Node.js Express)"]
+        B1 -->|"Vertex AI / Discovery Engine"| GCP1[("GCP Datastores")]
+    end
+
+    subgraph Integrated["New Enterprise Architecture (3-Tier)"]
+        direction TB
+        F2["gemini-frontend<br/>(Office Add-in UI)"] -->|"1. Microsoft Entra ID Token"| A2["auth-proxy<br/>(FastAPI Security Gateway)"]
+        A2 -->|"2. Google STS / OAuth Token"| B2["askgemini-proxy<br/>(Node.js Backend Proxy)"]
+        B2 -->|"3. streamAssist API (v1alpha)"| GCP2[("Gemini Enterprise<br/>(Per-user ACL & Datastores)")]
+    end
+
+    style Previous fill:#1e1b2e,stroke:#f87171,stroke-width:2px,stroke-dasharray: 4 4
+    style Integrated fill:#132e26,stroke:#4ade80,stroke-width:2px
+    style F1 fill:#292524,stroke:#78716c,color:#f8fafc
+    style B1 fill:#292524,stroke:#78716c,color:#f8fafc
+    style GCP1 fill:#292524,stroke:#78716c,color:#f8fafc
+    style F2 fill:#1e293b,stroke:#60a5fa,color:#f8fafc
+    style A2 fill:#1e293b,stroke:#c084fc,color:#f8fafc
+    style B2 fill:#1e293b,stroke:#60a5fa,color:#f8fafc
+    style GCP2 fill:#1e293b,stroke:#34d399,color:#f8fafc
+        </pre>
+      </div>
+
+      <div class="metrics-grid">
+        <div class="metric-card legacy">
+          <div class="metric-header">Previous: 2-Tier Model</div>
+          <div class="metric-body">
+            <strong>Shared Service Account:</strong> All queries share a single SA without end-user identity attribution.<br>
+            <strong>Hardcoded Settings:</strong> Fixed project IDs & datastore configs in environment variables.<br>
+            <strong>No SSO:</strong> Unauthenticated frontend connection to the proxy.
+          </div>
+        </div>
+        <div class="metric-card enterprise">
+          <div class="metric-header">Integrated: 3-Tier Enterprise Model</div>
+          <div class="metric-body">
+            <strong>Decoupled Security Gateway:</strong> <code>auth-proxy</code> inspects Microsoft Entra RS256 JWTs before backend invocation.<br>
+            <strong>Identity Federation:</strong> Google STS token exchange (WIF) and Cloud Identity 3-legged OAuth.<br>
+            <strong>Smart Resilience:</strong> Backend detects HTTP 403 unowned sessions and automatically recovers.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: Token Flow -->
+    <div id="panel-tokenflow" class="diagram-panel">
+      <div class="panel-header">
+        <h2 class="panel-title">End-to-End Identity & Token Exchange Flow</h2>
+        <p class="panel-subtitle">Dual-track authentication supporting Workforce Identity Federation (Track 1) and Google Workspace / Cloud Identity (Track 2).</p>
+      </div>
+      <div class="mermaid-wrapper">
+        <pre class="mermaid">
+%%{init: {'theme': 'dark', 'themeVariables': { 'darkMode': true, 'background': '#0b1120', 'primaryColor': '#1e293b', 'primaryTextColor': '#f8fafc', 'primaryBorderColor': '#475569', 'lineColor': '#94a3b8' }}}%%
+sequenceDiagram
+    autonumber
+    actor User as Office 365 User
+    participant Taskpane as gemini-frontend (Office Host)
+    participant AuthProxy as auth-proxy (FastAPI)
+    participant STS as Google STS / OAuth
+    participant Backend as askgemini-proxy (Express)
+    participant GE as Gemini Enterprise (Discovery Engine)
+
+    User->>Taskpane: Opens Word / Excel / PPT Taskpane
+    Taskpane->>Taskpane: Office.auth.getAccessToken() (Entra ID SSO)
+    Taskpane->>AuthProxy: POST /askGeminiEnterprise (Bearer Entra JWT)
+    AuthProxy->>AuthProxy: Verify RS256 Signature via Microsoft JWKS
+    
+    alt Track 1: Workforce Identity Federation (WIF)
+        AuthProxy->>STS: Exchange Entra JWT for Federated Access Token
+        STS-->>AuthProxy: Return Short-Lived Google Access Token
+    else Track 2: Cloud Identity / Workspace (3-Legged OAuth)
+        AuthProxy->>Taskpane: Prompt Google Login Popup (if unauthenticated)
+        Taskpane->>STS: 3-Legged OAuth Consent Flow
+        STS-->>Taskpane: Return Google User Token
+        Taskpane->>AuthProxy: Forward with X-Google-User-Token
+    end
+
+    AuthProxy->>Backend: Forward prompt + Google User Token
+    Backend->>GE: streamAssist API (v1alpha) with user credential
+    GE-->>Backend: Stream Search Results & Citations
+    Backend-->>AuthProxy: Stream Response Chunks
+    AuthProxy-->>Taskpane: SSE Stream to User Interface
+        </pre>
+      </div>
+
+      <div class="metrics-grid">
+        <div class="metric-card flow">
+          <div class="metric-header">Track 1: WIF (External IdP)</div>
+          <div class="metric-body">
+            Exchanges Microsoft Entra ID tokens directly with Google STS workforce pool (<code>ca-entra-id-oidc-pool</code>). No Google user accounts needed.
+          </div>
+        </div>
+        <div class="metric-card flow">
+          <div class="metric-header">Track 2: Cloud Identity (Google Workspace)</div>
+          <div class="metric-body">
+            3-legged Google OAuth consent flow enables Gemini Enterprise to search personal Google Drive files and private shared drives securely.
+          </div>
+        </div>
+        <div class="metric-card enterprise">
+          <div class="metric-header">Fallback Guarantee</div>
+          <div class="metric-body">
+            <code>ALLOW_SERVICE_ACCOUNT_FALLBACK=true</code> ensures unauthenticated demos or general questions continue to function seamlessly.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: Deployment Pipeline -->
+    <div id="panel-deployment" class="diagram-panel">
+      <div class="panel-header">
+        <h2 class="panel-title">Cloud Run Deployment Pipeline (Linear 3-Step)</h2>
+        <p class="panel-subtitle">Automated linear deployment via <code>./deploy.sh</code> to eliminate circular dependency issues between frontend and gateway.</p>
+      </div>
+      <div class="mermaid-wrapper">
+        <pre class="mermaid">
+%%{init: {'theme': 'dark', 'themeVariables': { 'darkMode': true, 'background': '#0b1120', 'primaryColor': '#1e293b', 'primaryTextColor': '#f8fafc', 'primaryBorderColor': '#475569', 'lineColor': '#94a3b8' }}}%%
+flowchart TD
+    S1["<strong>Step 1: Deploy askgemini-proxy</strong><br/>Backend Cloud Run Service<br/>Exports: BACKEND_URL"] --> S2["<strong>Step 2: Deploy auth-proxy</strong><br/>Gateway Cloud Run Service<br/>DOWNSTREAM_BACKEND_URL = BACKEND_URL<br/>Exports: AUTH_PROXY_URL"]
+    S2 --> S3["<strong>Step 3: Deploy gemini-frontend</strong><br/>Nginx Taskpane Cloud Run Service<br/>GEMINI_PROXY_URL = AUTH_PROXY_URL/askGeminiEnterprise<br/>Exports: FRONTEND_URL"]
+    S3 --> S4["<strong>Step 4: Generate Manifest</strong><br/>python3 scripts/generate_manifest.py<br/>Injects FRONTEND_URL & AUTH_PROXY_URL"]
+    S4 --> S5["<strong>Step 5: Sideload & Enjoy</strong><br/>Office 365 Ribbon Integration<br/>Word, PowerPoint & Excel"]
+
+    style S1 fill:#1e293b,stroke:#60a5fa,stroke-width:2px,color:#f8fafc
+    style S2 fill:#1e293b,stroke:#c084fc,stroke-width:2px,color:#f8fafc
+    style S3 fill:#1e293b,stroke:#34d399,stroke-width:2px,color:#f8fafc
+    style S4 fill:#1e293b,stroke:#fbbf24,stroke-width:2px,color:#f8fafc
+    style S5 fill:#1e293b,stroke:#f472b6,stroke-width:2px,color:#f8fafc
+        </pre>
+      </div>
+
+      <div class="metrics-grid">
+        <div class="metric-card flow">
+          <div class="metric-header">Automated CLI</div>
+          <div class="metric-body">
+            Execute <code>./deploy.sh</code> with optional environment variables (<code>PROJECT_ID</code>, <code>REGION</code>, <code>TRACK</code>) for complete deployment.
+          </div>
+        </div>
+        <div class="metric-card enterprise">
+          <div class="metric-header">Manifest Sideloading</div>
+          <div class="metric-body">
+            Upload the generated XML manifest directly to Microsoft 365 Admin Center or sideload locally via Office desktop.
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <p>Gemini for Office 365 • Enterprise Multi-Tenant Architecture • Google Cloud</p>
+  </footer>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      securityLevel: 'loose'
+    });
+
+    function switchTab(tabName, evt) {
+      const ev = evt || window.event;
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.diagram-panel').forEach(panel => panel.classList.remove('active'));
+
+      if (ev && ev.currentTarget) {
+        ev.currentTarget.classList.add('active');
+      }
+      const targetPanel = document.getElementById('panel-' + tabName);
+      if (targetPanel) {
+        targetPanel.classList.add('active');
+      }
+    }
+  </script>
+</body>
+</html>
