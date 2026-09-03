@@ -53,13 +53,13 @@ flowchart TD
 
 Before onboarding, the developer must provide the Central Administrator with the following 4 parameters:
 
-| Parameter | Description | Example |
-| :--- | :--- | :--- |
-| **`DEV_PROJECT_ID`** | Developer's personal GCP Project ID | `developer-alex-sandbox` |
-| **`DEV_PROJECT_NUM`** | Developer's GCP Project Number | `987654321012` |
-| **`DEV_SERVICE_ACCOUNT`** | Developer's Cloud Run Service Account Email | `gemini-office365-sa@developer-alex-sandbox.iam.gserviceaccount.com` |
-| **`DEV_FRONTEND_URL`** | Live HTTPS URL of developer's `gemini-frontend` | `https://gemini-frontend-987654321012.us-central1.run.app` |
-| **`DEV_USER_EMAIL`** | Developer's test email address (for IAM authorization) | `alex@yourdomain.com` |
+| Parameter | Description | Required / Optional | Example |
+| :--- | :--- | :---: | :--- |
+| **`DEV_PROJECT_ID`** | Developer's personal GCP Project ID | **Required** | `developer-alex-sandbox` |
+| **`DEV_PROJECT_NUM`** | Developer's GCP Project Number | **Required** | `987654321012` |
+| **`DEV_SERVICE_ACCOUNT`** | Developer's Cloud Run Service Account Email | **Derived** | `gemini-office365-sa@<DEV_PROJECT_ID>.iam.gserviceaccount.com` |
+| **`DEV_FRONTEND_URL`** | Live HTTPS URL of developer's `gemini-frontend` | **Derived** | `https://gemini-frontend-<DEV_PROJECT_NUM>.us-central1.run.app` |
+| **`DEV_USER_EMAIL`** | Developer's test email (Only needed if NOT using a Google Group) | *Optional* | `alex@yourdomain.com` |
 
 ---
 

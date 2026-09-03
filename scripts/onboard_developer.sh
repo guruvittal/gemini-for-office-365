@@ -71,8 +71,9 @@ if [[ -z "${DEV_PROJECT_NUM}" ]]; then
   fi
 fi
 
+# dev-email is optional (can be granted via Google Group at the domain level)
 if [[ -z "${DEV_EMAIL}" ]]; then
-  read -p "Enter Developer Google User Email (for Drive / Gemini viewer access): " DEV_EMAIL
+  echo -e "${YELLOW}ℹ Developer user email not provided. Skipping individual user IAM (ensure group:domain level access is configured).${NC}"
 fi
 
 DEV_SA="gemini-office365-sa@${DEV_PROJECT_ID}.iam.gserviceaccount.com"
