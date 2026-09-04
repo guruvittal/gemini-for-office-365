@@ -153,8 +153,19 @@ async function createSingleSlide(slideData, slideNum) {
   // Atomic PowerPoint slide creation with clean shape management
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
-    const newSlide = slides.add();
+    slides.add();
     await context.sync();
+
+    slides.load("items");
+    await context.sync();
+
+    const newSlide = slides.items && slides.items.length > 0 
+      ? slides.items[slides.items.length - 1] 
+      : null;
+
+    if (!newSlide) {
+      throw new Error(`Failed to reference newly created slide ${slideNum}`);
+    }
 
     newSlide.shapes.load("items");
     await context.sync();
