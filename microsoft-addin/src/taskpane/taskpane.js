@@ -355,7 +355,7 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
         <button class="quick-chip" id="chipTakeaways" style="background-color:#e0f2fe; color:#0369a1; border-color:#bae6fd;">🎯 Slide Takeaways</button>
         <button class="quick-chip" id="chipRisks" style="background-color:#fef3c7; color:#b45309; border-color:#fde68a;">⚠️ Key Risks</button>
         <button class="quick-chip" id="chipRewrite" style="background-color:#f3e8ff; color:#7e22ce; border-color:#e9d5ff;">🪄 Rewrite Slide</button>
-        <button class="quick-chip" id="chipDocToDeck" style="background-color:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600;">📄 Transform Doc to Deck</button>
+        <button class="quick-chip" id="chipDocToDeck" style="background-color:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600;">📄 Doc to Deck</button>
         <button class="quick-chip" id="chipShorten">📉 Shorten</button>
         <button class="quick-chip" id="chipTable">📊 Table</button>
       `;
@@ -390,7 +390,7 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
       if (selectionPill) selectionPill.style.display = "none";
 
       container.innerHTML = `
-        <button class="quick-chip" id="chipDocToDeck" style="background-color:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600;">📄 Transform Doc to Deck</button>
+        <button class="quick-chip" id="chipDocToDeck" style="background-color:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600;">📄 Doc to Deck</button>
         <button class="quick-chip" id="chipSummarize">📊 Summarize Slides</button>
         <button class="quick-chip" id="chipActionItems">✅ Action Items</button>
         <button class="quick-chip" id="chipExecBox">🎯 Slide Takeaways</button>
@@ -847,7 +847,7 @@ function initDocToDeckFeature() {
         });
       }
 
-      const displayUserBubble = `📄 [Transform Doc to Deck]\nAttached: ${fileNames.join(', ')}`;
+      const displayUserBubble = `📄 [Doc to Deck]\nAttached: ${fileNames.join(', ')}`;
       const prompt = `Extract the key takeaways from the attached document(s) and create an executive slide deck with no more than 5 slides summarizing the key insights.
 
 PowerPoint Slide Deck Requirements:

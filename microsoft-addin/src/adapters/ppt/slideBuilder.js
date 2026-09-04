@@ -73,6 +73,33 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 800, maxHeight 
 
 
 /**
+ * Accurately estimates rendered height of a native PowerPoint table based on word-wrapping.
+ */
+function estimateTableRenderedHeight(tableData, colWidth = 280) {
+  if (!tableData) return 0;
+  const headers = tableData.headers || [];
+  const rows = tableData.rows || [];
+  let totalHeight = headers.length > 0 ? 34 : 0; // Header row height
+
+  for (const row of rows) {
+    // Determine maximum length among cell values in this row
+    const maxChars = Math.max(...row.map(c => String(c !== undefined && c !== null ? c : "").trim().length), 0);
+    // At ~280pt column width, approx 28-30 characters fit per line
+    const charsPerLine = Math.max(15, Math.floor(colWidth / 9.5));
+    const approxLines = Math.max(1, Math.ceil(maxChars / charsPerLine));
+
+    if (approxLines >= 3) {
+      totalHeight += 58;
+    } else if (approxLines === 2) {
+      totalHeight += 44;
+    } else {
+      totalHeight += 30;
+    }
+  }
+  return totalHeight;
+}
+
+/**
  * Populates a native Microsoft PowerPoint table using PowerPoint.js shapes.addTable().
  */
 function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, tableTop = 90, customHeight = null, customWidth = null) {
@@ -98,7 +125,9 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
   }
 
   const tableWidth = customWidth || 860;
-  const tableHeight = customHeight || Math.min(380, Math.max(90, rowCount * 30));
+  const approxColWidth = tableWidth / Math.max(1, colCount);
+  const estimatedHeight = estimateTableRenderedHeight(tableData, approxColWidth);
+  const tableHeight = customHeight || Math.min(380, Math.max(90, estimatedHeight));
 
   try {
     if (typeof newSlide.shapes.addTable === "function") {
@@ -109,8 +138,8 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
         height: tableHeight,
         values: tableValues
       });
-      logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table (${rowCount} rows x ${colCount} cols).`);
-      return tableHeight;
+      logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table (${rowCount} rows x ${colCount} cols, rendered height ~${estimatedHeight}pt).`);
+      return estimatedHeight;
     }
   } catch (err) {
     console.warn("shapes.addTable with options failed, trying basic addTable:", err);
@@ -126,7 +155,7 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
       }
     }
     logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table via getCell.`);
-    return tableHeight;
+    return estimatedHeight;
   } catch (fallbackErr) {
     console.error("Native table shape creation failed:", fallbackErr);
     logToPPTConsole(`Slide ${slideNum}: ⚠️ Table shape notice: ${fallbackErr.message}`);
@@ -270,60 +299,76 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
     const slideCount = countResult.value;
     const newSlide = slides.getItemAt(slideCount - 1);
 
+    const hasAdditionalNotes = Boolean(additionalBody && additionalBody.trim().length > 0);
+    const hasTable = Boolean(tableData && tableData.rows && tableData.rows.length > 0);
+    const compactHeader = hasTable && hasAdditionalNotes;
+
+    const titleTop = compactHeader ? 18 : 25;
+    const effectiveTitleSize = compactHeader ? Math.min(titleSize || 36, 30) : (titleSize || 36);
+
     // Add Clean Title at Top using Gemini's requested title font size
     const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
       left: 50,
-      top: 25,
+      top: titleTop,
       width: 860,
-      height: 50
+      height: compactHeader ? 38 : 50
     });
-    titleBox.textFrame.textRange.font.size = titleSize;
+    titleBox.textFrame.textRange.font.size = effectiveTitleSize;
     titleBox.textFrame.textRange.font.bold = true;
     try {
       titleBox.textFrame.wordWrap = false;
     } catch (wErr) {}
     if (color) titleBox.textFrame.textRange.font.color = color;
 
-    let contentTop = 85;
+    let contentTop = compactHeader ? 62 : 85;
 
     // Add Subtitle if present
     if (subtitle) {
+      const subtitleTop = compactHeader ? 54 : 75;
+      const subtitleHeight = compactHeader ? 22 : 30;
+      const effectiveSubtitleSize = compactHeader ? Math.min(subtitleSize || 18, 14) : (subtitleSize || 18);
+
       const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
         left: 50,
-        top: 75,
+        top: subtitleTop,
         width: 860,
-        height: 30
+        height: subtitleHeight
       });
-      subtitleBox.textFrame.textRange.font.size = subtitleSize;
+      subtitleBox.textFrame.textRange.font.size = effectiveSubtitleSize;
       subtitleBox.textFrame.textRange.font.italic = true;
       if (color) subtitleBox.textFrame.textRange.font.color = color;
-      contentTop = 112;
+      contentTop = compactHeader ? 82 : 112;
     }
 
     // If tableData is present, create native PowerPoint table
-    if (tableData && tableData.rows && tableData.rows.length > 0) {
-      const hasAdditionalNotes = additionalBody && additionalBody.trim().length > 0;
-      const rowCount = (tableData.headers && tableData.headers.length > 0 ? 1 : 0) + tableData.rows.length;
+    if (hasTable) {
+      const colCount = Math.max(
+        tableData.headers ? tableData.headers.length : 0,
+        ...tableData.rows.map(r => r.length),
+        1
+      );
       const tableWidth = hasImages ? 400 : 860;
-      const maxTableHeight = hasAdditionalNotes
-        ? Math.min(210, Math.max(75, rowCount * 28))
-        : Math.min(380, Math.max(100, rowCount * 32));
+      const approxColWidth = tableWidth / colCount;
+      const realTableHeight = estimateTableRenderedHeight(tableData, approxColWidth);
 
-      const actualTableHeight = populateSlideTable(
-        newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop, maxTableHeight, tableWidth
+      populateSlideTable(
+        newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop, realTableHeight, tableWidth
       );
 
-      // Render additional takeaways / bullet points below the table
+      // Render additional takeaways / bullet points below the table without overlapping
       if (hasAdditionalNotes) {
-        const notesTop = contentTop + (actualTableHeight || maxTableHeight) + 12;
-        const notesHeight = Math.max(80, 520 - notesTop);
+        const notesTop = contentTop + realTableHeight + 14;
+        const notesHeight = Math.max(60, 525 - notesTop);
         const notesBox = newSlide.shapes.addTextBox(additionalBody, {
           left: 50,
           top: notesTop,
           width: tableWidth,
           height: notesHeight
         });
-        notesBox.textFrame.textRange.font.size = 14;
+        notesBox.textFrame.textRange.font.size = 12;
+        try {
+          notesBox.textFrame.wordWrap = true;
+        } catch (_) {}
       }
     } else {
       // Body text / bullets and images
