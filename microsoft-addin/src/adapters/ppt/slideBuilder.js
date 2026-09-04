@@ -71,51 +71,6 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 800, maxHeight 
   });
 }
 
-/**
- * Discovers the Blank layout (or best clean layout) from the presentation's active theme/master.
- */
-async function getThemeBlankLayoutOptions() {
-  try {
-    return await PowerPoint.run(async (context) => {
-      const slideMasters = context.presentation.slideMasters;
-      slideMasters.load("id, name, layouts/items/name, layouts/items/id");
-      await context.sync();
-
-      if (!slideMasters.items || slideMasters.items.length === 0) {
-        return null;
-      }
-
-      // Use the active slide master
-      const master = slideMasters.items[0];
-      if (!master.layouts || !master.layouts.items || master.layouts.items.length === 0) {
-        return null;
-      }
-
-      // 1. Look for a layout named "blank" (case-insensitive)
-      let targetLayout = master.layouts.items.find(l => (l.name || "").toLowerCase().includes("blank"));
-
-      // 2. If no "blank", look for "empty" or "clean"
-      if (!targetLayout) {
-        targetLayout = master.layouts.items.find(l => {
-          const n = (l.name || "").toLowerCase();
-          return n.includes("empty") || n.includes("clean") || n.includes("custom");
-        });
-      }
-
-      if (targetLayout) {
-        return {
-          slideMasterId: master.id,
-          layoutId: targetLayout.id
-        };
-      }
-
-      return null;
-    });
-  } catch (err) {
-    console.warn("Could not query slide masters/layouts:", err);
-    return null;
-  }
-}
 
 /**
  * Populates a native Microsoft PowerPoint table using PowerPoint.js shapes.addTable().
@@ -179,7 +134,7 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
 /**
  * Creates a single slide atomically in PowerPoint with title, body bullets, native tables, or images.
  */
-async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
+async function createSingleSlide(slideData, slideNum) {
   const cleanTitle = (slideData.title || `Slide ${slideNum}`).replace(/\*\*/g, "").trim();
   const subtitle = slideData.subtitle || "";
   const titleSize = slideData.titleSize || 40;
@@ -198,21 +153,9 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
   // Atomic PowerPoint slide creation with clean shape management
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
-    if (layoutOptions) {
-      try {
-        slides.add(layoutOptions);
-      } catch (lErr) {
-        slides.add();
-      }
-    } else {
-      slides.add();
-    }
+    const newSlide = slides.add();
     await context.sync();
 
-    slides.load("items");
-    await context.sync();
-
-    const newSlide = slides.items[slides.items.length - 1];
     newSlide.shapes.load("items");
     await context.sync();
 
@@ -311,13 +254,7 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
   const totalSlides = slideStructures.length;
   logToPPTConsole(`=== Starting Generation of ${totalSlides} Slides ===`);
 
-  // 1. Discover Theme Blank Layout ONCE upfront to preserve presentation theme
-  const layoutOptions = await getThemeBlankLayoutOptions();
-  if (layoutOptions) {
-    logToPPTConsole(`ℹ️ Using Theme Blank Layout.`);
-  }
-
-  // 2. Pre-process images
+  // 1. Pre-process images
   for (let idx = 0; idx < slideStructures.length; idx++) {
     const slide = slideStructures[idx];
     slide.compressedImages = [];
@@ -334,7 +271,7 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     }
   }
 
-  // 3. Build each slide sequentially
+  // 2. Build each slide sequentially
   for (let i = 0; i < totalSlides; i++) {
     const slideData = slideStructures[i];
     const slideNum = i + 1;
@@ -348,7 +285,7 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     }
 
     try {
-      await createSingleSlide(slideData, slideNum, layoutOptions);
+      await createSingleSlide(slideData, slideNum);
     } catch (slideErr) {
       logToPPTConsole(`Slide ${slideNum} Error: ${slideErr.message}`, true);
       console.error(`[PPTBuilder] Slide ${slideNum} Error:`, slideErr);
