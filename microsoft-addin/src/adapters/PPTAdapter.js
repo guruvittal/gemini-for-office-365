@@ -27,6 +27,64 @@ export class PPTAdapter {
     }
   }
 
+  // Safely extract all text from all shapes on a PowerPoint slide
+  async _extractSlideText(context, slide) {
+    const textLines = [];
+    try {
+      const shapes = slide.shapes;
+      shapes.load("items");
+      await context.sync();
+
+      if (!shapes.items || shapes.items.length === 0) return "";
+
+      // Stage 1: Load shape metadata and textFrame.hasText safely
+      const shapeTrackers = [];
+      for (const shape of shapes.items) {
+        try {
+          shape.load("name, type");
+          const tf = shape.textFrame;
+          if (tf) {
+            tf.load("hasText");
+          }
+          shapeTrackers.push({ shape, tf });
+        } catch (e) {
+          console.warn("PPT shape meta load warning:", e);
+        }
+      }
+      await context.sync();
+
+      // Stage 2: Load textRange.text for shapes where hasText is true
+      const textShapes = [];
+      for (const tracker of shapeTrackers) {
+        try {
+          if (tracker.tf && tracker.tf.hasText) {
+            tracker.tf.textRange.load("text");
+            textShapes.push(tracker);
+          }
+        } catch (e) {
+          console.warn("PPT textRange load warning:", e);
+        }
+      }
+
+      if (textShapes.length > 0) {
+        await context.sync();
+        for (const tracker of textShapes) {
+          try {
+            if (tracker.tf && tracker.tf.textRange && tracker.tf.textRange.text) {
+              const txt = tracker.tf.textRange.text.trim();
+              if (txt) textLines.push(txt);
+            }
+          } catch (e) {
+            console.warn("PPT text read error:", e);
+          }
+        }
+      }
+    } catch (slideErr) {
+      console.warn("PPT slide extract error:", slideErr);
+    }
+    return textLines.join("\n\n");
+  }
+
   // Read text and metadata from currently highlighted/selected slide(s) in PowerPoint
   async getSelectedSlidesText() {
     const selectedSlidesData = [];
@@ -42,22 +100,8 @@ export class PPTAdapter {
             if (selectedSlides.items && selectedSlides.items.length > 0) {
               for (let i = 0; i < selectedSlides.items.length; i++) {
                 const slide = selectedSlides.items[i];
-                const shapes = slide.shapes;
-                shapes.load("items");
-                await context.sync();
-
-                let slideText = "";
-                for (const shape of shapes.items) {
-                  if (shape.textFrame) {
-                    const tr = shape.textFrame.textRange;
-                    tr.load("text");
-                    await context.sync();
-                    if (tr.text && tr.text.trim()) {
-                      slideText += tr.text.trim() + "\n";
-                    }
-                  }
-                }
-                if (slideText.trim()) {
+                const slideText = await this._extractSlideText(context, slide);
+                if (slideText && slideText.trim()) {
                   selectedSlidesData.push({
                     slideNumber: i + 1,
                     id: slide.id || `slide-${i + 1}`,
@@ -75,23 +119,40 @@ export class PPTAdapter {
             await context.sync();
 
             if (selectedShapes.items && selectedShapes.items.length > 0) {
-              let shapeText = "";
+              const shapeTrackers = [];
               for (const shape of selectedShapes.items) {
-                if (shape.textFrame) {
-                  const tr = shape.textFrame.textRange;
-                  tr.load("text");
-                  await context.sync();
-                  if (tr.text && tr.text.trim()) {
-                    shapeText += tr.text.trim() + "\n";
-                  }
+                const tf = shape.textFrame;
+                if (tf) {
+                  tf.load("hasText");
+                  shapeTrackers.push({ shape, tf });
                 }
               }
-              if (shapeText.trim()) {
-                selectedSlidesData.push({
-                  slideNumber: 1,
-                  id: "active-slide",
-                  text: shapeText.trim()
-                });
+              await context.sync();
+
+              const textShapes = [];
+              for (const tracker of shapeTrackers) {
+                if (tracker.tf && tracker.tf.hasText) {
+                  tracker.tf.textRange.load("text");
+                  textShapes.push(tracker);
+                }
+              }
+
+              if (textShapes.length > 0) {
+                await context.sync();
+                const shapeTexts = [];
+                for (const tracker of textShapes) {
+                  if (tracker.tf && tracker.tf.textRange && tracker.tf.textRange.text) {
+                    const txt = tracker.tf.textRange.text.trim();
+                    if (txt) shapeTexts.push(txt);
+                  }
+                }
+                if (shapeTexts.length > 0) {
+                  selectedSlidesData.push({
+                    slideNumber: 1,
+                    id: "active-selection",
+                    text: shapeTexts.join("\n\n")
+                  });
+                }
               }
             }
           }
@@ -115,12 +176,34 @@ export class PPTAdapter {
           await context.sync();
 
           if (selection.items && selection.items.length > 0) {
-            const shape = selection.items[0];
-            if (shape.textFrame) {
-              const textRange = shape.textFrame.textRange;
-              textRange.load("text");
+            const shapeTrackers = [];
+            for (const shape of selection.items) {
+              const tf = shape.textFrame;
+              if (tf) {
+                tf.load("hasText");
+                shapeTrackers.push({ shape, tf });
+              }
+            }
+            await context.sync();
+
+            const textShapes = [];
+            for (const tracker of shapeTrackers) {
+              if (tracker.tf && tracker.tf.hasText) {
+                tracker.tf.textRange.load("text");
+                textShapes.push(tracker);
+              }
+            }
+
+            if (textShapes.length > 0) {
               await context.sync();
-              selectedText = textRange.text ? textRange.text.trim() : "";
+              const texts = [];
+              for (const tracker of textShapes) {
+                if (tracker.tf && tracker.tf.textRange && tracker.tf.textRange.text) {
+                  const t = tracker.tf.textRange.text.trim();
+                  if (t) texts.push(t);
+                }
+              }
+              selectedText = texts.join("\n\n");
             }
           }
         });
@@ -133,23 +216,20 @@ export class PPTAdapter {
 
   // Read full presentation text across all slides and shapes
   async getFullDocumentText() {
-    let fullText = "";
+    const fullTextParts = [];
     try {
       if (typeof PowerPoint !== 'undefined') {
         await PowerPoint.run(async (context) => {
           const slides = context.presentation.slides;
           slides.load("items");
           await context.sync();
-          for (const s of slides.items) {
-            const shapes = s.shapes;
-            shapes.load("items");
-            await context.sync();
-            for (const shape of shapes.items) {
-              if (shape.textFrame) {
-                const tr = shape.textFrame.textRange;
-                tr.load("text");
-                await context.sync();
-                if (tr.text) fullText += tr.text + "\n";
+
+          if (slides.items && slides.items.length > 0) {
+            for (let i = 0; i < slides.items.length; i++) {
+              const slide = slides.items[i];
+              const slideText = await this._extractSlideText(context, slide);
+              if (slideText && slideText.trim()) {
+                fullTextParts.push(`--- Slide ${i + 1} ---\n${slideText.trim()}`);
               }
             }
           }
@@ -158,7 +238,7 @@ export class PPTAdapter {
     } catch (e) {
       console.warn("PPT full text read error:", e);
     }
-    return fullText.trim();
+    return fullTextParts.join("\n\n");
   }
 
   // Parse HTML or Markdown content into executive slide structures
