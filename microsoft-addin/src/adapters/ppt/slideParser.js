@@ -629,10 +629,24 @@ export function parseSlides(htmlContent, rawText = "") {
   cloneDiv.querySelectorAll("h1, h2, h3, p, li, tr, div, blockquote").forEach(el => {
     el.insertAdjacentText("afterend", "\n");
   });
-  const fallbackText = (cloneDiv.textContent || cloneDiv.innerText || rawText || "").trim();
-  const lines = fallbackText.split("\n").map(l => l.trim()).filter(Boolean);
-  const singleTitle = lines[0] ? cleanSlideTitle(lines[0], 1) : "Presentation Overview";
-  const parsed = extractSlideMetadataAndBullets(lines.slice(1));
+  const fallbackRaw = (cloneDiv.textContent || cloneDiv.innerText || rawText || "").trim();
+  const sanitizedFallback = sanitizeAiResponse(fallbackRaw);
+  const lines = sanitizedFallback.split("\n").map(l => l.trim()).filter(Boolean);
+
+  let singleTitle = "🎯 Key Highlights";
+  let contentLines = lines;
+
+  if (lines.length > 0) {
+    const candidateTitle = cleanSlideTitle(lines[0], 1);
+    if (candidateTitle && !isConversationalPreamble(lines[0])) {
+      singleTitle = candidateTitle;
+      contentLines = lines.slice(1);
+    } else {
+      contentLines = lines;
+    }
+  }
+
+  const parsed = extractSlideMetadataAndBullets(contentLines);
 
   return [{
     slideNumber: 1,
@@ -647,8 +661,63 @@ export function parseSlides(htmlContent, rawText = "") {
   }];
 }
 
-function cleanSlideTitle(rawTitle, defaultNum = 1) {
+export function sanitizeAiResponse(text) {
+  if (!text) return "";
+  let clean = text.trim();
+
+  // 1. Remove conversational preamble line(s) at start
+  clean = clean.replace(/^(?:here\s+(?:is|are)|below\s+(?:is|are)|sure[.,!]?|certainly[.,!]?|of\s+course[.,!]?|as\s+requested[.,:]?|optimized\s+version[.,:]?|revised\s+version[.,:]?|i've\s+created|in\s+summary[.,:]?)[^\n]*\n+/i, "");
+
+  // 2. Truncate alternative options (keep only Option 1)
+  const altMatch = clean.match(/\n+\s*(?:(?:or,?\s+(?:for\s+)?(?:an\s+)?(?:even\s+)?(?:more\s+)?(?:minimalist|concise|alternative|compact)[^\n]*)|(?:option\s*2\b[^\n]*)|(?:alternative\s*(?:option|\d)?\b[^\n]*))\s*[:\n]/i);
+  if (altMatch && altMatch.index !== undefined) {
+    clean = clean.substring(0, altMatch.index).trim();
+  }
+
+  // 3. Remove conversational closing remarks at the end
+  clean = clean.replace(/\n+(?:hope\s+this\s+helps|let\s+me\s+know|feel\s+free\s+to|let\s+me\s+know\s+if)[^\n]*$/i, "");
+
+  return clean.trim();
+}
+
+export function isConversationalPreamble(line) {
+  if (!line) return false;
+  const l = line.toLowerCase().trim();
+  if (/^(?:here\s+(?:is|are)|below\s+(?:is|are)|sure|certainly|of\s+course|as\s+requested|optimized|revised|concise|punchy|in\s+summary|to\s+make)/i.test(l)) return true;
+  if (l.includes("optimized for a presentation") || l.includes("version optimized") || l.includes("concise and punchy version") || l.includes("minimalist layout") || l.includes("presentation slide")) return true;
+  if (/^[-•*]/.test(l)) return true; // Starts with bullet
+  if (l.includes(":") && l.length > 30) return true; // Bullet item with key-value
+  return false;
+}
+
+export function extractCleanBulletPoints(htmlContent, rawText = "") {
+  let text = (rawText || htmlContent || "").trim();
+  if (text.includes("<") && text.includes(">")) {
+    const tmp = document.createElement("div");
+    tmp.innerHTML = text;
+    tmp.querySelectorAll("blockquote, .note, .ppt-deck-preview-container, .response-actions-container").forEach(el => el.remove());
+    text = (tmp.textContent || tmp.innerText || "").trim();
+  }
+
+  const sanitized = sanitizeAiResponse(text);
+  const lines = sanitized.split("\n").map(l => l.trim()).filter(Boolean);
+  const bullets = [];
+
+  for (const line of lines) {
+    if (isConversationalPreamble(line)) continue;
+    const cleanLine = line.replace(/^[-•*]\s*/, "").replace(/\*\*/g, "").trim();
+    if (cleanLine.length > 0) {
+      bullets.push(`• ${cleanLine}`);
+    }
+  }
+
+  return bullets.length > 0 ? bullets.join("\n") : sanitized;
+}
+
+export function cleanSlideTitle(rawTitle, defaultNum = 1) {
   if (!rawTitle) return `Slide ${defaultNum}`;
+  if (isConversationalPreamble(rawTitle)) return null;
+
   let clean = rawTitle
     .replace(/^[#*\s:]+/, "")
     .replace(/^\d+[\.\)]\s*/, "")
@@ -659,6 +728,8 @@ function cleanSlideTitle(rawTitle, defaultNum = 1) {
     .replace(/[:.]+$/, "")
     .replace(/\*\*/g, "")
     .trim();
+
+  if (isConversationalPreamble(clean)) return null;
 
   // Enforce maximum 4 words (under 40 chars)
   const words = clean.split(/\s+/);

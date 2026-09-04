@@ -662,11 +662,16 @@ async function runSelectionPrompt(instruction) {
   }
 
   if (!currentSelectedText) {
-    appendBubble("Please highlight text in Word first.", "system");
+    appendBubble(hostAdapter?.name === "PowerPoint" ? "Please select text or a shape on the slide first." : "Please highlight text in Word first.", "system");
     return;
   }
 
-  const fullPrompt = `Selected Document Text:\n"${currentSelectedText}"\n\nTask: ${instruction}`;
+  let fullPrompt = `Selected Content:\n"""\n${currentSelectedText}\n"""\n\nTask: ${instruction}`;
+  if (hostAdapter.name === "PowerPoint") {
+    const { enhancePromptForPowerPoint } = await import('../adapters/ppt/promptEnhancer.js');
+    fullPrompt = enhancePromptForPowerPoint(fullPrompt);
+  }
+
   const displayUserBubble = `✨ ${instruction}\n📌 Context: "${currentSelectedText.substring(0, 70)}..."`;
 
   await executeGeminiWorkflow(fullPrompt, displayUserBubble);
@@ -943,10 +948,11 @@ function appendAssistantBubble(text) {
   const isExcel = hostName === "Excel";
 
   // 1. In-Place Replace Button
+  const hasSelection = isPPT && currentSelectedText && currentSelectedText.trim().length > 0;
   const replaceBtn = document.createElement("button");
   replaceBtn.className = "action-btn replace";
-  replaceBtn.innerHTML = isPPT ? `🔄 Replace Slides` : (isExcel ? `🔄 Replace in Sheet` : `🔄 Replace in Doc`);
-  replaceBtn.title = isPPT ? "Replace existing presentation slides" : "Replace active draft or selection in Word";
+  replaceBtn.innerHTML = isPPT ? (hasSelection ? `🔄 Replace in Slide` : `🔄 Replace Slide`) : (isExcel ? `🔄 Replace in Sheet` : `🔄 Replace in Doc`);
+  replaceBtn.title = isPPT ? (hasSelection ? "Replace selected text in slide" : "Replace active slide content") : "Replace active draft or selection in Word";
   replaceBtn.onclick = async () => {
     await performDocumentInsertion(textDiv.innerHTML, text, "replace_draft");
   };
@@ -954,7 +960,7 @@ function appendAssistantBubble(text) {
   // 2. Insert Button
   const insertBtn = document.createElement("button");
   insertBtn.className = "action-btn insert";
-  insertBtn.innerHTML = isPPT ? `➕ Insert Slide` : (isExcel ? `➕ Insert into Sheet` : `➕ Insert at Cursor`);
+  insertBtn.innerHTML = isPPT ? (hasSelection ? `➕ Insert as New Slide` : `➕ Insert Slide`) : (isExcel ? `➕ Insert into Sheet` : `➕ Insert at Cursor`);
   insertBtn.title = isPPT ? "Insert generated slide into presentation" : "Insert at current cursor location";
   insertBtn.onclick = async () => {
     await performDocumentInsertion(textDiv.innerHTML, text, "insert_cursor");
@@ -990,7 +996,7 @@ function appendAssistantBubble(text) {
   refinementChips.className = "refinement-chips";
 
   const chipsData = [
-    { label: "📉 Make Shorter", prompt: "Make the above response significantly more concise and punchy for executive reading." },
+    { label: "📉 Make Shorter", prompt: "Make the above response significantly more concise and punchy for executive reading. Provide exactly ONE finalized version with no conversational preamble or multiple options." },
     { label: "📈 Expand Details", prompt: "Expand the above draft with more in-depth technical, operational, and architectural details." },
     { label: "📊 Format as Table", prompt: "Convert the key findings and aspects of the above response into a structured markdown table." },
     { label: "👔 Executive Tone", prompt: "Rewrite the above response with an authoritative, C-level executive tone." },
@@ -1001,8 +1007,13 @@ function appendAssistantBubble(text) {
     const chip = document.createElement("button");
     chip.className = "refinement-chip";
     chip.innerText = item.label;
-    chip.onclick = () => {
-      executeGeminiWorkflow(item.prompt, `${item.label}: "${item.prompt.substring(0, 45)}..."`);
+    chip.onclick = async () => {
+      let chipPrompt = item.prompt;
+      if (hostAdapter?.name === "PowerPoint") {
+        const { enhancePromptForPowerPoint } = await import('../adapters/ppt/promptEnhancer.js');
+        chipPrompt = enhancePromptForPowerPoint(chipPrompt);
+      }
+      executeGeminiWorkflow(chipPrompt, `${item.label}: "${item.prompt.substring(0, 45)}..."`);
     };
     refinementChips.appendChild(chip);
   });
@@ -1020,12 +1031,17 @@ async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {
 
   if (runButton) runButton.disabled = true;
   if (loadingText) {
-    loadingText.innerText = hostAdapter?.name === 'PowerPoint' ? "⚡ Creating PowerPoint slides..." : "⚡ Updating document...";
+    loadingText.innerText = hostAdapter?.name === 'PowerPoint' ? (mode === 'replace_draft' ? "⚡ Replacing slide content..." : "⚡ Creating PowerPoint slides...") : "⚡ Updating document...";
     loadingText.style.display = "block";
   }
 
   try {
-    await hostAdapter.insertContent(htmlContent, rawText);
+    const isPPT = hostAdapter?.name === "PowerPoint";
+    if (isPPT) {
+      await hostAdapter.insertContent(htmlContent, rawText, { mode: mode === "replace_draft" ? "replace" : "insert" });
+    } else {
+      await hostAdapter.insertContent(htmlContent, mode);
+    }
     const debugStatus = document.getElementById("debugStatus");
     if (debugStatus) {
       const host = hostAdapter?.name || 'Office';

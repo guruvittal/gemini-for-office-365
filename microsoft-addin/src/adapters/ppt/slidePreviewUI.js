@@ -205,11 +205,11 @@ export function enhanceBubbleWithSlideDeck(bubbleEl, htmlContent, rawText, adapt
   if (actionsContainer) {
     const insertBtn = actionsContainer.querySelector(".insert-btn") || actionsContainer.querySelector(".action-btn.insert");
     if (insertBtn) {
-      insertBtn.innerHTML = `➕ Insert ${slides.length} Slides`;
+      insertBtn.innerHTML = slides.length === 1 ? `➕ Insert Slide` : `➕ Insert ${slides.length} Slides`;
     }
     const replaceBtn = actionsContainer.querySelector(".replace-btn") || actionsContainer.querySelector(".action-btn.replace");
     if (replaceBtn) {
-      replaceBtn.innerHTML = `🔄 Replace with ${slides.length} Slides`;
+      replaceBtn.innerHTML = slides.length === 1 ? `🔄 Replace Slide` : `🔄 Replace with ${slides.length} Slides`;
     }
 
     // Hide all raw markdown text siblings to eliminate duplicate visual text

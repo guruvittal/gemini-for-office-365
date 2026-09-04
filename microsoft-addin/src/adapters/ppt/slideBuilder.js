@@ -202,8 +202,9 @@ async function getThemeBlankLayoutOptions() {
 
 /**
  * Creates a single slide atomically in PowerPoint with title, body bullets, native tables, or images.
+ * Supports replacing an existing slide in-place if targetSlideId is provided.
  */
-async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
+async function createSingleSlide(slideData, slideNum, layoutOptions = null, targetSlideId = null) {
   const cleanTitle = (slideData.title || `Slide ${slideNum}`).replace(/\*\*/g, "").trim();
   const subtitle = slideData.subtitle || "";
   const titleSize = slideData.titleSize || 40;
@@ -218,43 +219,50 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
     : (slideData.base64Images || []);
   const hasImages = imagesToInsert.length > 0;
 
-  logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."`);
+  logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."${targetSlideId ? ' (in-place replacement)' : ''}`);
 
-  // 1. Add slide using Theme Blank layout if available to avoid "Click to add title" placeholders
-  let added = false;
-  if (layoutOptions) {
-    try {
+  // 1. If not replacing an existing slide, add slide using Theme Blank layout if available
+  if (!targetSlideId) {
+    let added = false;
+    if (layoutOptions) {
+      try {
+        await PowerPoint.run(async (context) => {
+          context.presentation.slides.add(layoutOptions);
+          await context.sync();
+          added = true;
+        });
+      } catch (layoutErr) {
+        console.warn("Adding slide with blank layout failed, falling back to standard add:", layoutErr);
+      }
+    }
+
+    if (!added) {
       await PowerPoint.run(async (context) => {
-        context.presentation.slides.add(layoutOptions);
+        context.presentation.slides.add();
         await context.sync();
-        added = true;
       });
-    } catch (layoutErr) {
-      console.warn("Adding slide with blank layout failed, falling back to standard add:", layoutErr);
     }
   }
 
-  if (!added) {
-    await PowerPoint.run(async (context) => {
-      context.presentation.slides.add();
-      await context.sync();
-    });
-  }
-
-  // 2. Eliminate template placeholders ("Click to add title", "Click to add subtitle")
+  // 2. Eliminate template placeholders ("Click to add title", "Click to add subtitle") or previous shapes
   try {
     await PowerPoint.run(async (context) => {
-      const slides = context.presentation.slides;
-      const countResult = slides.getCount();
+      let targetSlide;
+      if (targetSlideId) {
+        targetSlide = context.presentation.slides.getItem(targetSlideId);
+      } else {
+        const slides = context.presentation.slides;
+        const countResult = slides.getCount();
+        await context.sync();
+        targetSlide = slides.getItemAt(countResult.value - 1);
+      }
+
+      targetSlide.shapes.load("items/name, items/type");
       await context.sync();
 
-      const newSlide = slides.getItemAt(countResult.value - 1);
-      newSlide.shapes.load("items/name, items/type");
-      await context.sync();
-
-      if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
-        for (let i = newSlide.shapes.items.length - 1; i >= 0; i--) {
-          const s = newSlide.shapes.items[i];
+      if (targetSlide.shapes.items && targetSlide.shapes.items.length > 0) {
+        for (let i = targetSlide.shapes.items.length - 1; i >= 0; i--) {
+          const s = targetSlide.shapes.items[i];
           try {
             s.delete();
           } catch (_) {}
@@ -266,16 +274,21 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
     // Fallback: If shape deletion is blocked by PowerPoint host, neutralize by moving off-canvas and clearing text
     try {
       await PowerPoint.run(async (context) => {
-        const slides = context.presentation.slides;
-        const countResult = slides.getCount();
+        let targetSlide;
+        if (targetSlideId) {
+          targetSlide = context.presentation.slides.getItem(targetSlideId);
+        } else {
+          const slides = context.presentation.slides;
+          const countResult = slides.getCount();
+          await context.sync();
+          targetSlide = slides.getItemAt(countResult.value - 1);
+        }
+
+        targetSlide.shapes.load("items/name, items/type");
         await context.sync();
 
-        const newSlide = slides.getItemAt(countResult.value - 1);
-        newSlide.shapes.load("items/name, items/type");
-        await context.sync();
-
-        if (newSlide.shapes.items) {
-          for (const s of newSlide.shapes.items) {
+        if (targetSlide.shapes.items) {
+          for (const s of targetSlide.shapes.items) {
             try {
               s.textFrame.textRange.text = " ";
             } catch (_) {}
@@ -292,12 +305,15 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
 
   // 3. Populate slide content in a fresh, uncorrupted PowerPoint.run
   await PowerPoint.run(async (context) => {
-    const slides = context.presentation.slides;
-    const countResult = slides.getCount();
-    await context.sync();
-
-    const slideCount = countResult.value;
-    const newSlide = slides.getItemAt(slideCount - 1);
+    let newSlide;
+    if (targetSlideId) {
+      newSlide = context.presentation.slides.getItem(targetSlideId);
+    } else {
+      const slides = context.presentation.slides;
+      const countResult = slides.getCount();
+      await context.sync();
+      newSlide = slides.getItemAt(countResult.value - 1);
+    }
 
     const hasAdditionalNotes = Boolean(additionalBody && additionalBody.trim().length > 0);
     const hasTable = Boolean(tableData && tableData.rows && tableData.rows.length > 0);
@@ -380,6 +396,29 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
         height: 380
       });
       bodyBox.textFrame.textRange.font.size = 18;
+
+      // Format bullet points with bold lead-ins for key points before colons
+      try {
+        const paragraphs = bodyBox.textFrame.textRange.paragraphs;
+        paragraphs.load("items/text");
+        await context.sync();
+        if (paragraphs.items) {
+          for (const p of paragraphs.items) {
+            const pText = p.text || "";
+            const colonIdx = pText.indexOf(":");
+            const dashIdx = pText.indexOf("—");
+            const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
+            if (sepIdx > 0 && sepIdx < 45 && typeof p.getSubstring === "function") {
+              try {
+                const leadIn = p.getSubstring(0, sepIdx + 1);
+                leadIn.font.bold = true;
+              } catch (_) {}
+            }
+          }
+        }
+      } catch (boldErr) {
+        console.warn("Lead-in bolding notice:", boldErr);
+      }
     }
 
     if (hasImages) {
@@ -420,7 +459,8 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
   }
 
   const totalSlides = slideStructures.length;
-  logToPPTConsole(`=== Starting Generation of ${totalSlides} Slides ===`);
+  const isReplace = options.mode === "replace" || options.mode === "replace_draft";
+  logToPPTConsole(`=== Starting ${isReplace ? 'Replacement' : 'Generation'} of ${totalSlides} Slide(s) ===`);
 
   // 1. Pre-process images
   for (let idx = 0; idx < slideStructures.length; idx++) {
@@ -445,10 +485,30 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     logToPPTConsole(`Applying theme Blank layout to avoid template placeholders.`);
   }
 
-  // 3. Build each slide sequentially
+  // 3. If in replace mode, find currently selected slide ID so first slide replaces in-place
+  let activeSlideId = null;
+  if (isReplace) {
+    try {
+      await PowerPoint.run(async (context) => {
+        if (context.presentation.getSelectedSlides) {
+          const selected = context.presentation.getSelectedSlides();
+          selected.load("items/id");
+          await context.sync();
+          if (selected.items && selected.items.length > 0) {
+            activeSlideId = selected.items[0].id;
+          }
+        }
+      });
+    } catch (selErr) {
+      console.warn("Could not determine selected slide for replace mode:", selErr);
+    }
+  }
+
+  // 4. Build each slide sequentially
   for (let i = 0; i < totalSlides; i++) {
     const slideData = slideStructures[i];
     const slideNum = i + 1;
+    const targetSlideId = (isReplace && i === 0 && activeSlideId) ? activeSlideId : null;
 
     if (typeof onProgress === "function") {
       onProgress({
@@ -459,7 +519,7 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     }
 
     try {
-      await createSingleSlide(slideData, slideNum, blankLayoutOptions);
+      await createSingleSlide(slideData, slideNum, blankLayoutOptions, targetSlideId);
     } catch (slideErr) {
       logToPPTConsole(`Slide ${slideNum} Error: ${slideErr.message}`, true);
       console.error(`[PPTBuilder] Slide ${slideNum} Error:`, slideErr);
@@ -470,5 +530,5 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     await new Promise(resolve => setTimeout(resolve, 400));
   }
 
-  logToPPTConsole(`🎉 All ${totalSlides} slides created successfully!`);
+  logToPPTConsole(`🎉 All ${totalSlides} slide(s) ${isReplace ? 'replaced' : 'created'} successfully!`);
 }

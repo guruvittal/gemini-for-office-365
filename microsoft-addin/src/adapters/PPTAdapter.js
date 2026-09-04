@@ -7,7 +7,7 @@
  * @author Sathya AG, Principal Architect, Google
  */
 
-import { parseSlides } from './ppt/slideParser.js';
+import { parseSlides, extractCleanBulletPoints } from './ppt/slideParser.js';
 import { buildPresentation, compressImageForPowerPoint } from './ppt/slideBuilder.js';
 import { initSlidePreviewObserver, injectPowerPointStyles } from './ppt/slidePreviewUI.js';
 import { initPromptEnhancer, enhancePromptForPowerPoint } from './ppt/promptEnhancer.js';
@@ -256,12 +256,71 @@ export class PPTAdapter {
   async insertContent(htmlContent, rawText = "", options = {}) {
     const debugStatus = document.getElementById("debugStatus");
     const loadingText = document.getElementById("loading");
+    const isReplace = options.mode === "replace" || options.mode === "replace_draft";
 
     try {
       if (typeof PowerPoint === 'undefined') {
         throw new Error("PowerPoint Office.js environment is not available.");
       }
 
+      // 1. If replacing and an active shape/text is selected, perform in-place text replacement in the shape
+      if (isReplace) {
+        let shapeReplaced = false;
+        try {
+          await PowerPoint.run(async (context) => {
+            if (context.presentation.getSelectedShapes) {
+              const selection = context.presentation.getSelectedShapes();
+              selection.load("items/textFrame");
+              await context.sync();
+              if (selection.items && selection.items.length > 0) {
+                const shape = selection.items[0];
+                if (shape.textFrame) {
+                  const cleanBullets = extractCleanBulletPoints(htmlContent, rawText);
+                  shape.textFrame.textRange.text = cleanBullets;
+                  try {
+                    shape.textFrame.textRange.font.size = 14;
+                  } catch (_) {}
+                  await context.sync();
+
+                  // Bold lead-in phrases before colons
+                  try {
+                    const paras = shape.textFrame.textRange.paragraphs;
+                    paras.load("items/text");
+                    await context.sync();
+                    if (paras.items) {
+                      for (const p of paras.items) {
+                        const pText = p.text || "";
+                        const colonIdx = pText.indexOf(":");
+                        const dashIdx = pText.indexOf("—");
+                        const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
+                        if (sepIdx > 0 && sepIdx < 45 && typeof p.getSubstring === "function") {
+                          try {
+                            const leadIn = p.getSubstring(0, sepIdx + 1);
+                            leadIn.font.bold = true;
+                          } catch (_) {}
+                        }
+                      }
+                      await context.sync();
+                    }
+                  } catch (_) {}
+
+                  shapeReplaced = true;
+                }
+              }
+            }
+          });
+        } catch (shapeErr) {
+          console.warn("Shape replacement check:", shapeErr);
+        }
+
+        if (shapeReplaced) {
+          if (debugStatus) debugStatus.innerText = "✅ Replaced text in slide!";
+          if (loadingText) loadingText.style.display = "none";
+          return [{ title: "Updated Shape", body: rawText }];
+        }
+      }
+
+      // 2. Otherwise parse slide structures and build / replace slide(s)
       if (debugStatus) debugStatus.innerText = "Parsing presentation structure...";
       const slideStructures = await this.parseSlidesFromHtml(htmlContent, rawText);
 
@@ -270,7 +329,7 @@ export class PPTAdapter {
       }
 
       const onProgress = (prog) => {
-        const msg = `⚡ Creating slide ${prog.current}/${prog.total}: "${prog.title}"...`;
+        const msg = `⚡ ${isReplace ? 'Replacing' : 'Creating'} slide ${prog.current}/${prog.total}: "${prog.title}"...`;
         if (debugStatus) debugStatus.innerText = msg;
         if (loadingText) {
           loadingText.innerText = msg;
@@ -284,7 +343,7 @@ export class PPTAdapter {
       await buildPresentation(slideStructures, options, onProgress);
 
       if (debugStatus) {
-        debugStatus.innerText = `✅ Created ${slideStructures.length} slides in PowerPoint!`;
+        debugStatus.innerText = `✅ ${isReplace ? 'Replaced' : 'Created'} ${slideStructures.length} slide(s) in PowerPoint!`;
       }
       if (loadingText) {
         loadingText.style.display = "none";
