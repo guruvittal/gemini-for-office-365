@@ -18,9 +18,11 @@ IMPORTANT RULES FOR SLIDE GENERATION:
 1. Do NOT use the canvas feature. Provide the complete content directly in your text response.
 2. Structure your response clearly using Markdown Headings (e.g. ## Slide 1: [Emoji] [Title]) for each slide.
 3. For each slide, provide:
-   - A short, punchy **Title** of **MAXIMUM 3 TO 4 WORDS (under 40 characters)** prefixed with a relevant **Emoji / Icon** (e.g., "📊 Executive Summary", "🚀 Growth Strategy", "🌍 Demographics", "📌 Financial Highlights"). Put extra details (like dates or quarters) into the Subtitle.
+   - A short, punchy **Title** of **MAXIMUM 3 TO 4 WORDS (under 40 characters)** prefixed with a relevant **Emoji / Icon** (e.g., "📊 Financial Highlights", "🚀 Growth Strategy", "💰 Capital & Resources", "📈 Outlook & Guidance"). Put extra details (like dates or quarters) into the Subtitle.
    - A **Subtitle** (if applicable, clearly labeled).
-   - **Main Content** (use high-impact bullet points for readability, or a markdown table for structured comparison data).
+   - **Main Content**:
+     * **MANDATORY MARKDOWN TABLES FOR DATA & METRICS**: Whenever presenting financial results (e.g., revenue, EPS, operating income, margins), key performance metrics, comparisons, or structured data, you MUST format the main content as a clean Markdown table (e.g. | Metric | Q1 2026 | YoY Change | Impact |). Tables are essential for executive financial and KPI slides.
+     * **BULLETS FOR STRATEGY & NARRATIVE**: For strategy, vision, narrative, or qualitative discussion, use crisp, high-impact bullet points.
 4. Do NOT output internal design metadata, font sizes (like "Title Size: 44"), hex colors (like "Color: #..."), or raw "Visual Concept:" labels. Keep the output clean, executive-ready presentation content.
 5. Provide all slides in a single response, cleanly separated by headings.
 `;
