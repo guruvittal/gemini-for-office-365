@@ -161,6 +161,9 @@ export function enhanceBubbleWithSlideDeck(bubbleEl, htmlContent, rawText, adapt
           </table>
         </div>
       `;
+      if (slide.additionalBody) {
+        previewContent += `<div style="white-space: pre-wrap; margin-top: 6px; font-size: 11px; color: #323130;">${escapeHtml(slide.additionalBody.trim())}</div>`;
+      }
     } else {
       const previewBody = slide.body
         ? slide.body.trim()

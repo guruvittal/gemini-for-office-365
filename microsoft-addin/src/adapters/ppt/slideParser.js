@@ -238,7 +238,8 @@ export function parseSlides(htmlContent, rawText = "") {
       const rawTitle = (h.innerText || h.textContent || "").trim();
       const title = cleanSlideTitle(rawTitle, i + 1);
 
-      const bodyLines = [];
+      const allBodyLines = [];
+      const additionalBodyLines = [];
       const sectionImgs = [];
       let sectionTableData = null;
       let curr = h.nextElementSibling;
@@ -265,7 +266,7 @@ export function parseSlides(htmlContent, rawText = "") {
         if (curr.tagName === "TABLE") {
           const tbl = extractTableContent(curr);
           if (tbl && tbl.bullets.length > 0) {
-            bodyLines.push(...tbl.bullets);
+            allBodyLines.push(...tbl.bullets);
             sectionTableData = {
               headers: tbl.headers,
               rows: tbl.dataRows
@@ -274,28 +275,37 @@ export function parseSlides(htmlContent, rawText = "") {
         } else if (curr.tagName === "UL" || curr.tagName === "OL") {
           Array.from(curr.querySelectorAll("li")).forEach(li => {
             const txt = (li.innerText || li.textContent || "").trim();
-            if (txt) bodyLines.push(`• ${txt.replace(/^[-•*]\s*/, "")}`);
+            if (txt) {
+              const b = `• ${txt.replace(/^[-•*]\s*/, "")}`;
+              allBodyLines.push(b);
+              additionalBodyLines.push(b);
+            }
           });
         } else {
           const txt = (curr.innerText || curr.textContent || "").trim();
           if (txt) {
-            bodyLines.push(txt);
+            allBodyLines.push(txt);
+            if (!/^(?:Subtitle|Color|Visual|Title Size|Subtitle Size):/i.test(txt)) {
+              additionalBodyLines.push(txt);
+            }
           }
         }
         curr = curr.nextElementSibling;
       }
 
-      const parsed = extractSlideMetadataAndBullets(bodyLines);
+      const parsedAll = extractSlideMetadataAndBullets(allBodyLines);
+      const parsedAdditional = extractSlideMetadataAndBullets(additionalBodyLines);
 
       slides.push({
         slideNumber: i + 1,
         title: title,
-        subtitle: parsed.subtitle,
-        visualConcept: parsed.visualConcept,
-        color: parsed.color,
-        titleSize: parsed.titleSize,
-        subtitleSize: parsed.subtitleSize,
-        body: parsed.body,
+        subtitle: parsedAll.subtitle,
+        visualConcept: parsedAll.visualConcept,
+        color: parsedAll.color,
+        titleSize: parsedAll.titleSize,
+        subtitleSize: parsedAll.subtitleSize,
+        body: parsedAll.body,
+        additionalBody: (sectionTableData && parsedAdditional.body !== "• Executive slide content") ? parsedAdditional.body : "",
         tableData: sectionTableData,
         base64Images: sectionImgs
       });
@@ -504,15 +514,27 @@ export function parseSlides(htmlContent, rawText = "") {
       }
 
       const cleanTitle = cleanSlideTitle(tableTitle || "Comparison Table", 1);
+
+      // Extract any extra commentary/bullets before or after standalone table
+      const extraLines = [];
+      Array.from(tempDiv.querySelectorAll("p, li")).forEach(el => {
+        const txt = (el.innerText || el.textContent || "").trim();
+        if (txt && !txt.startsWith("Verified Sources") && txt !== tableTitle && !/^(?:Subtitle|Color|Visual):/i.test(txt)) {
+          extraLines.push(txt);
+        }
+      });
+      const parsedExtra = extractSlideMetadataAndBullets(extraLines);
+
       return [{
         slideNumber: 1,
         title: cleanTitle,
-        subtitle: "",
+        subtitle: parsedExtra.subtitle || "",
         visualConcept: "",
         color: null,
         titleSize: 36,
         subtitleSize: 20,
         body: tbl.bulletText,
+        additionalBody: parsedExtra.body !== "• Executive slide content" ? parsedExtra.body : "",
         tableData: {
           headers: tbl.headers,
           rows: tbl.dataRows
@@ -526,17 +548,21 @@ export function parseSlides(htmlContent, rawText = "") {
   const textContent = tempDiv.innerText || tempDiv.textContent || rawText;
   const mdTable = parseMarkdownTable(textContent);
   if (mdTable && mdTable.dataRows.length > 0) {
-    const firstLine = textContent.split("\n").map(l => l.trim()).find(l => l.length > 0 && !l.startsWith("|"));
+    const textLines = textContent.split("\n").map(l => l.trim()).filter(Boolean);
+    const firstLine = textLines.find(l => !l.startsWith("|"));
     const cleanTitle = cleanSlideTitle(firstLine || "Comparison Table", 1);
+    const nonTableLines = textLines.slice(1).filter(l => !l.startsWith("|") && !l.endsWith("|") && l !== firstLine);
+    const parsedExtra = extractSlideMetadataAndBullets(nonTableLines);
     return [{
       slideNumber: 1,
       title: cleanTitle,
-      subtitle: "",
+      subtitle: parsedExtra.subtitle || "",
       visualConcept: "",
       color: null,
       titleSize: 36,
       subtitleSize: 20,
       body: mdTable.bulletText,
+      additionalBody: parsedExtra.body !== "• Executive slide content" ? parsedExtra.body : "",
       tableData: {
         headers: mdTable.headers,
         rows: mdTable.dataRows
@@ -573,7 +599,9 @@ export function parseSlides(htmlContent, rawText = "") {
 
         const title = cleanSlideTitle(rawTitle, idx + 1);
         const blockMdTable = parseMarkdownTable(block);
+        const nonTableLines = lines.slice(1).filter(l => !l.startsWith("|") && !l.endsWith("|"));
         const parsed = extractSlideMetadataAndBullets(lines.slice(1));
+        const parsedNonTable = extractSlideMetadataAndBullets(nonTableLines);
 
         textSlides.push({
           slideNumber: idx + 1,
@@ -584,6 +612,7 @@ export function parseSlides(htmlContent, rawText = "") {
           titleSize: parsed.titleSize,
           subtitleSize: parsed.subtitleSize,
           body: blockMdTable ? blockMdTable.bulletText : parsed.body,
+          additionalBody: (blockMdTable && parsedNonTable.body !== "• Executive slide content") ? parsedNonTable.body : "",
           tableData: blockMdTable ? { headers: blockMdTable.headers, rows: blockMdTable.dataRows } : null,
           base64Images: allImages[idx] ? [allImages[idx]] : []
         });

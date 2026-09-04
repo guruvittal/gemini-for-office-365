@@ -75,7 +75,7 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 800, maxHeight 
 /**
  * Populates a native Microsoft PowerPoint table using PowerPoint.js shapes.addTable().
  */
-function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, tableTop = 90) {
+function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, tableTop = 90, customHeight = null, customWidth = null) {
   const headers = tableData.headers || [];
   const rows = tableData.rows || [];
   const colCount = Math.max(headers.length, ...rows.map(r => r.length), 1);
@@ -97,19 +97,20 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
     tableValues.push(rowVals);
   }
 
-  const tableHeight = Math.min(400, Math.max(100, rowCount * 32));
+  const tableWidth = customWidth || 860;
+  const tableHeight = customHeight || Math.min(380, Math.max(90, rowCount * 30));
 
   try {
     if (typeof newSlide.shapes.addTable === "function") {
       newSlide.shapes.addTable(rowCount, colCount, {
         left: 50,
         top: tableTop,
-        width: 860,
+        width: tableWidth,
         height: tableHeight,
         values: tableValues
       });
       logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table (${rowCount} rows x ${colCount} cols).`);
-      return;
+      return tableHeight;
     }
   } catch (err) {
     console.warn("shapes.addTable with options failed, trying basic addTable:", err);
@@ -125,9 +126,11 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
       }
     }
     logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table via getCell.`);
+    return tableHeight;
   } catch (fallbackErr) {
     console.error("Native table shape creation failed:", fallbackErr);
     logToPPTConsole(`Slide ${slideNum}: ⚠️ Table shape notice: ${fallbackErr.message}`);
+    return 0;
   }
 }
 
@@ -178,6 +181,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
   const subtitleSize = slideData.subtitleSize || 20;
   const color = slideData.color || null;
   const bodyTextContent = slideData.body || "• Executive slide content";
+  const additionalBody = slideData.additionalBody || "";
   const tableData = slideData.tableData || null;
 
   const imagesToInsert = (slideData.compressedImages && slideData.compressedImages.length > 0)
@@ -298,7 +302,29 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
 
     // If tableData is present, create native PowerPoint table
     if (tableData && tableData.rows && tableData.rows.length > 0) {
-      populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop);
+      const hasAdditionalNotes = additionalBody && additionalBody.trim().length > 0;
+      const rowCount = (tableData.headers && tableData.headers.length > 0 ? 1 : 0) + tableData.rows.length;
+      const tableWidth = hasImages ? 400 : 860;
+      const maxTableHeight = hasAdditionalNotes
+        ? Math.min(210, Math.max(75, rowCount * 28))
+        : Math.min(380, Math.max(100, rowCount * 32));
+
+      const actualTableHeight = populateSlideTable(
+        newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop, maxTableHeight, tableWidth
+      );
+
+      // Render additional takeaways / bullet points below the table
+      if (hasAdditionalNotes) {
+        const notesTop = contentTop + (actualTableHeight || maxTableHeight) + 12;
+        const notesHeight = Math.max(80, 520 - notesTop);
+        const notesBox = newSlide.shapes.addTextBox(additionalBody, {
+          left: 50,
+          top: notesTop,
+          width: tableWidth,
+          height: notesHeight
+        });
+        notesBox.textFrame.textRange.font.size = 14;
+      }
     } else {
       // Body text / bullets and images
       const bodyTop = contentTop;
@@ -309,20 +335,20 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
         height: 380
       });
       bodyBox.textFrame.textRange.font.size = 18;
+    }
 
-      if (hasImages) {
-        for (const rawImg of imagesToInsert) {
-          const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
-          if (clean.length > 50) {
-            try {
-              newSlide.shapes.addImage(clean, {
-                left: 480,
-                top: bodyTop,
-                width: 380,
-                height: 300
-              });
-            } catch (imgErr) {}
-          }
+    if (hasImages) {
+      for (const rawImg of imagesToInsert) {
+        const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
+        if (clean.length > 50) {
+          try {
+            newSlide.shapes.addImage(clean, {
+              left: 480,
+              top: contentTop,
+              width: 380,
+              height: 300
+            });
+          } catch (imgErr) {}
         }
       }
     }
