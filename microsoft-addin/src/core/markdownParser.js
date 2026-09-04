@@ -3,11 +3,41 @@
  * 
  * @author Sathya AG, Principal Architect, Google
  */
+/**
+ * Strips internal developer and slide layout metadata lines
+ * (Visual Concept, Color, Title Size, Subtitle Size, Layout) from raw LLM text
+ * so that business users see only clean slide titles, subtitles, bullets, and tables.
+ */
+export function cleanSlideDisplayMarkdown(text) {
+  if (!text) return "";
+  const lines = text.split(/\r?\n/);
+  const cleanLines = [];
+
+  for (const rawLine of lines) {
+    const stripped = rawLine.replace(/^[-•*]\s*/, "").replace(/\*\*/g, "").trim();
+    if (
+      /^(?:Visual(?:\s*Concept|\s*Description|\s*Prompt|\s*Idea)?|Image(?:\s*Prompt|\s*Concept|\s*Description)?):/i.test(stripped) ||
+      /^(?:Color|Colour|Color\s*Scheme|Palette|Theme\s*Color):/i.test(stripped) ||
+      /^(?:Title|Subtitle)\s*(?:Font\s*)?Size(?:\s*\(pt\))?:/i.test(stripped) ||
+      /^(?:Slide\s*)?Layout:/i.test(stripped) ||
+      /^(?:Design\s*)?Theme:/i.test(stripped)
+    ) {
+      continue;
+    }
+    cleanLines.push(rawLine);
+  }
+
+  return cleanLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export function parseMarkdown(text) {
   if (!text) return "";
 
+  // Strip internal slide/layout metadata for clean display
+  const cleanedText = cleanSlideDisplayMarkdown(text);
+
   // 1. Sanitize raw scripts and broken SVGs
-  let sanitized = text.replace(/<script[\s\S]*?<\/script>/gi, '');
+  let sanitized = cleanedText.replace(/<script[\s\S]*?<\/script>/gi, '');
   sanitized = sanitized.replace(/<svg[\s\S]*?<\/svg>/gi, '');
   sanitized = sanitized.replace(/<!--[\s\S]*?-->/g, '');
 

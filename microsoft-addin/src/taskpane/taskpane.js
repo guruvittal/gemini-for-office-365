@@ -28,6 +28,7 @@ let chatHistoryState = [];
 let isProcessingInDocCommand = false;
 let hostAdapter = null;
 let currentSelectedText = "";
+let userClearedSelection = false;
 
 Office.onReady(async (info) => {
   // Detect active Microsoft Office host (Word, PowerPoint, Excel) dynamically
@@ -125,7 +126,26 @@ Office.onReady(async (info) => {
   // Setup Selection Quick Toolbar Chips (Feature 3: Inline Rewrite Toolbar)
   setupSelectionChips();
 
-  // Attach selection change handler for in-document detection & selection toolbar
+  // Wire Tip Banner Dismiss button
+  const dismissTipBtn = document.getElementById("dismissTipBtn");
+  if (dismissTipBtn) {
+    dismissTipBtn.onclick = () => {
+      const tipBanner = document.getElementById("tipBanner");
+      if (tipBanner) tipBanner.style.display = "none";
+    };
+  }
+
+  // Wire Context Attachment Pill Clear button
+  const clearSelectionBtn = document.getElementById("clearSelectionBtn");
+  if (clearSelectionBtn) {
+    clearSelectionBtn.onclick = () => {
+      userClearedSelection = true;
+      currentSelectedText = "";
+      renderAdaptiveActionChips(false);
+    };
+  }
+
+  // Attach selection change handler for in-document detection & adaptive toolbar
   try {
     Office.context.document.addHandlerAsync(
       Office.EventType.DocumentSelectionChanged,
@@ -267,40 +287,26 @@ function adaptUIForHost(hostName) {
   const docToolsTitle = document.getElementById("docToolsTitle");
   const welcomeBubble = document.getElementById("welcomeSystemBubble");
   const debugStatus = document.getElementById("debugStatus");
-  const chipSummarize = document.getElementById("chipSummarize");
-  const chipRisks = document.getElementById("chipRisks");
-  const chipActionItems = document.getElementById("chipActionItems");
-  const chipExecBox = document.getElementById("chipExecBox");
 
   if (hostName === "PowerPoint") {
     if (tipBannerText) tipBannerText.innerHTML = `💡 Type <code>@gemini &lt;prompt&gt;</code> in Slide`;
     if (docToolsTitle) docToolsTitle.innerHTML = `📊 <strong>Chat with Slides:</strong>`;
     if (debugStatus) debugStatus.innerText = `PowerPoint Ready`;
-    if (chipSummarize) chipSummarize.innerHTML = `📊 Summarize Slides`;
-    if (chipRisks) chipRisks.innerHTML = `⚠️ Key Risks`;
-    if (chipActionItems) chipActionItems.innerHTML = `✅ Action Items`;
-    if (chipExecBox) chipExecBox.innerHTML = `🎯 Slide Takeaways`;
-    if (welcomeBubble) welcomeBubble.innerHTML = `Type a prompt below, click a <strong>Slide Chip</strong> above, or select shapes in PowerPoint!`;
+    if (welcomeBubble) welcomeBubble.innerHTML = `Type a prompt below, click an action chip above, or select slide content!`;
   } else if (hostName === "Excel") {
     if (tipBannerText) tipBannerText.innerHTML = `💡 Type <code>@gemini &lt;prompt&gt;</code> in Cell`;
     if (docToolsTitle) docToolsTitle.innerHTML = `📈 <strong>Chat with Spreadsheet:</strong>`;
     if (debugStatus) debugStatus.innerText = `Excel Ready`;
-    if (chipSummarize) chipSummarize.innerHTML = `📈 Summarize Sheet`;
-    if (chipRisks) chipRisks.innerHTML = `⚠️ Data & Formula Risks`;
-    if (chipActionItems) chipActionItems.innerHTML = `✅ Action Items`;
-    if (chipExecBox) chipExecBox.innerHTML = `💡 Key Metrics Card`;
-    if (welcomeBubble) welcomeBubble.innerHTML = `Type a prompt below, click a <strong>Sheet Chip</strong> above, or select cells in Excel!`;
+    if (welcomeBubble) welcomeBubble.innerHTML = `Type a prompt below, click an action chip above, or select cells in Excel!`;
   } else {
     // Word (Default)
     if (tipBannerText) tipBannerText.innerHTML = `💡 Type <code>@gemini &lt;prompt&gt;</code> in Doc`;
     if (docToolsTitle) docToolsTitle.innerHTML = `📄 <strong>Chat with Document:</strong>`;
     if (debugStatus) debugStatus.innerText = `Word Ready`;
-    if (chipSummarize) chipSummarize.innerHTML = `📄 Summarize Doc`;
-    if (chipRisks) chipRisks.innerHTML = `⚠️ Key Risks`;
-    if (chipActionItems) chipActionItems.innerHTML = `✅ Action Items`;
-    if (chipExecBox) chipExecBox.innerHTML = `💡 Executive Card`;
-    if (welcomeBubble) welcomeBubble.innerHTML = `Type a prompt below, click a <strong>Doc Chip</strong> above, or highlight text in Word!`;
+    if (welcomeBubble) welcomeBubble.innerHTML = `Type a prompt below, click an action chip above, or highlight text in Word!`;
   }
+
+  renderAdaptiveActionChips(false);
 }
 
 function resetChatSession() {
@@ -314,7 +320,137 @@ function resetChatSession() {
   if (debugStatus) debugStatus.innerText = `${hostAdapter ? hostAdapter.name : 'Office'} Ready (Session Reset)`;
 }
 
-// Feature 1: Document Intelligence Quick Chips Handlers
+// Adaptive Action Bar & Chips Renderer
+function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0) {
+  const hostName = hostAdapter ? hostAdapter.name : "Word";
+  const docToolsTitle = document.getElementById("docToolsTitle");
+  const debugStatus = document.getElementById("debugStatus");
+  const container = document.getElementById("docToolsChipsContainer");
+  const selectionPill = document.getElementById("selectionAttachmentPill");
+  const selectionPillLabel = document.getElementById("selectionPillLabel");
+
+  if (!container) return;
+
+  if (hostName === "PowerPoint") {
+    if (isSelected) {
+      const slideNoun = slideCount > 1 ? `${slideCount} Slides` : "Slide";
+      if (docToolsTitle) docToolsTitle.innerHTML = `✨ <strong>Selected Context:</strong>`;
+      if (debugStatus) debugStatus.innerHTML = `<span style="color:#0078d4; font-weight:600;">${slideCount} ${slideNoun} (${words}w)</span>`;
+
+      if (selectionPill) {
+        if (selectionPillLabel) selectionPillLabel.innerText = `Attached: ${slideCount} ${slideNoun} (${words} words)`;
+        selectionPill.style.display = "flex";
+      }
+
+      container.innerHTML = `
+        <button class="quick-chip" id="chipTakeaways" style="background-color:#e0f2fe; color:#0369a1; border-color:#bae6fd;">🎯 Slide Takeaways</button>
+        <button class="quick-chip" id="chipRisks" style="background-color:#fef3c7; color:#b45309; border-color:#fde68a;">⚠️ Key Risks</button>
+        <button class="quick-chip" id="chipRewrite" style="background-color:#f3e8ff; color:#7e22ce; border-color:#e9d5ff;">🪄 Rewrite Slide</button>
+        <button class="quick-chip" id="chipShorten">📉 Shorten</button>
+        <button class="quick-chip" id="chipTable">📊 Table</button>
+      `;
+
+      const cTakeaways = document.getElementById("chipTakeaways");
+      if (cTakeaways) cTakeaways.onclick = () => runPowerPointSlideAction("takeaways");
+
+      const cRisks = document.getElementById("chipRisks");
+      if (cRisks) cRisks.onclick = () => runPowerPointSlideAction("risks");
+
+      const cRewrite = document.getElementById("chipRewrite");
+      if (cRewrite) cRewrite.onclick = () => runSelectionPrompt("Rewrite and elevate the selected slide content into clear, high-impact executive presentation prose.");
+
+      const cShorten = document.getElementById("chipShorten");
+      if (cShorten) cShorten.onclick = () => runSelectionPrompt("Make this slide content significantly more concise and punchy, removing unnecessary fluff.");
+
+      const cTable = document.getElementById("chipTable");
+      if (cTable) cTable.onclick = () => runSelectionPrompt("Convert this slide's metrics and structured data into a clean, executive markdown table.");
+
+    } else {
+      if (docToolsTitle) docToolsTitle.innerHTML = `📊 <strong>Chat with Slides:</strong>`;
+      if (debugStatus) debugStatus.innerText = `PowerPoint Ready`;
+
+      if (selectionPill) selectionPill.style.display = "none";
+
+      container.innerHTML = `
+        <button class="quick-chip" id="chipSummarize">📊 Summarize Slides</button>
+        <button class="quick-chip" id="chipRisks">⚠️ Key Risks</button>
+        <button class="quick-chip" id="chipActionItems">✅ Action Items</button>
+        <button class="quick-chip" id="chipExecBox">🎯 Slide Takeaways</button>
+      `;
+
+      const cSum = document.getElementById("chipSummarize");
+      if (cSum) cSum.onclick = () => runPowerPointSlideAction("summarize");
+
+      const cRisks = document.getElementById("chipRisks");
+      if (cRisks) cRisks.onclick = () => runPowerPointSlideAction("risks");
+
+      const cAct = document.getElementById("chipActionItems");
+      if (cAct) cAct.onclick = () => runPowerPointSlideAction("action_items");
+
+      const cBox = document.getElementById("chipExecBox");
+      if (cBox) cBox.onclick = () => runPowerPointSlideAction("takeaways");
+    }
+  } else if (hostName === "Excel") {
+    if (isSelected) {
+      if (docToolsTitle) docToolsTitle.innerHTML = `✨ <strong>Selected Cells:</strong>`;
+      if (debugStatus) debugStatus.innerHTML = `<span style="color:#0078d4; font-weight:600;">${words} words</span>`;
+      if (selectionPill) {
+        if (selectionPillLabel) selectionPillLabel.innerText = `Selected Cells (${words} words)`;
+        selectionPill.style.display = "flex";
+      }
+      container.innerHTML = `
+        <button class="quick-chip" id="selRewrite">🪄 Rewrite</button>
+        <button class="quick-chip" id="selShorten">📉 Shorten</button>
+        <button class="quick-chip" id="selTable">📊 Table</button>
+      `;
+      setupSelectionChips();
+    } else {
+      if (docToolsTitle) docToolsTitle.innerHTML = `📈 <strong>Chat with Spreadsheet:</strong>`;
+      if (debugStatus) debugStatus.innerText = `Excel Ready`;
+      if (selectionPill) selectionPill.style.display = "none";
+
+      container.innerHTML = `
+        <button class="quick-chip" id="chipSummarize">📈 Summarize Sheet</button>
+        <button class="quick-chip" id="chipRisks">⚠️ Data & Formula Risks</button>
+        <button class="quick-chip" id="chipActionItems">✅ Action Items</button>
+        <button class="quick-chip" id="chipExecBox">💡 Key Metrics Card</button>
+      `;
+      setupDocToolsChips();
+    }
+  } else {
+    // Word
+    if (isSelected) {
+      if (docToolsTitle) docToolsTitle.innerHTML = `✨ <strong>Selected Text:</strong>`;
+      if (debugStatus) debugStatus.innerHTML = `<span style="color:#0078d4; font-weight:600;">${words} words</span>`;
+      if (selectionPill) {
+        if (selectionPillLabel) selectionPillLabel.innerText = `Selected Text (${words} words)`;
+        selectionPill.style.display = "flex";
+      }
+      container.innerHTML = `
+        <button class="quick-chip" id="selRewrite">🪄 Rewrite</button>
+        <button class="quick-chip" id="selProfessional">💼 Professional</button>
+        <button class="quick-chip" id="selShorten">📉 Shorten</button>
+        <button class="quick-chip" id="selBullets">🎯 Bullet Points</button>
+        <button class="quick-chip" id="selTable">📊 Table</button>
+      `;
+      setupSelectionChips();
+    } else {
+      if (docToolsTitle) docToolsTitle.innerHTML = `📄 <strong>Chat with Document:</strong>`;
+      if (debugStatus) debugStatus.innerText = `Word Ready`;
+      if (selectionPill) selectionPill.style.display = "none";
+
+      container.innerHTML = `
+        <button class="quick-chip" id="chipSummarize">📄 Summarize Doc</button>
+        <button class="quick-chip" id="chipRisks">⚠️ Key Risks</button>
+        <button class="quick-chip" id="chipActionItems">✅ Action Items</button>
+        <button class="quick-chip" id="chipExecBox">💡 Executive Card</button>
+      `;
+      setupDocToolsChips();
+    }
+  }
+}
+
+// Fallback / Initial Chip Bindings for Word & Excel
 function setupDocToolsChips() {
   const hostName = hostAdapter ? hostAdapter.name : "Word";
 
@@ -370,7 +506,6 @@ function setupDocToolsChips() {
   }
 }
 
-// Feature 3: Selection Quick Toolbar Setup
 function setupSelectionChips() {
   const selRewrite = document.getElementById("selRewrite");
   if (selRewrite) {
@@ -398,26 +533,37 @@ function setupSelectionChips() {
   }
 }
 
-// Handle Word Selection Changes Dynamically
+// Handle Host Selection Changes Dynamically (Adapts Top Bar and Shows Attachment Pill)
 async function handleSelectionChanged() {
   if (!hostAdapter) return;
-  const selToolbar = document.getElementById("selectionToolbar");
-  const previewText = document.getElementById("selectionPreviewText");
-  const wordCountSpan = document.getElementById("selectionWordCount");
 
   try {
     const text = await hostAdapter.getSelectedText();
-    currentSelectedText = text ? text.trim() : "";
+    const newText = text ? text.trim() : "";
+
+    // If selection content changed, reset explicit dismissal flag
+    if (newText !== currentSelectedText) {
+      userClearedSelection = false;
+    }
+
+    if (userClearedSelection) {
+      return;
+    }
+
+    currentSelectedText = newText;
 
     if (currentSelectedText.length > 5) {
       const words = currentSelectedText.split(/\s+/).filter(w => w.length > 0).length;
-      if (wordCountSpan) wordCountSpan.innerText = `${words} words`;
-      if (previewText) {
-        previewText.innerText = `"${currentSelectedText.substring(0, 80)}${currentSelectedText.length > 80 ? '...' : ''}"`;
+      let slideCount = 1;
+      if (hostAdapter.name === "PowerPoint" && typeof hostAdapter.getSelectedSlidesText === "function") {
+        try {
+          const slides = await hostAdapter.getSelectedSlidesText();
+          if (slides && slides.length > 0) slideCount = slides.length;
+        } catch (e) {}
       }
-      if (selToolbar) selToolbar.style.display = "block";
+      renderAdaptiveActionChips(true, slideCount, words);
     } else {
-      if (selToolbar) selToolbar.style.display = "none";
+      renderAdaptiveActionChips(false);
     }
 
     // Check for in-document @gemini command

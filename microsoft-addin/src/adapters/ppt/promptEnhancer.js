@@ -20,11 +20,8 @@ IMPORTANT RULES FOR SLIDE GENERATION:
 3. For each slide, provide:
    - A short, punchy **Title** of **MAXIMUM 3 TO 4 WORDS (under 40 characters)** prefixed with a relevant **Emoji / Icon** (e.g., "📊 Executive Summary", "🚀 Growth Strategy", "🌍 Demographics", "📌 Financial Highlights"). Put extra details (like dates or quarters) into the Subtitle.
    - A **Subtitle** (if applicable, clearly labeled).
-   - **Main Content** (use bullet points for readability, or a markdown table for structured comparison data).
-   - **Visual Concept** (describe the recommended image/chart, labeled "Visual Concept:").
-   - Recommended **Theme Color** (labeled "Color:").
-   - Recommended **Title Font Size** and **Subtitle Font Size** (e.g., "Title Size: 44", "Subtitle Size: 24").
-4. If presenting structured comparison data or metrics, format the main content as a clean Markdown table.
+   - **Main Content** (use high-impact bullet points for readability, or a markdown table for structured comparison data).
+4. Do NOT output internal design metadata, font sizes (like "Title Size: 44"), hex colors (like "Color: #..."), or raw "Visual Concept:" labels. Keep the output clean, executive-ready presentation content.
 5. Provide all slides in a single response, cleanly separated by headings.
 `;
     return `${userPrompt}\n\n${rules}`;
