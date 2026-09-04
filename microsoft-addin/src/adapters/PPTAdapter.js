@@ -27,6 +27,83 @@ export class PPTAdapter {
     }
   }
 
+  // Read text and metadata from currently highlighted/selected slide(s) in PowerPoint
+  async getSelectedSlidesText() {
+    const selectedSlidesData = [];
+    try {
+      if (typeof PowerPoint !== 'undefined') {
+        await PowerPoint.run(async (context) => {
+          // 1. Check for selected slides via PowerPointApi 1.5+
+          if (context.presentation.getSelectedSlides) {
+            const selectedSlides = context.presentation.getSelectedSlides();
+            selectedSlides.load("items");
+            await context.sync();
+
+            if (selectedSlides.items && selectedSlides.items.length > 0) {
+              for (let i = 0; i < selectedSlides.items.length; i++) {
+                const slide = selectedSlides.items[i];
+                const shapes = slide.shapes;
+                shapes.load("items");
+                await context.sync();
+
+                let slideText = "";
+                for (const shape of shapes.items) {
+                  if (shape.textFrame) {
+                    const tr = shape.textFrame.textRange;
+                    tr.load("text");
+                    await context.sync();
+                    if (tr.text && tr.text.trim()) {
+                      slideText += tr.text.trim() + "\n";
+                    }
+                  }
+                }
+                if (slideText.trim()) {
+                  selectedSlidesData.push({
+                    slideNumber: i + 1,
+                    id: slide.id || `slide-${i + 1}`,
+                    text: slideText.trim()
+                  });
+                }
+              }
+            }
+          }
+
+          // 2. If no slide selection found, check if any shapes on the active slide are selected
+          if (selectedSlidesData.length === 0 && context.presentation.getSelectedShapes) {
+            const selectedShapes = context.presentation.getSelectedShapes();
+            selectedShapes.load("items");
+            await context.sync();
+
+            if (selectedShapes.items && selectedShapes.items.length > 0) {
+              let shapeText = "";
+              for (const shape of selectedShapes.items) {
+                if (shape.textFrame) {
+                  const tr = shape.textFrame.textRange;
+                  tr.load("text");
+                  await context.sync();
+                  if (tr.text && tr.text.trim()) {
+                    shapeText += tr.text.trim() + "\n";
+                  }
+                }
+              }
+              if (shapeText.trim()) {
+                selectedSlidesData.push({
+                  slideNumber: 1,
+                  id: "active-slide",
+                  text: shapeText.trim()
+                });
+              }
+            }
+          }
+        });
+      }
+    } catch (err) {
+      console.warn("PowerPoint getSelectedSlidesText warning:", err);
+    }
+
+    return selectedSlidesData;
+  }
+
   // Read currently highlighted text frame or shape text in PowerPoint
   async getSelectedText() {
     let selectedText = "";

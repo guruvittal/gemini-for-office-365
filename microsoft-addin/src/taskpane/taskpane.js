@@ -322,7 +322,7 @@ function setupDocToolsChips() {
   if (chipSummarize) {
     chipSummarize.onclick = () => {
       if (hostName === "PowerPoint") {
-        runDocIntelligencePrompt("Summarize these presentation slides thoroughly. Provide an executive overview of all slides, key themes, and a structured summary table.");
+        runPowerPointSlideAction("summarize");
       } else if (hostName === "Excel") {
         runDocIntelligencePrompt("Analyze and summarize this spreadsheet data. Provide key patterns, trends, data anomalies, and an executive summary table.");
       } else {
@@ -335,7 +335,7 @@ function setupDocToolsChips() {
   if (chipRisks) {
     chipRisks.onclick = () => {
       if (hostName === "PowerPoint") {
-        runDocIntelligencePrompt("Analyze these presentation slides and extract all Key Strategic Risks, Challenges, and Operational Gaps with Mitigation Suggestions.");
+        runPowerPointSlideAction("risks");
       } else if (hostName === "Excel") {
         runDocIntelligencePrompt("Analyze this spreadsheet data and extract all Key Financial / Operational Risks, Outliers, and Data Gaps with Mitigation Suggestions.");
       } else {
@@ -347,8 +347,12 @@ function setupDocToolsChips() {
   const chipActionItems = document.getElementById("chipActionItems");
   if (chipActionItems) {
     chipActionItems.onclick = () => {
-      const noun = hostName === "PowerPoint" ? "presentation deck" : (hostName === "Excel" ? "spreadsheet" : "document");
-      runDocIntelligencePrompt(`Extract all Action Items, Deliverables, and Next Steps from this ${noun}. Present them in a structured table with Task, Owner, and Priority.`);
+      if (hostName === "PowerPoint") {
+        runPowerPointSlideAction("action_items");
+      } else {
+        const noun = hostName === "Excel" ? "spreadsheet" : "document";
+        runDocIntelligencePrompt(`Extract all Action Items, Deliverables, and Next Steps from this ${noun}. Present them in a structured table with Task, Owner, and Priority.`);
+      }
     };
   }
 
@@ -356,7 +360,7 @@ function setupDocToolsChips() {
   if (chipExecBox) {
     chipExecBox.onclick = () => {
       if (hostName === "PowerPoint") {
-        runDocIntelligencePrompt("Generate an Executive Slide Takeaway Callout Box highlighting Strategic Impact and Key Metrics for this deck.");
+        runPowerPointSlideAction("takeaways");
       } else if (hostName === "Excel") {
         runDocIntelligencePrompt("Generate an Executive Metrics Summary Card highlighting Key Financial / Operational KPIs and totals from this sheet.");
       } else {
@@ -503,6 +507,74 @@ async function runDocIntelligencePrompt(instruction) {
 
   const displayUserBubble = `📄 [Document Analysis] ${instruction.substring(0, 55)}...`;
   await executeGeminiWorkflow(fullPrompt, displayUserBubble);
+}
+
+// Dedicated PowerPoint Slide Intelligence Action (Targets Highlighted / Selected Slides)
+async function runPowerPointSlideAction(actionType) {
+  const loadingText = document.getElementById("loading");
+  if (loadingText) {
+    loadingText.innerText = "⚡ Reading highlighted slide(s)...";
+    loadingText.style.display = "block";
+  }
+
+  let slides = [];
+  try {
+    if (hostAdapter && typeof hostAdapter.getSelectedSlidesText === "function") {
+      slides = await hostAdapter.getSelectedSlidesText();
+    }
+  } catch (e) {
+    console.warn("Could not retrieve selected slides:", e);
+  }
+
+  let slideContext = "";
+  let slideLabel = "current slide";
+
+  if (slides && slides.length > 0) {
+    slideLabel = slides.length === 1 ? "highlighted slide" : `${slides.length} highlighted slides`;
+    slideContext = slides.map((s, idx) => `[Highlighted Slide ${idx + 1}]:\n${s.text}`).join("\n\n---\n\n");
+  } else {
+    // Fall back to full presentation text if no specific slide is highlighted
+    const fullDocText = await hostAdapter.getFullDocumentText();
+    if (fullDocText && fullDocText.length > 10) {
+      slideContext = fullDocText;
+      slideLabel = "presentation deck";
+    }
+  }
+
+  let taskInstruction = "";
+  let displayBubble = "";
+
+  switch (actionType) {
+    case "risks":
+      taskInstruction = `Based on the context from the ${slideLabel} provided below, extract and analyze all Key Strategic & Operational Risks, Blockers, Gaps, and Dependencies. Create content for a new PowerPoint slide titled "⚠️ Key Risks & Mitigations" with high-impact bullet points, severity assessments, and concrete mitigation actions.`;
+      displayBubble = `⚠️ [Key Risks] Generating new risk analysis slide from ${slideLabel}...`;
+      break;
+    case "summarize":
+      taskInstruction = `Based on the context from the ${slideLabel} provided below, generate an executive summary slide. Create content for a new PowerPoint slide titled "📊 Executive Slide Summary" with key takeaways, strategic findings, and structured bullet points.`;
+      displayBubble = `📊 [Slide Summary] Generating summary slide from ${slideLabel}...`;
+      break;
+    case "action_items":
+      taskInstruction = `Based on the context from the ${slideLabel} provided below, extract all Action Items, Deliverables, Next Steps, and Ownership. Create content for a new PowerPoint slide titled "✅ Action Items & Next Steps" with actionable task bullets, suggested owners, and priority levels.`;
+      displayBubble = `✅ [Action Items] Generating action items slide from ${slideLabel}...`;
+      break;
+    case "takeaways":
+      taskInstruction = `Based on the context from the ${slideLabel} provided below, create an executive takeaway slide. Create content for a new PowerPoint slide titled "🎯 Strategic Takeaways" highlighting high-impact findings, core metrics, and strategic implications.`;
+      displayBubble = `🎯 [Slide Takeaways] Generating takeaway slide from ${slideLabel}...`;
+      break;
+  }
+
+  let fullPrompt = "";
+  if (slideContext && slideContext.length > 5) {
+    fullPrompt = `Context from ${slideLabel}:\n"""\n${slideContext.substring(0, 50000)}\n"""\n\nTask: ${taskInstruction}`;
+  } else {
+    fullPrompt = taskInstruction;
+  }
+
+  // Apply PowerPoint slide generation formatting rules
+  const { enhancePromptForPowerPoint } = await import('../adapters/ppt/promptEnhancer.js');
+  fullPrompt = enhancePromptForPowerPoint(fullPrompt);
+
+  await executeGeminiWorkflow(fullPrompt, displayBubble);
 }
 
 async function callGeminiProxy(customPrompt = null) {
