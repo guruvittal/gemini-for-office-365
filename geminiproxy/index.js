@@ -808,7 +808,8 @@ functions.http('geminiProxy', handleGeminiRequest);
 
 // Standalone Express Server (for Cloud Run & Docker execution)
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cors);
 app.post('/askGeminiEnterprise', handleGeminiEnterpriseRequest);
 app.post('/askGemini', handleGeminiRequest);

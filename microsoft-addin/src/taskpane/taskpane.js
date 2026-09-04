@@ -958,8 +958,8 @@ function appendAssistantBubble(text) {
   // 2. Insert Button
   const insertBtn = document.createElement("button");
   insertBtn.className = "action-btn insert";
-  insertBtn.innerHTML = isPPT ? `🚀 Build Deck` : (isExcel ? `➕ Insert into Sheet` : `➕ Insert at Cursor`);
-  insertBtn.title = isPPT ? "Build and populate PowerPoint presentation slides" : "Insert at current cursor location";
+  insertBtn.innerHTML = isPPT ? `➕ Insert Slide` : (isExcel ? `➕ Insert into Sheet` : `➕ Insert at Cursor`);
+  insertBtn.title = isPPT ? "Insert generated slide into presentation" : "Insert at current cursor location";
   insertBtn.onclick = async () => {
     await performDocumentInsertion(textDiv.innerHTML, text, "insert_cursor");
   };
