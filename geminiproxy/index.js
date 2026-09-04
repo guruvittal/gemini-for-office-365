@@ -509,7 +509,7 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
   };
 }
 
-async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, userGoogleToken, authMode }) {
+async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, userGoogleToken, authMode, attachments }) {
   if (!PROJECT_ID) {
     throw new Error('GE_GCP_PROJECT_ID environment variable is required for StreamAssist');
   }
@@ -576,8 +576,8 @@ async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, us
       fullSessionName = `projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/engines/${ENTERPRISE_APP_ID}/sessions/${sessionId}`;
     }
     requestBody.session = fullSessionName;
-  } else if (activeUserId) {
-    // Explicitly create session tagged with the userPseudoId for user history & attribution
+  } else {
+    // Explicitly create session tagged with the userPseudoId for user history, attribution, and context files
     try {
       const sessionCreateUrl = `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1alpha/projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/engines/${ENTERPRISE_APP_ID}/sessions`;
       const sessionRes = await fetch(sessionCreateUrl, {
@@ -598,6 +598,49 @@ async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, us
       }
     } catch (sessionErr) {
       console.warn(`[SESSION_WARN] Could not pre-create session with userPseudoId '${activeUserId}':`, sessionErr.message);
+    }
+  }
+
+  // Handle native document attachments via Discovery Engine addContextFile
+  const uploadedFileIds = [];
+  if (attachments && Array.isArray(attachments) && attachments.length > 0 && requestBody.session) {
+    for (const att of attachments) {
+      try {
+        const addFileUrl = `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1alpha/${requestBody.session}:addContextFile`;
+        console.log(`[STREAM_ASSIST] Uploading context file '${att.fileName}' (${att.mimeType || 'application/pdf'}) to session '${requestBody.session}'...`);
+        const addRes = await fetch(addFileUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${bearerToken}`,
+            'Content-Type': 'application/json',
+            'X-Goog-User-Project': PROJECT_ID
+          },
+          body: JSON.stringify({
+            name: requestBody.session,
+            fileName: att.fileName,
+            mimeType: att.mimeType || 'application/pdf',
+            fileContents: att.fileContents
+          })
+        });
+
+        if (addRes.ok) {
+          const addData = await addRes.json();
+          if (addData.fileId) {
+            uploadedFileIds.push(addData.fileId);
+            console.log(`[STREAM_ASSIST] Registered context file '${att.fileName}' -> fileId: ${addData.fileId} (tokenCount: ${addData.tokenCount || 'N/A'})`);
+          }
+        } else {
+          const addErrText = await addRes.text();
+          console.warn(`[STREAM_ASSIST_WARN] addContextFile failed for '${att.fileName}' (HTTP ${addRes.status}):`, addErrText);
+        }
+      } catch (attErr) {
+        console.warn(`[STREAM_ASSIST_WARN] Error adding context file '${att.fileName}':`, attErr.message);
+      }
+    }
+
+    if (uploadedFileIds.length > 0) {
+      requestBody.fileIds = uploadedFileIds;
+      console.log(`[STREAM_ASSIST] Successfully bound ${uploadedFileIds.length} context fileId(s) to streamAssist request:`, uploadedFileIds);
     }
   }
 
@@ -695,7 +738,7 @@ async function handleGeminiEnterpriseRequest(req, res) {
         return res.status(405).json({ error: 'Method Not Allowed' });
       }
 
-      const { prompt, sessionId } = req.body;
+      const { prompt, sessionId, attachments } = req.body;
       const userId = req.body.userId || req.headers['x-end-user-id'] || req.headers['x-end-user-email'];
       const userPseudoId = req.body.userPseudoId || userId || req.headers['x-end-user-id'] || req.headers['x-end-user-email'] || 'office_365_user';
       const endUserName = req.body.authenticatedUser?.name || req.headers['x-end-user-name'] || '';
@@ -706,7 +749,7 @@ async function handleGeminiEnterpriseRequest(req, res) {
         return res.status(400).json({ error: 'Prompt is required' });
       }
 
-      console.log(`Processing Gemini Enterprise request (Mode: ${BACKEND_MODE})... Authenticated User: ${userPseudoId} (${endUserName || 'Corporate User'}, AuthMode: ${authMode || 'default'})`);
+      console.log(`Processing Gemini Enterprise request (Mode: ${BACKEND_MODE})... Authenticated User: ${userPseudoId} (${endUserName || 'Corporate User'}, AuthMode: ${authMode || 'default'}, Attachments: ${attachments ? attachments.length : 0})`);
 
       if (BACKEND_MODE === 'streamassist' && ENTERPRISE_APP_ID) {
         try {
@@ -716,7 +759,8 @@ async function handleGeminiEnterpriseRequest(req, res) {
             userId, 
             userPseudoId, 
             userGoogleToken, 
-            authMode 
+            authMode,
+            attachments
           });
           let rawText = streamAssistResult.resultText || '';
 

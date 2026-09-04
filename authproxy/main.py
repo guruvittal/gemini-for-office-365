@@ -826,6 +826,7 @@ class OfficeAddinRequest(BaseModel):
     sessionId: Optional[str] = Field(None, description="Active session ID")
     enableGrounding: Optional[bool] = Field(True, description="Enable grounding flag")
     userPseudoId: Optional[str] = Field(None, description="Optional client-provided pseudo user ID")
+    attachments: Optional[List[Dict[str, Any]]] = Field(default=None, description="Optional document attachments for streamAssist")
 
 
 class HealthResponse(BaseModel):
@@ -1092,6 +1093,12 @@ async def proxy_addin_request(
                 "sub": user.sub
             }
         }
+        if req.attachments:
+            downstream_payload["attachments"] = req.attachments
+            logger.info(
+                f"Forwarding {len(req.attachments)} document attachment(s) downstream to streamAssist",
+                extra={"user_id": effective_user_id, "attachment_count": len(req.attachments)}
+            )
 
         try:
             downstream_timeout = int(os.environ.get("DOWNSTREAM_TIMEOUT", "300"))

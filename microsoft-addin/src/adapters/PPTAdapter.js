@@ -120,30 +120,38 @@ export class PPTAdapter {
 
         console.log(`[PPTAdapter] getSelectedSlides returned ${slideIds.length} slides:`, slideIds);
 
-        // Step 2: Extract text from each selected slide in its own isolated PowerPoint.run
-        for (let i = 0; i < slideIds.length; i++) {
-          const sId = slideIds[i];
-          const slideText = await this._extractSlideTextById(sId);
-          if (slideText && slideText.trim()) {
-            selectedSlidesData.push({
-              slideNumber: i + 1,
-              id: sId,
-              text: slideText.trim()
-            });
+        // Case 1: Multiple slides are explicitly highlighted in the slide thumbnail list
+        if (slideIds.length > 1) {
+          for (let i = 0; i < slideIds.length; i++) {
+            const sId = slideIds[i];
+            const slideText = await this._extractSlideTextById(sId);
+            if (slideText && slideText.trim()) {
+              selectedSlidesData.push({
+                slideNumber: i + 1,
+                id: sId,
+                text: slideText.trim(),
+                isMultiSlide: true
+              });
+            }
           }
+          return selectedSlidesData;
         }
 
-        // Step 3: Fallback if getSelectedSlides returned 0 (e.g. user selected shapes on active slide)
-        if (selectedSlidesData.length === 0) {
-          const shapeText = await this.getSelectedShapeText();
-          if (shapeText && shapeText.trim()) {
-            selectedSlidesData.push({
-              slideNumber: 1,
-              id: "active-selection",
-              text: shapeText.trim()
-            });
-          }
+        // Case 2: User is on a single slide. Only attach if user highlighted specific text/shape!
+        const shapeText = await this.getSelectedShapeText();
+        if (shapeText && shapeText.trim()) {
+          selectedSlidesData.push({
+            slideNumber: 1,
+            id: slideIds.length > 0 ? slideIds[0] : "active-shape",
+            text: shapeText.trim(),
+            isTextSelection: true
+          });
+          return selectedSlidesData;
         }
+
+        // Case 3: User merely clicked on a single slide without highlighting any text.
+        // Return empty so it stays in Deck Mode and does NOT enter "attached slide mode".
+        return [];
       }
     } catch (err) {
       console.warn("PowerPoint getSelectedSlidesText warning:", err);
@@ -199,6 +207,9 @@ export class PPTAdapter {
   async getSelectedText() {
     const selectedSlides = await this.getSelectedSlidesText();
     if (selectedSlides && selectedSlides.length > 0) {
+      if (selectedSlides.length === 1 && selectedSlides[0].isTextSelection) {
+        return selectedSlides[0].text;
+      }
       return selectedSlides.map(s => `[Slide ${s.slideNumber}]:\n${s.text}`).join("\n\n---\n\n");
     }
     return "";

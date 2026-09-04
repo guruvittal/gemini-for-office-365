@@ -138,22 +138,26 @@ async function getThemeBlankLayoutOptions() {
   try {
     return await PowerPoint.run(async (context) => {
       const slideMasters = context.presentation.slideMasters;
-      slideMasters.load("id, layouts/items/id, layouts/items/name");
+      slideMasters.load("items/id");
       await context.sync();
 
       if (!slideMasters.items || slideMasters.items.length === 0) return null;
 
       for (const master of slideMasters.items) {
-        if (!master.layouts || !master.layouts.items) continue;
-        const blankLayout = master.layouts.items.find(l => {
-          const n = (l.name || "").toLowerCase();
-          return n === "blank" || n.includes("blank") || n.includes("empty");
-        });
-        if (blankLayout) {
-          return {
-            slideMasterId: master.id,
-            layoutId: blankLayout.id
-          };
+        master.layouts.load("items/id, items/name");
+        await context.sync();
+
+        if (master.layouts && master.layouts.items) {
+          const blankLayout = master.layouts.items.find(l => {
+            const n = (l.name || "").toLowerCase();
+            return n === "blank" || n.includes("blank") || n.includes("empty") || n.includes("vazio");
+          });
+          if (blankLayout) {
+            return {
+              slideMasterId: master.id,
+              layoutId: blankLayout.id
+            };
+          }
         }
       }
       return null;
@@ -204,7 +208,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
     });
   }
 
-  // 2. Delete default template placeholders in an isolated session (as in original branch)
+  // 2. Eliminate template placeholders ("Click to add title", "Click to add subtitle")
   try {
     await PowerPoint.run(async (context) => {
       const slides = context.presentation.slides;
@@ -212,20 +216,45 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
       await context.sync();
 
       const newSlide = slides.getItemAt(countResult.value - 1);
-      newSlide.shapes.load("items");
+      newSlide.shapes.load("items/name, items/type");
       await context.sync();
 
       if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
         for (let i = newSlide.shapes.items.length - 1; i >= 0; i--) {
+          const s = newSlide.shapes.items[i];
           try {
-            newSlide.shapes.items[i].delete();
+            s.delete();
           } catch (_) {}
         }
         await context.sync();
       }
     });
   } catch (cleanErr) {
-    console.warn("Notice: placeholder delete skipped:", cleanErr);
+    // Fallback: If shape deletion is blocked by PowerPoint host, neutralize by moving off-canvas and clearing text
+    try {
+      await PowerPoint.run(async (context) => {
+        const slides = context.presentation.slides;
+        const countResult = slides.getCount();
+        await context.sync();
+
+        const newSlide = slides.getItemAt(countResult.value - 1);
+        newSlide.shapes.load("items/name, items/type");
+        await context.sync();
+
+        if (newSlide.shapes.items) {
+          for (const s of newSlide.shapes.items) {
+            try {
+              s.textFrame.textRange.text = " ";
+            } catch (_) {}
+            try {
+              s.left = -5000;
+              s.top = -5000;
+            } catch (_) {}
+          }
+          await context.sync();
+        }
+      });
+    } catch (_) {}
   }
 
   // 3. Populate slide content in a fresh, uncorrupted PowerPoint.run

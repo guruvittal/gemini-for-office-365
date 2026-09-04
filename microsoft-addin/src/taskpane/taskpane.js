@@ -126,6 +126,9 @@ Office.onReady(async (info) => {
   // Setup Selection Quick Toolbar Chips (Feature 3: Inline Rewrite Toolbar)
   setupSelectionChips();
 
+  // Setup Transform Doc to Deck Feature
+  initDocToDeckFeature();
+
   // Wire Tip Banner Dismiss button
   const dismissTipBtn = document.getElementById("dismissTipBtn");
   if (dismissTipBtn) {
@@ -321,7 +324,7 @@ function resetChatSession() {
 }
 
 // Adaptive Action Bar & Chips Renderer
-function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0) {
+function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0, isTextSelection = false) {
   const hostName = hostAdapter ? hostAdapter.name : "Word";
   const docToolsTitle = document.getElementById("docToolsTitle");
   const debugStatus = document.getElementById("debugStatus");
@@ -333,12 +336,18 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
 
   if (hostName === "PowerPoint") {
     if (isSelected) {
-      const slideNoun = slideCount > 1 ? `${slideCount} Slides` : "Slide";
-      if (docToolsTitle) docToolsTitle.innerHTML = `✨ <strong>Selected Context:</strong>`;
-      if (debugStatus) debugStatus.innerHTML = `<span style="color:#0078d4; font-weight:600;">${slideCount} ${slideNoun} (${words}w)</span>`;
+      const labelText = isTextSelection 
+        ? `Selected Text (${words} words)` 
+        : (slideCount > 1 ? `${slideCount} Slides (${words} words)` : `Selected Content (${words} words)`);
+      const barTitle = isTextSelection 
+        ? `✨ <strong>Selected Text:</strong>` 
+        : `✨ <strong>Selected Slides (${slideCount}):</strong>`;
+
+      if (docToolsTitle) docToolsTitle.innerHTML = barTitle;
+      if (debugStatus) debugStatus.innerHTML = `<span style="color:#0078d4; font-weight:600;">${labelText}</span>`;
 
       if (selectionPill) {
-        if (selectionPillLabel) selectionPillLabel.innerText = `Attached: ${slideCount} ${slideNoun} (${words} words)`;
+        if (selectionPillLabel) selectionPillLabel.innerText = `Attached: ${labelText}`;
         selectionPill.style.display = "flex";
       }
 
@@ -346,6 +355,7 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
         <button class="quick-chip" id="chipTakeaways" style="background-color:#e0f2fe; color:#0369a1; border-color:#bae6fd;">🎯 Slide Takeaways</button>
         <button class="quick-chip" id="chipRisks" style="background-color:#fef3c7; color:#b45309; border-color:#fde68a;">⚠️ Key Risks</button>
         <button class="quick-chip" id="chipRewrite" style="background-color:#f3e8ff; color:#7e22ce; border-color:#e9d5ff;">🪄 Rewrite Slide</button>
+        <button class="quick-chip" id="chipDocToDeck" style="background-color:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600;">📄 Transform Doc to Deck</button>
         <button class="quick-chip" id="chipShorten">📉 Shorten</button>
         <button class="quick-chip" id="chipTable">📊 Table</button>
       `;
@@ -358,6 +368,14 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
 
       const cRewrite = document.getElementById("chipRewrite");
       if (cRewrite) cRewrite.onclick = () => runSelectionPrompt("Rewrite and elevate the selected slide content into clear, high-impact executive presentation prose.");
+
+      const cDocToDeck = document.getElementById("chipDocToDeck");
+      if (cDocToDeck) {
+        cDocToDeck.onclick = () => {
+          const fileInput = document.getElementById("docToDeckFileInput");
+          if (fileInput) fileInput.click();
+        };
+      }
 
       const cShorten = document.getElementById("chipShorten");
       if (cShorten) cShorten.onclick = () => runSelectionPrompt("Make this slide content significantly more concise and punchy, removing unnecessary fluff.");
@@ -372,11 +390,20 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
       if (selectionPill) selectionPill.style.display = "none";
 
       container.innerHTML = `
+        <button class="quick-chip" id="chipDocToDeck" style="background-color:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600;">📄 Transform Doc to Deck</button>
         <button class="quick-chip" id="chipSummarize">📊 Summarize Slides</button>
         <button class="quick-chip" id="chipRisks">⚠️ Key Risks</button>
         <button class="quick-chip" id="chipActionItems">✅ Action Items</button>
         <button class="quick-chip" id="chipExecBox">🎯 Slide Takeaways</button>
       `;
+
+      const cDocToDeck = document.getElementById("chipDocToDeck");
+      if (cDocToDeck) {
+        cDocToDeck.onclick = () => {
+          const fileInput = document.getElementById("docToDeckFileInput");
+          if (fileInput) fileInput.click();
+        };
+      }
 
       const cSum = document.getElementById("chipSummarize");
       if (cSum) cSum.onclick = () => runPowerPointSlideAction("summarize");
@@ -504,6 +531,14 @@ function setupDocToolsChips() {
       }
     };
   }
+
+  const chipDocToDeck = document.getElementById("chipDocToDeck");
+  if (chipDocToDeck) {
+    chipDocToDeck.onclick = () => {
+      const fileInput = document.getElementById("docToDeckFileInput");
+      if (fileInput) fileInput.click();
+    };
+  }
 }
 
 function setupSelectionChips() {
@@ -555,13 +590,19 @@ async function handleSelectionChanged() {
     if (currentSelectedText.length > 5) {
       const words = currentSelectedText.split(/\s+/).filter(w => w.length > 0).length;
       let slideCount = 1;
+      let isTextSelection = false;
       if (hostAdapter.name === "PowerPoint" && typeof hostAdapter.getSelectedSlidesText === "function") {
         try {
           const slides = await hostAdapter.getSelectedSlidesText();
-          if (slides && slides.length > 0) slideCount = slides.length;
+          if (slides && slides.length > 0) {
+            slideCount = slides.length;
+            if (slides.length === 1 && slides[0].isTextSelection) {
+              isTextSelection = true;
+            }
+          }
         } catch (e) {}
       }
-      renderAdaptiveActionChips(true, slideCount, words);
+      renderAdaptiveActionChips(true, slideCount, words, isTextSelection);
     } else {
       renderAdaptiveActionChips(false);
     }
@@ -758,7 +799,84 @@ async function callGeminiProxy(customPrompt = null) {
   await executeGeminiWorkflow(fullPrompt, displayUserBubble);
 }
 
-async function executeGeminiWorkflow(fullPrompt, displayUserBubble) {
+// Feature: Transform Doc to Deck (Direct document attachments to Discovery Engine streamAssist)
+function initDocToDeckFeature() {
+  const fileInput = document.getElementById("docToDeckFileInput");
+  if (!fileInput) return;
+
+  fileInput.addEventListener("change", async (event) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const loadingText = document.getElementById("loading");
+    if (loadingText) {
+      loadingText.innerText = `⚡ Uploading ${files.length} document(s) to Gemini Enterprise...`;
+      loadingText.style.display = "block";
+    }
+
+    try {
+      const attachments = [];
+      const fileNames = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        fileNames.push(file.name);
+
+        const base64Data = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result;
+            const base64 = typeof result === 'string' && result.includes(',') ? result.split(',')[1] : result;
+            resolve(base64);
+          };
+          reader.onerror = (err) => reject(err);
+          reader.readAsDataURL(file);
+        });
+
+        let mimeType = file.type;
+        if (!mimeType) {
+          const ext = file.name.split('.').pop().toLowerCase();
+          if (ext === 'pdf') mimeType = 'application/pdf';
+          else if (ext === 'docx') mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+          else if (ext === 'doc') mimeType = 'application/msword';
+          else if (ext === 'txt') mimeType = 'text/plain';
+          else if (ext === 'md') mimeType = 'text/markdown';
+          else mimeType = 'application/octet-stream';
+        }
+
+        attachments.push({
+          fileName: file.name,
+          mimeType: mimeType,
+          fileContents: base64Data
+        });
+      }
+
+      const displayUserBubble = `📄 [Transform Doc to Deck]\nAttached: ${fileNames.join(', ')}`;
+      const prompt = `Extract the key takeaways from the attached document(s) and create an executive slide deck with no more than 5 slides summarizing the key insights.
+
+PowerPoint Slide Deck Requirements:
+1. Extract the core executive takeaways and strategic insights across the document(s).
+2. Structure the presentation with no more than 5 slides.
+3. For each slide, format cleanly using slide markdown:
+   - "### Slide <N>: <Emoji> <Punchy Slide Title>"
+   - "#### <Subtitle / Strategic Context>"
+   - Bullet points with bold lead-ins for key points
+   - For financial, numerical, or performance comparison data, YOU MUST provide a clean Markdown table with headers and data rows.
+   - Conclude each slide with an italicized takeaway: "_Takeaway: <summary>_"
+4. Do NOT include raw design metadata like "Visual Concept:", "Color:", or font sizes.`;
+
+      await executeGeminiWorkflow(prompt, displayUserBubble, attachments);
+    } catch (err) {
+      console.error("Error reading documents for Transform Doc to Deck:", err);
+      appendBubble("Error reading documents: " + err.message, "system");
+    } finally {
+      event.target.value = "";
+      if (loadingText) loadingText.style.display = "none";
+    }
+  });
+}
+
+async function executeGeminiWorkflow(fullPrompt, displayUserBubble, attachments = null) {
   const runButton = document.getElementById("run");
   const loadingText = document.getElementById("loading");
   const historyDiv = document.getElementById("chatHistory");
@@ -772,7 +890,7 @@ async function executeGeminiWorkflow(fullPrompt, displayUserBubble) {
   try {
     appendBubble(displayUserBubble, "user");
 
-    const data = await askGeminiEnterprise(fullPrompt, chatHistoryState, currentSessionId);
+    const data = await askGeminiEnterprise(fullPrompt, chatHistoryState, currentSessionId, true, attachments);
 
     if (data.sessionId) {
       currentSessionId = data.sessionId;
@@ -840,8 +958,8 @@ function appendAssistantBubble(text) {
   // 2. Insert Button
   const insertBtn = document.createElement("button");
   insertBtn.className = "action-btn insert";
-  insertBtn.innerHTML = isPPT ? `➕ Insert into Slides` : (isExcel ? `➕ Insert into Sheet` : `➕ Insert at Cursor`);
-  insertBtn.title = isPPT ? "Create new presentation slides" : "Insert at current cursor location";
+  insertBtn.innerHTML = isPPT ? `🚀 Build Deck` : (isExcel ? `➕ Insert into Sheet` : `➕ Insert at Cursor`);
+  insertBtn.title = isPPT ? "Build and populate PowerPoint presentation slides" : "Insert at current cursor location";
   insertBtn.onclick = async () => {
     await performDocumentInsertion(textDiv.innerHTML, text, "insert_cursor");
   };
