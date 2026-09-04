@@ -46,6 +46,12 @@ module.exports = async (env, options) => {
       from: "assets/*",
       to: "assets/[name][ext][query]",
     },
+    {
+      from: "architecture.html",
+      to: "architecture.html",
+      toType: "file",
+      noErrorOnMissing: true,
+    },
   ];
 
   if (manifestWifSrc) {
