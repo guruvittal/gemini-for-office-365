@@ -662,10 +662,11 @@ async function extractDocumentText(att) {
       // 2. Attempt addContextFile via Discovery Engine if session exists
       if (requestBody.session) {
         const candidateUrls = [
+          `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1alpha/${requestBody.session}:addContextFile`,
           `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1/${requestBody.session}:addContextFile`,
-          `https://discoveryengine.googleapis.com/v1/${requestBody.session}:addContextFile`,
           `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1beta/${requestBody.session}:addContextFile`,
-          `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1alpha/${requestBody.session}:addContextFile`
+          `https://discoveryengine.googleapis.com/v1alpha/${requestBody.session}:addContextFile`,
+          `https://discoveryengine.googleapis.com/v1/${requestBody.session}:addContextFile`
         ];
 
         let fileAdded = false;
@@ -681,13 +682,9 @@ async function extractDocumentText(att) {
                 'X-Goog-User-Project': PROJECT_ID
               },
               body: JSON.stringify({
-                name: requestBody.session,
                 fileName: att.fileName,
-                file_name: att.fileName,
                 mimeType: att.mimeType || 'application/pdf',
-                mime_type: att.mimeType || 'application/pdf',
-                fileContents: att.fileContents,
-                file_contents: att.fileContents
+                fileContents: att.fileContents
               })
             });
 
@@ -696,11 +693,11 @@ async function extractDocumentText(att) {
               if (addData.fileId) {
                 uploadedFileIds.push(addData.fileId);
                 fileAdded = true;
-                console.log(`[STREAM_ASSIST] Registered context file '${att.fileName}' -> fileId: ${addData.fileId}`);
+                console.log(`[STREAM_ASSIST] Successfully registered context file '${att.fileName}' -> fileId: ${addData.fileId}, tokenCount: ${addData.tokenCount || 'N/A'}`);
               }
             } else {
               const addErrText = await addRes.text();
-              console.warn(`[STREAM_ASSIST_WARN] addContextFile failed (${addFileUrl}, HTTP ${addRes.status}):`, addErrText.slice(0, 160));
+              console.warn(`[STREAM_ASSIST_WARN] addContextFile failed (${addFileUrl}, HTTP ${addRes.status}):`, addErrText.slice(0, 200));
             }
           } catch (attErr) {
             console.warn(`[STREAM_ASSIST_WARN] Error calling addContextFile on '${addFileUrl}':`, attErr.message);
@@ -712,13 +709,11 @@ async function extractDocumentText(att) {
     if (uploadedFileIds.length > 0) {
       requestBody.fileIds = uploadedFileIds;
       console.log(`[STREAM_ASSIST] Successfully bound ${uploadedFileIds.length} context fileId(s) to streamAssist request:`, uploadedFileIds);
-    }
-
-    // Always inject extracted document text into query.text so Gemini gets full grounded content
-    if (extractedDocs.length > 0) {
+    } else if (extractedDocs.length > 0) {
+      // Fallback: inject extracted text only if addContextFile could not bind fileIds
       const docContextBlocks = extractedDocs.map(d => `--- BEGIN DOCUMENT: ${d.fileName} ---\n${d.text}\n--- END DOCUMENT: ${d.fileName} ---`).join('\n\n');
       requestBody.query.text = `${requestBody.query.text}\n\n[ATTACHED DOCUMENTS CONTEXT]\n${docContextBlocks}\n[END ATTACHED DOCUMENTS CONTEXT]`;
-      console.log(`[STREAM_ASSIST] Grounded query.text with ${extractedDocs.length} attached document(s) (${docContextBlocks.length} chars total)`);
+      console.log(`[STREAM_ASSIST] Fallback: Grounded query.text with ${extractedDocs.length} attached document(s) (${docContextBlocks.length} chars total)`);
     }
   }
 
