@@ -204,7 +204,31 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
     });
   }
 
-  // 2. Reference new slide and populate content
+  // 2. Delete default template placeholders in an isolated session (as in original branch)
+  try {
+    await PowerPoint.run(async (context) => {
+      const slides = context.presentation.slides;
+      const countResult = slides.getCount();
+      await context.sync();
+
+      const newSlide = slides.getItemAt(countResult.value - 1);
+      newSlide.shapes.load("items");
+      await context.sync();
+
+      if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
+        for (let i = newSlide.shapes.items.length - 1; i >= 0; i--) {
+          try {
+            newSlide.shapes.items[i].delete();
+          } catch (_) {}
+        }
+        await context.sync();
+      }
+    });
+  } catch (cleanErr) {
+    console.warn("Notice: placeholder delete skipped:", cleanErr);
+  }
+
+  // 3. Populate slide content in a fresh, uncorrupted PowerPoint.run
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
     const countResult = slides.getCount();
@@ -212,31 +236,6 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
 
     const slideCount = countResult.value;
     const newSlide = slides.getItemAt(slideCount - 1);
-
-    // Neutralize any default template placeholders (e.g. "Click to add title", "Click to add subtitle")
-    try {
-      newSlide.shapes.load("items/name, items/type");
-      await context.sync();
-
-      if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
-        for (const s of newSlide.shapes.items) {
-          const name = (s.name || "").toLowerCase();
-          if (name.includes("title") || name.includes("subtitle") || name.includes("placeholder") ||
-              name.includes("content") || name.includes("body") || name.includes("text") || name.includes("notes")) {
-            try {
-              s.textFrame.textRange.text = " ";
-            } catch (_) {}
-            try {
-              s.left = -5000;
-              s.top = -5000;
-            } catch (_) {}
-          }
-        }
-        await context.sync();
-      }
-    } catch (phErr) {
-      console.warn("Notice during placeholder cleanup:", phErr);
-    }
 
     // Add Clean Title at Top using Gemini's requested title font size
     const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
