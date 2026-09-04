@@ -156,29 +156,11 @@ async function createSingleSlide(slideData, slideNum) {
     slides.add();
     await context.sync();
 
-    slides.load("items");
+    const countResult = slides.getCount();
     await context.sync();
 
-    const newSlide = slides.items && slides.items.length > 0 
-      ? slides.items[slides.items.length - 1] 
-      : null;
-
-    if (!newSlide) {
-      throw new Error(`Failed to reference newly created slide ${slideNum}`);
-    }
-
-    newSlide.shapes.load("items");
-    await context.sync();
-
-    // Delete any default template placeholders (e.g. "Click to add title", "Click to add text")
-    if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
-      for (let i = newSlide.shapes.items.length - 1; i >= 0; i--) {
-        try {
-          newSlide.shapes.items[i].delete();
-        } catch (dErr) {}
-      }
-      await context.sync();
-    }
+    const slideCount = countResult.value;
+    const newSlide = slides.getItemAt(slideCount - 1);
 
     // Add Clean Title at Top using Gemini's requested title font size
     const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
