@@ -214,7 +214,24 @@ export function parseSlides(htmlContent, rawText = "") {
   // Strategy 1: Explicit Slide Headings (H1, H2, H3)
   // -------------------------------------------------------------
   const headerEls = Array.from(tempDiv.querySelectorAll("h1, h2, h3"));
-  if (headerEls.length >= 2) {
+  
+  // Check if there is an explicit multi-slide outline table or list in the document
+  const hasOutlineTable = Array.from(tempDiv.querySelectorAll("table")).some(t => {
+    const rows = Array.from(t.querySelectorAll("tr"));
+    if (rows.length < 2) return false;
+    const hText = (rows[0].innerText || rows[0].textContent || "").toLowerCase();
+    return hText.includes("slide #") || hText.includes("slide number") || hText.includes("slide title") ||
+      rows.some(r => Array.from(r.querySelectorAll("td, th")).some(c => /^slide\s*\d+/i.test(c.textContent.trim())));
+  });
+
+  const hasOutlineList = Array.from(tempDiv.querySelectorAll("li")).filter(li => 
+    /^(?:Slide\s*\d+|\*\*Slide\s*\d+\*\*)\s*[:\-–—]/i.test((li.innerText || li.textContent || "").trim())
+  ).length >= 2;
+
+  // Activate Strategy 1 if multiple headers exist, OR if 1 header exists without a multi-slide outline table/list
+  const shouldRunStrategy1 = headerEls.length >= 2 || (headerEls.length === 1 && !hasOutlineTable && !hasOutlineList);
+
+  if (shouldRunStrategy1) {
     const slides = [];
     for (let i = 0; i < headerEls.length; i++) {
       const h = headerEls[i];
@@ -284,7 +301,7 @@ export function parseSlides(htmlContent, rawText = "") {
       });
     }
 
-    if (slides.length >= 2) return slides;
+    if (slides.length >= 1) return slides;
   }
 
   // -------------------------------------------------------------
@@ -579,7 +596,12 @@ export function parseSlides(htmlContent, rawText = "") {
   // -------------------------------------------------------------
   // Strategy 6: Single Slide Fallback
   // -------------------------------------------------------------
-  const lines = textContent.split("\n").map(l => l.trim()).filter(Boolean);
+  const cloneDiv = tempDiv.cloneNode(true);
+  cloneDiv.querySelectorAll("h1, h2, h3, p, li, tr, div, blockquote").forEach(el => {
+    el.insertAdjacentText("afterend", "\n");
+  });
+  const fallbackText = (cloneDiv.textContent || cloneDiv.innerText || rawText || "").trim();
+  const lines = fallbackText.split("\n").map(l => l.trim()).filter(Boolean);
   const singleTitle = lines[0] ? cleanSlideTitle(lines[0], 1) : "Presentation Overview";
   const parsed = extractSlideMetadataAndBullets(lines.slice(1));
 
