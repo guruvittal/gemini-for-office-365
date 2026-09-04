@@ -392,7 +392,6 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
       container.innerHTML = `
         <button class="quick-chip" id="chipDocToDeck" style="background-color:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600;">📄 Transform Doc to Deck</button>
         <button class="quick-chip" id="chipSummarize">📊 Summarize Slides</button>
-        <button class="quick-chip" id="chipRisks">⚠️ Key Risks</button>
         <button class="quick-chip" id="chipActionItems">✅ Action Items</button>
         <button class="quick-chip" id="chipExecBox">🎯 Slide Takeaways</button>
       `;
@@ -407,9 +406,6 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
 
       const cSum = document.getElementById("chipSummarize");
       if (cSum) cSum.onclick = () => runPowerPointSlideAction("summarize");
-
-      const cRisks = document.getElementById("chipRisks");
-      if (cRisks) cRisks.onclick = () => runPowerPointSlideAction("risks");
 
       const cAct = document.getElementById("chipActionItems");
       if (cAct) cAct.onclick = () => runPowerPointSlideAction("action_items");

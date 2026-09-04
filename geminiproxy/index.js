@@ -601,46 +601,124 @@ async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, us
     }
   }
 
-  // Handle native document attachments via Discovery Engine addContextFile
-  const uploadedFileIds = [];
-  if (attachments && Array.isArray(attachments) && attachments.length > 0 && requestBody.session) {
-    for (const att of attachments) {
-      try {
-        const addFileUrl = `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1alpha/${requestBody.session}:addContextFile`;
-        console.log(`[STREAM_ASSIST] Uploading context file '${att.fileName}' (${att.mimeType || 'application/pdf'}) to session '${requestBody.session}'...`);
-        const addRes = await fetch(addFileUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${bearerToken}`,
-            'Content-Type': 'application/json',
-            'X-Goog-User-Project': PROJECT_ID
-          },
-          body: JSON.stringify({
-            name: requestBody.session,
-            fileName: att.fileName,
-            mimeType: att.mimeType || 'application/pdf',
-            fileContents: att.fileContents
-          })
-        });
+/**
+ * Safely extracts raw text from document attachments (PDF, Word DOCX, Markdown, Text, CSV, JSON)
+ */
+async function extractDocumentText(att) {
+  if (!att || !att.fileContents) return '';
+  try {
+    const buffer = Buffer.from(att.fileContents, 'base64');
+    const mime = (att.mimeType || '').toLowerCase();
+    const name = (att.fileName || '').toLowerCase();
 
-        if (addRes.ok) {
-          const addData = await addRes.json();
-          if (addData.fileId) {
-            uploadedFileIds.push(addData.fileId);
-            console.log(`[STREAM_ASSIST] Registered context file '${att.fileName}' -> fileId: ${addData.fileId} (tokenCount: ${addData.tokenCount || 'N/A'})`);
-          }
-        } else {
-          const addErrText = await addRes.text();
-          console.warn(`[STREAM_ASSIST_WARN] addContextFile failed for '${att.fileName}' (HTTP ${addRes.status}):`, addErrText);
+    // Plain text / Markdown / JSON / CSV
+    if (mime.includes('text') || mime.includes('markdown') || mime.includes('json') || mime.includes('csv') || name.endsWith('.txt') || name.endsWith('.md')) {
+      return buffer.toString('utf-8');
+    }
+
+    // Word documents (.docx)
+    if (mime.includes('word') || name.endsWith('.docx')) {
+      const mammoth = await import('mammoth');
+      const result = await (mammoth.default || mammoth).extractRawText({ buffer });
+      return result.value || '';
+    }
+
+    // PDF documents (.pdf)
+    if (mime.includes('pdf') || name.endsWith('.pdf')) {
+      const pdfModule = await import('pdf-parse');
+      const { PDFParse } = pdfModule.default || pdfModule;
+      if (PDFParse) {
+        const parser = new PDFParse({ data: buffer });
+        await parser.load();
+        const textResult = await parser.getText();
+        return (typeof textResult === 'string' ? textResult : (textResult.text || '')).trim();
+      }
+    }
+  } catch (err) {
+    console.warn(`[EXTRACT_TEXT_WARN] Could not extract text from '${att.fileName}':`, err.message);
+  }
+  return '';
+}
+
+  // Handle document attachments:
+  // 1. Extract text from documents and inject into query.text so StreamAssist ALWAYS has full grounded context
+  // 2. Try Discovery Engine addContextFile across multiple API versions and locations
+  const uploadedFileIds = [];
+  const extractedDocs = [];
+
+  if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+    for (const att of attachments) {
+      // 1. Extract text first
+      try {
+        const text = await extractDocumentText(att);
+        if (text && text.trim().length > 0) {
+          extractedDocs.push({ fileName: att.fileName, text: text.trim() });
+          console.log(`[STREAM_ASSIST] Successfully extracted text from '${att.fileName}' (${text.trim().length} chars)`);
         }
-      } catch (attErr) {
-        console.warn(`[STREAM_ASSIST_WARN] Error adding context file '${att.fileName}':`, attErr.message);
+      } catch (extractErr) {
+        console.warn(`[STREAM_ASSIST_WARN] Could not extract text from '${att.fileName}':`, extractErr.message);
+      }
+
+      // 2. Attempt addContextFile via Discovery Engine if session exists
+      if (requestBody.session) {
+        const candidateUrls = [
+          `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1/${requestBody.session}:addContextFile`,
+          `https://discoveryengine.googleapis.com/v1/${requestBody.session}:addContextFile`,
+          `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1beta/${requestBody.session}:addContextFile`,
+          `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1alpha/${requestBody.session}:addContextFile`
+        ];
+
+        let fileAdded = false;
+        for (const addFileUrl of candidateUrls) {
+          if (fileAdded) break;
+          try {
+            console.log(`[STREAM_ASSIST] Attempting addContextFile for '${att.fileName}' -> ${addFileUrl}...`);
+            const addRes = await fetch(addFileUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${bearerToken}`,
+                'Content-Type': 'application/json',
+                'X-Goog-User-Project': PROJECT_ID
+              },
+              body: JSON.stringify({
+                name: requestBody.session,
+                fileName: att.fileName,
+                file_name: att.fileName,
+                mimeType: att.mimeType || 'application/pdf',
+                mime_type: att.mimeType || 'application/pdf',
+                fileContents: att.fileContents,
+                file_contents: att.fileContents
+              })
+            });
+
+            if (addRes.ok) {
+              const addData = await addRes.json();
+              if (addData.fileId) {
+                uploadedFileIds.push(addData.fileId);
+                fileAdded = true;
+                console.log(`[STREAM_ASSIST] Registered context file '${att.fileName}' -> fileId: ${addData.fileId}`);
+              }
+            } else {
+              const addErrText = await addRes.text();
+              console.warn(`[STREAM_ASSIST_WARN] addContextFile failed (${addFileUrl}, HTTP ${addRes.status}):`, addErrText.slice(0, 160));
+            }
+          } catch (attErr) {
+            console.warn(`[STREAM_ASSIST_WARN] Error calling addContextFile on '${addFileUrl}':`, attErr.message);
+          }
+        }
       }
     }
 
     if (uploadedFileIds.length > 0) {
       requestBody.fileIds = uploadedFileIds;
       console.log(`[STREAM_ASSIST] Successfully bound ${uploadedFileIds.length} context fileId(s) to streamAssist request:`, uploadedFileIds);
+    }
+
+    // Always inject extracted document text into query.text so Gemini gets full grounded content
+    if (extractedDocs.length > 0) {
+      const docContextBlocks = extractedDocs.map(d => `--- BEGIN DOCUMENT: ${d.fileName} ---\n${d.text}\n--- END DOCUMENT: ${d.fileName} ---`).join('\n\n');
+      requestBody.query.text = `${requestBody.query.text}\n\n[ATTACHED DOCUMENTS CONTEXT]\n${docContextBlocks}\n[END ATTACHED DOCUMENTS CONTEXT]`;
+      console.log(`[STREAM_ASSIST] Grounded query.text with ${extractedDocs.length} attached document(s) (${docContextBlocks.length} chars total)`);
     }
   }
 
