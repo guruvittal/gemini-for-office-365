@@ -27,136 +27,123 @@ export class PPTAdapter {
     }
   }
 
-  // Safely extract all text from all shapes on a PowerPoint slide
-  async _extractSlideText(context, slide) {
-    const textLines = [];
+  // Safely extract all text and table contents from a single PowerPoint slide by its ID in an isolated session
+  async _extractSlideTextById(slideId) {
+    let resultText = "";
     try {
-      const shapes = slide.shapes;
-      shapes.load("items");
-      await context.sync();
-
-      if (!shapes.items || shapes.items.length === 0) return "";
-
-      // Stage 1: Load shape metadata and textFrame.hasText safely
-      const shapeTrackers = [];
-      for (const shape of shapes.items) {
-        try {
-          shape.load("name, type");
-          const tf = shape.textFrame;
-          if (tf) {
-            tf.load("hasText");
-          }
-          shapeTrackers.push({ shape, tf });
-        } catch (e) {
-          console.warn("PPT shape meta load warning:", e);
-        }
-      }
-      await context.sync();
-
-      // Stage 2: Load textRange.text for shapes where hasText is true
-      const textShapes = [];
-      for (const tracker of shapeTrackers) {
-        try {
-          if (tracker.tf && tracker.tf.hasText) {
-            tracker.tf.textRange.load("text");
-            textShapes.push(tracker);
-          }
-        } catch (e) {
-          console.warn("PPT textRange load warning:", e);
-        }
-      }
-
-      if (textShapes.length > 0) {
+      await PowerPoint.run(async (context) => {
+        const slide = context.presentation.slides.getItem(slideId);
+        const shapes = slide.shapes;
+        shapes.load("items/name, items/type");
         await context.sync();
-        for (const tracker of textShapes) {
-          try {
-            if (tracker.tf && tracker.tf.textRange && tracker.tf.textRange.text) {
-              const txt = tracker.tf.textRange.text.trim();
-              if (txt) textLines.push(txt);
-            }
-          } catch (e) {
-            console.warn("PPT text read error:", e);
+
+        if (!shapes.items || shapes.items.length === 0) return;
+
+        const textTrackers = [];
+        const tableTrackers = [];
+
+        for (const shape of shapes.items) {
+          const typeStr = (shape.type || "").toString().toLowerCase();
+
+          // 1. Table shape extraction
+          if (typeStr.includes("table") && typeof shape.getTable === "function") {
+            try {
+              const table = shape.getTable();
+              table.load("values");
+              tableTrackers.push(table);
+            } catch (_) {}
+          } else {
+            // 2. Text shape extraction (TextBox, GeometricShape, Callout, etc.)
+            try {
+              if (shape.textFrame) {
+                const tr = shape.textFrame.textRange;
+                tr.load("text");
+                textTrackers.push(tr);
+              }
+            } catch (_) {}
           }
         }
-      }
-    } catch (slideErr) {
-      console.warn("PPT slide extract error:", slideErr);
+
+        await context.sync();
+
+        const textLines = [];
+        for (const tr of textTrackers) {
+          try {
+            if (tr.text && tr.text.trim()) {
+              textLines.push(tr.text.trim());
+            }
+          } catch (_) {}
+        }
+
+        for (const tbl of tableTrackers) {
+          try {
+            if (tbl.values && Array.isArray(tbl.values)) {
+              const tableRows = tbl.values
+                .map(row => (Array.isArray(row) ? row.join(" | ") : String(row)))
+                .filter(line => line.trim().length > 0);
+              if (tableRows.length > 0) {
+                textLines.push(tableRows.join("\n"));
+              }
+            }
+          } catch (_) {}
+        }
+
+        resultText = textLines.join("\n\n");
+      });
+    } catch (err) {
+      console.warn(`[PPTAdapter] Error extracting text from slide ${slideId}:`, err);
     }
-    return textLines.join("\n\n");
+    return resultText;
   }
 
-  // Read text and metadata from currently highlighted/selected slide(s) in PowerPoint
+  // Read text and metadata from ALL currently highlighted/selected slide(s) in PowerPoint
   async getSelectedSlidesText() {
     const selectedSlidesData = [];
     try {
       if (typeof PowerPoint !== 'undefined') {
+        const slideIds = [];
+
+        // Step 1: Query the IDs of all currently highlighted / selected slides
         await PowerPoint.run(async (context) => {
-          // 1. Check for selected slides via PowerPointApi 1.5+
           if (context.presentation.getSelectedSlides) {
             const selectedSlides = context.presentation.getSelectedSlides();
-            selectedSlides.load("items");
+            selectedSlides.load("items/id");
             await context.sync();
 
             if (selectedSlides.items && selectedSlides.items.length > 0) {
-              for (let i = 0; i < selectedSlides.items.length; i++) {
-                const slide = selectedSlides.items[i];
-                const slideText = await this._extractSlideText(context, slide);
-                if (slideText && slideText.trim()) {
-                  selectedSlidesData.push({
-                    slideNumber: i + 1,
-                    id: slide.id || `slide-${i + 1}`,
-                    text: slideText.trim()
-                  });
-                }
-              }
-            }
-          }
-
-          // 2. If no slide selection found, check if any shapes on the active slide are selected
-          if (selectedSlidesData.length === 0 && context.presentation.getSelectedShapes) {
-            const selectedShapes = context.presentation.getSelectedShapes();
-            selectedShapes.load("items");
-            await context.sync();
-
-            if (selectedShapes.items && selectedShapes.items.length > 0) {
-              const shapeTrackers = [];
-              for (const shape of selectedShapes.items) {
-                const tf = shape.textFrame;
-                if (tf) {
-                  tf.load("hasText");
-                  shapeTrackers.push({ shape, tf });
-                }
-              }
-              await context.sync();
-
-              const textShapes = [];
-              for (const tracker of shapeTrackers) {
-                if (tracker.tf && tracker.tf.hasText) {
-                  tracker.tf.textRange.load("text");
-                  textShapes.push(tracker);
-                }
-              }
-
-              if (textShapes.length > 0) {
-                await context.sync();
-                const shapeTexts = [];
-                for (const tracker of textShapes) {
-                  if (tracker.tf && tracker.tf.textRange && tracker.tf.textRange.text) {
-                    const txt = tracker.tf.textRange.text.trim();
-                    if (txt) shapeTexts.push(txt);
-                  }
-                }
-                if (shapeTexts.length > 0) {
-                  selectedSlidesData.push({
-                    slideNumber: 1,
-                    id: "active-selection",
-                    text: shapeTexts.join("\n\n")
-                  });
-                }
+              for (const s of selectedSlides.items) {
+                if (s.id) slideIds.push(s.id);
               }
             }
           }
         });
+
+        console.log(`[PPTAdapter] getSelectedSlides returned ${slideIds.length} slides:`, slideIds);
+
+        // Step 2: Extract text from each selected slide in its own isolated PowerPoint.run
+        for (let i = 0; i < slideIds.length; i++) {
+          const sId = slideIds[i];
+          const slideText = await this._extractSlideTextById(sId);
+          if (slideText && slideText.trim()) {
+            selectedSlidesData.push({
+              slideNumber: i + 1,
+              id: sId,
+              text: slideText.trim()
+            });
+          }
+        }
+
+        // Step 3: Fallback if getSelectedSlides returned 0 (e.g. user selected shapes on active slide)
+        if (selectedSlidesData.length === 0) {
+          const shapeText = await this.getSelectedShapeText();
+          if (shapeText && shapeText.trim()) {
+            selectedSlidesData.push({
+              slideNumber: 1,
+              id: "active-selection",
+              text: shapeText.trim()
+            });
+          }
+        }
       }
     } catch (err) {
       console.warn("PowerPoint getSelectedSlidesText warning:", err);
@@ -165,43 +152,37 @@ export class PPTAdapter {
     return selectedSlidesData;
   }
 
-  // Read currently highlighted text frame or shape text in PowerPoint
-  async getSelectedText() {
+  // Read currently highlighted shape or text frame on the active slide
+  async getSelectedShapeText() {
     let selectedText = "";
     try {
       if (typeof PowerPoint !== 'undefined') {
         await PowerPoint.run(async (context) => {
-          const selection = context.presentation.getSelectedShapes();
-          selection.load("items");
-          await context.sync();
-
-          if (selection.items && selection.items.length > 0) {
-            const shapeTrackers = [];
-            for (const shape of selection.items) {
-              const tf = shape.textFrame;
-              if (tf) {
-                tf.load("hasText");
-                shapeTrackers.push({ shape, tf });
-              }
-            }
+          if (context.presentation.getSelectedShapes) {
+            const selection = context.presentation.getSelectedShapes();
+            selection.load("items/name, items/type");
             await context.sync();
 
-            const textShapes = [];
-            for (const tracker of shapeTrackers) {
-              if (tracker.tf && tracker.tf.hasText) {
-                tracker.tf.textRange.load("text");
-                textShapes.push(tracker);
+            if (selection.items && selection.items.length > 0) {
+              const textTrackers = [];
+              for (const shape of selection.items) {
+                try {
+                  if (shape.textFrame) {
+                    const tr = shape.textFrame.textRange;
+                    tr.load("text");
+                    textTrackers.push(tr);
+                  }
+                } catch (_) {}
               }
-            }
-
-            if (textShapes.length > 0) {
               await context.sync();
+
               const texts = [];
-              for (const tracker of textShapes) {
-                if (tracker.tf && tracker.tf.textRange && tracker.tf.textRange.text) {
-                  const t = tracker.tf.textRange.text.trim();
-                  if (t) texts.push(t);
-                }
+              for (const tr of textTrackers) {
+                try {
+                  if (tr.text && tr.text.trim()) {
+                    texts.push(tr.text.trim());
+                  }
+                } catch (_) {}
               }
               selectedText = texts.join("\n\n");
             }
@@ -209,9 +190,18 @@ export class PPTAdapter {
         });
       }
     } catch (err) {
-      console.warn("PowerPoint selection read error:", err);
+      console.warn("PowerPoint getSelectedShapeText error:", err);
     }
     return selectedText;
+  }
+
+  // Read currently highlighted slide(s) text or active shape selection
+  async getSelectedText() {
+    const selectedSlides = await this.getSelectedSlidesText();
+    if (selectedSlides && selectedSlides.length > 0) {
+      return selectedSlides.map(s => `[Slide ${s.slideNumber}]:\n${s.text}`).join("\n\n---\n\n");
+    }
+    return "";
   }
 
   // Read full presentation text across all slides and shapes
@@ -219,21 +209,26 @@ export class PPTAdapter {
     const fullTextParts = [];
     try {
       if (typeof PowerPoint !== 'undefined') {
+        const slideIds = [];
         await PowerPoint.run(async (context) => {
           const slides = context.presentation.slides;
-          slides.load("items");
+          slides.load("items/id");
           await context.sync();
 
           if (slides.items && slides.items.length > 0) {
-            for (let i = 0; i < slides.items.length; i++) {
-              const slide = slides.items[i];
-              const slideText = await this._extractSlideText(context, slide);
-              if (slideText && slideText.trim()) {
-                fullTextParts.push(`--- Slide ${i + 1} ---\n${slideText.trim()}`);
-              }
+            for (const s of slides.items) {
+              if (s.id) slideIds.push(s.id);
             }
           }
         });
+
+        for (let i = 0; i < slideIds.length; i++) {
+          const sId = slideIds[i];
+          const slideText = await this._extractSlideTextById(sId);
+          if (slideText && slideText.trim()) {
+            fullTextParts.push(`--- Slide ${i + 1} ---\n${slideText.trim()}`);
+          }
+        }
       }
     } catch (e) {
       console.warn("PPT full text read error:", e);
