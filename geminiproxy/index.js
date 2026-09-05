@@ -661,19 +661,19 @@ async function extractDocumentText(att) {
 
       // 2. Attempt addContextFile via Discovery Engine if session exists
       if (requestBody.session) {
+        const regionalHost = STREAM_ASSIST_ENDPOINT_LOCATION && STREAM_ASSIST_ENDPOINT_LOCATION !== 'global'
+          ? `${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com`
+          : 'discoveryengine.googleapis.com';
+
         const candidateUrls = [
-          `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1alpha/${requestBody.session}:addContextFile`,
-          `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1/${requestBody.session}:addContextFile`,
-          `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1beta/${requestBody.session}:addContextFile`,
-          `https://discoveryengine.googleapis.com/v1alpha/${requestBody.session}:addContextFile`,
-          `https://discoveryengine.googleapis.com/v1/${requestBody.session}:addContextFile`
+          `https://${regionalHost}/v1alpha/${requestBody.session}:addContextFile`,
+          `https://${regionalHost}/v1alpha/projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/engines/${ENTERPRISE_APP_ID}/sessions/-:addContextFile`
         ];
 
         let fileAdded = false;
         for (const addFileUrl of candidateUrls) {
           if (fileAdded) break;
           try {
-            console.log(`[STREAM_ASSIST] Attempting addContextFile for '${att.fileName}' -> ${addFileUrl}...`);
             const addRes = await fetch(addFileUrl, {
               method: 'POST',
               headers: {
@@ -692,15 +692,18 @@ async function extractDocumentText(att) {
               const addData = await addRes.json();
               if (addData.fileId) {
                 uploadedFileIds.push(addData.fileId);
+                if (addData.session) {
+                  requestBody.session = addData.session;
+                }
                 fileAdded = true;
                 console.log(`[STREAM_ASSIST] Successfully registered context file '${att.fileName}' -> fileId: ${addData.fileId}, tokenCount: ${addData.tokenCount || 'N/A'}`);
               }
             } else {
               const addErrText = await addRes.text();
-              console.warn(`[STREAM_ASSIST_WARN] addContextFile failed (${addFileUrl}, HTTP ${addRes.status}):`, addErrText.slice(0, 200));
+              console.log(`[STREAM_ASSIST] addContextFile status ${addRes.status} on ${addFileUrl.includes('/sessions/-:') ? 'dynamic session' : 'active session'}: ${addErrText.slice(0, 120)}`);
             }
           } catch (attErr) {
-            console.warn(`[STREAM_ASSIST_WARN] Error calling addContextFile on '${addFileUrl}':`, attErr.message);
+            console.log(`[STREAM_ASSIST] addContextFile network note: ${attErr.message}`);
           }
         }
       }

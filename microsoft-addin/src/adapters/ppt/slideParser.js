@@ -14,21 +14,38 @@
 
 export function extractSlideMetadataAndBullets(rawLines) {
   let subtitle = "";
+  let takeaway = "";
   let visualConcept = "";
   let color = null;
-  let titleSize = 44;
-  let subtitleSize = 24;
+  let titleSize = 36;
+  let subtitleSize = 18;
   const contentBullets = [];
 
   for (const rawLine of rawLines) {
     if (!rawLine) continue;
-    const line = rawLine.replace(/^[-•*]\s*/, "").replace(/\*\*/g, "").trim();
+    let line = rawLine.trim();
     if (!line) continue;
 
-    const subMatch = line.match(/^(?:Sub-?title|Subtitle\s*Text):\s*(.*)$/i);
-    if (subMatch) {
-      subtitle = subMatch[1].trim();
-      continue;
+    // Check for Subtitle:
+    // Matches "#### Subtitle", "### Subtitle", "Subtitle: ...", "*Subtitle:* ...", "**Subtitle:** ..."
+    const subMatch = line.match(/^(?:#{3,6}\s*|(?:Sub-?title|Subtitle\s*Text):\s*)(.*)$/i);
+    if (subMatch && !subtitle) {
+      const cleanSub = subMatch[1].replace(/^[#*_`\s]+|[#*_`\s]+$/g, "").trim();
+      if (cleanSub) {
+        subtitle = cleanSub;
+        continue;
+      }
+    }
+
+    // Check for Takeaway / Key Takeaway:
+    // Matches "_Takeaway: text_", "**Takeaway:** text", "Takeaway: text", "Key Takeaway: text"
+    const takeawayMatch = line.match(/^[-•*]*\s*[_*`\s]*(?:Key\s*)?Takeaway[_*`\s]*:\s*(.*)$/i);
+    if (takeawayMatch && !takeaway) {
+      const cleanTakeaway = takeawayMatch[1].replace(/^[#*_`\s]+|[#*_`\s]+$/g, "").trim();
+      if (cleanTakeaway) {
+        takeaway = cleanTakeaway;
+        continue;
+      }
     }
 
     const colorMatch = line.match(/^(?:Color|Colour|Color\s*Scheme|Palette|Theme\s*Color):\s*(.*)$/i);
@@ -78,15 +95,40 @@ export function extractSlideMetadataAndBullets(rawLines) {
 
     if (/^`+$/.test(line)) continue;
 
-    contentBullets.push(`•  ${line.replace(/^[-•*]\s*/, "")}`);
+    // Clean bullet text:
+    let cleanBullet = line
+      .replace(/^[-•*]\s*/, "")
+      .replace(/^#{1,6}\s*/, "")
+      .trim();
+
+    // Check if it's a Subtitle or Takeaway after stripping bullet marker
+    if (/^(?:Sub-?title|Subtitle\s*Text):\s*/i.test(cleanBullet) && !subtitle) {
+      subtitle = cleanBullet.replace(/^(?:Sub-?title|Subtitle\s*Text):\s*/i, "").replace(/^[#*_`\s]+|[#*_`\s]+$/g, "").trim();
+      continue;
+    }
+    if (/^[_*`\s]*(?:Key\s*)?Takeaway[_*`\s]*:\s*/i.test(cleanBullet) && !takeaway) {
+      takeaway = cleanBullet.replace(/^[_*`\s]*(?:Key\s*)?Takeaway[_*`\s]*:\s*/i, "").replace(/^[#*_`\s]+|[#*_`\s]+$/g, "").trim();
+      continue;
+    }
+
+    // Strip wrapping markdown italic/bold underscores or asterisks
+    if ((cleanBullet.startsWith("_") && cleanBullet.endsWith("_") && cleanBullet.length > 2) ||
+        (cleanBullet.startsWith("*") && cleanBullet.endsWith("*") && cleanBullet.length > 2)) {
+      cleanBullet = cleanBullet.slice(1, -1).trim();
+    }
+
+    if (cleanBullet) {
+      contentBullets.push(`•  ${cleanBullet}`);
+    }
   }
 
   return {
     subtitle,
+    takeaway,
     visualConcept,
     color,
-    titleSize: titleSize || 44,
-    subtitleSize: subtitleSize || 24,
+    titleSize: titleSize || 36,
+    subtitleSize: subtitleSize || 18,
     body: contentBullets.length > 0 ? contentBullets.join("\n\n") : "• Executive slide content"
   };
 }
@@ -241,6 +283,7 @@ export function parseSlides(htmlContent, rawText = "") {
       const allBodyLines = [];
       const additionalBodyLines = [];
       const sectionImgs = [];
+      let sectionSubtitle = "";
       let sectionTableData = null;
       let curr = h.nextElementSibling;
 
@@ -260,6 +303,20 @@ export function parseSlides(htmlContent, rawText = "") {
         if (curr.innerText && curr.innerText.includes("Verified Sources")) {
           curr = curr.nextElementSibling;
           continue;
+        }
+
+        // Process H4, H5, H6 immediately as Subtitle if not already assigned
+        if (["H4", "H5", "H6"].includes(curr.tagName)) {
+          const subText = (curr.innerText || curr.textContent || "")
+            .replace(/^#{1,6}\s*/, "")
+            .replace(/^(?:Sub-?title|Subtitle\s*Text):\s*/i, "")
+            .replace(/^[#*_`\s]+|[#*_`\s]+$/g, "")
+            .trim();
+          if (subText && !sectionSubtitle) {
+            sectionSubtitle = subText;
+            curr = curr.nextElementSibling;
+            continue;
+          }
         }
 
         // Process tables inside a slide section
@@ -299,7 +356,8 @@ export function parseSlides(htmlContent, rawText = "") {
       slides.push({
         slideNumber: i + 1,
         title: title,
-        subtitle: parsedAll.subtitle,
+        subtitle: sectionSubtitle || parsedAll.subtitle,
+        takeaway: parsedAll.takeaway,
         visualConcept: parsedAll.visualConcept,
         color: parsedAll.color,
         titleSize: parsedAll.titleSize,
@@ -607,6 +665,7 @@ export function parseSlides(htmlContent, rawText = "") {
           slideNumber: idx + 1,
           title: title,
           subtitle: parsed.subtitle,
+          takeaway: parsed.takeaway,
           visualConcept: parsed.visualConcept,
           color: parsed.color,
           titleSize: parsed.titleSize,
@@ -652,6 +711,7 @@ export function parseSlides(htmlContent, rawText = "") {
     slideNumber: 1,
     title: singleTitle,
     subtitle: parsed.subtitle,
+    takeaway: parsed.takeaway,
     visualConcept: parsed.visualConcept,
     color: parsed.color,
     titleSize: parsed.titleSize,

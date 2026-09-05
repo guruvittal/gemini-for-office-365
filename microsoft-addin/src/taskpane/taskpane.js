@@ -853,18 +853,18 @@ function initDocToDeckFeature() {
       }
 
       const displayUserBubble = `📄 [Doc to Deck]\nAttached: ${fileNames.join(', ')}`;
-      const prompt = `Extract the key takeaways from the attached document(s) and create an executive slide deck with no more than 5 slides summarizing the key insights.
+      const prompt = `Extract the key takeaways from the attached document(s) and create an executive presentation slide deck with no more than 5 slides summarizing the key insights.
 
 PowerPoint Slide Deck Requirements:
-1. Extract the core executive takeaways and strategic insights across the document(s).
-2. Structure the presentation with no more than 5 slides.
-3. For each slide, format cleanly using slide markdown:
-   - "### Slide <N>: <Emoji> <Punchy Slide Title>"
-   - "#### <Subtitle / Strategic Context>"
-   - Bullet points with bold lead-ins for key points
-   - For financial, numerical, or performance comparison data, YOU MUST provide a clean Markdown table with headers and data rows.
-   - Conclude each slide with an italicized takeaway: "_Takeaway: <summary>_"
-4. Do NOT include raw design metadata like "Visual Concept:", "Color:", or font sizes.`;
+1. Provide EXACTLY ONE presentation deck with no more than 5 slides. DO NOT output multiple alternative options.
+2. DO NOT output conversational preamble or filler (e.g. "Here is...", "Sure!"). Output the slide deck content directly.
+3. For each slide, structure with rich executive visual hierarchy:
+   - "## Slide <N>: <Emoji> <Punchy Slide Title (3-4 words max)>"
+   - "Subtitle: <Crisp Subtitle / Strategic Context>"
+   - VISUAL STRUCTURE & DATA TABLES: Provide a structured Markdown table (e.g. | Category / Pillar | Key Capabilities & Details | Strategic Implication |) or comparison matrix to give the slide strong visual organization and data density.
+   - 2 to 3 high-impact bullet points with bold lead-ins (• **Key Driver:** Description).
+   - Conclude with a clear strategic takeaway line: "Takeaway: <Executive takeaway sentence>"
+4. Do NOT output internal design metadata like "Visual Concept:", "Color:", or font sizes.`;
 
       await executeGeminiWorkflow(prompt, displayUserBubble, attachments);
     } catch (err) {

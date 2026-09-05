@@ -207,6 +207,7 @@ async function getThemeBlankLayoutOptions() {
 async function createSingleSlide(slideData, slideNum, layoutOptions = null, targetSlideId = null) {
   const cleanTitle = (slideData.title || `Slide ${slideNum}`).replace(/\*\*/g, "").trim();
   const subtitle = slideData.subtitle || "";
+  const takeaway = slideData.takeaway || "";
   const titleSize = slideData.titleSize || 40;
   const subtitleSize = slideData.subtitleSize || 20;
   const color = slideData.color || null;
@@ -315,9 +316,10 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
       newSlide = slides.getItemAt(countResult.value - 1);
     }
 
+    const hasTakeaway = Boolean(takeaway && takeaway.trim().length > 0);
     const hasAdditionalNotes = Boolean(additionalBody && additionalBody.trim().length > 0);
     const hasTable = Boolean(tableData && tableData.rows && tableData.rows.length > 0);
-    const compactHeader = hasTable && hasAdditionalNotes;
+    const compactHeader = hasTable && (hasAdditionalNotes || hasTakeaway);
 
     const titleTop = compactHeader ? 18 : 25;
     const effectiveTitleSize = compactHeader ? Math.min(titleSize || 36, 30) : (titleSize || 36);
@@ -336,12 +338,12 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
     } catch (wErr) {}
     if (color) titleBox.textFrame.textRange.font.color = color;
 
-    let contentTop = compactHeader ? 62 : 85;
+    let contentTop = compactHeader ? 60 : 85;
 
     // Add Subtitle if present
     if (subtitle) {
-      const subtitleTop = compactHeader ? 54 : 75;
-      const subtitleHeight = compactHeader ? 22 : 30;
+      const subtitleTop = compactHeader ? 52 : 72;
+      const subtitleHeight = compactHeader ? 22 : 28;
       const effectiveSubtitleSize = compactHeader ? Math.min(subtitleSize || 18, 14) : (subtitleSize || 18);
 
       const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
@@ -353,7 +355,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
       subtitleBox.textFrame.textRange.font.size = effectiveSubtitleSize;
       subtitleBox.textFrame.textRange.font.italic = true;
       if (color) subtitleBox.textFrame.textRange.font.color = color;
-      contentTop = compactHeader ? 82 : 112;
+      contentTop = compactHeader ? 78 : 105;
     }
 
     // If tableData is present, create native PowerPoint table
@@ -371,33 +373,37 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop, realTableHeight, tableWidth
       );
 
-      // Render additional takeaways / bullet points below the table without overlapping
-      if (hasAdditionalNotes) {
-        const notesTop = contentTop + realTableHeight + 14;
-        const notesHeight = Math.max(60, 525 - notesTop);
-        const notesBox = newSlide.shapes.addTextBox(additionalBody, {
+      // Render takeaway or additional notes below the table without overlapping
+      const bottomContent = hasTakeaway ? `💡 Strategic Takeaway: ${takeaway}` : additionalBody;
+      if (bottomContent && bottomContent.trim().length > 0) {
+        const notesTop = contentTop + realTableHeight + 12;
+        const notesHeight = Math.max(50, 520 - notesTop);
+        const notesBox = newSlide.shapes.addTextBox(bottomContent, {
           left: 50,
           top: notesTop,
           width: tableWidth,
           height: notesHeight
         });
-        notesBox.textFrame.textRange.font.size = 12;
+        notesBox.textFrame.textRange.font.size = 13;
+        notesBox.textFrame.textRange.font.italic = true;
         try {
-          notesBox.textFrame.wordWrap = true;
+          if (hasTakeaway) {
+            notesBox.textFrame.textRange.getSubstring(0, 22).font.bold = true;
+          }
         } catch (_) {}
       }
     } else {
-      // Body text / bullets and images
-      const bodyTop = contentTop;
+      // Non-table slide: Bullets + optional Takeaway card at the bottom
+      const bodyHeight = hasTakeaway ? 280 : 380;
       const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
         left: 50,
-        top: bodyTop,
+        top: contentTop,
         width: hasImages ? 400 : 860,
-        height: 380
+        height: bodyHeight
       });
-      bodyBox.textFrame.textRange.font.size = 18;
+      bodyBox.textFrame.textRange.font.size = 16;
 
-      // Format bullet points with bold lead-ins for key points before colons
+      // Format bullet points with bold lead-ins for key points before colons or dashes
       try {
         const paragraphs = bodyBox.textFrame.textRange.paragraphs;
         paragraphs.load("items/text");
@@ -408,7 +414,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
             const colonIdx = pText.indexOf(":");
             const dashIdx = pText.indexOf("—");
             const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
-            if (sepIdx > 0 && sepIdx < 45 && typeof p.getSubstring === "function") {
+            if (sepIdx > 0 && sepIdx < 50 && typeof p.getSubstring === "function") {
               try {
                 const leadIn = p.getSubstring(0, sepIdx + 1);
                 leadIn.font.bold = true;
@@ -418,6 +424,21 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         }
       } catch (boldErr) {
         console.warn("Lead-in bolding notice:", boldErr);
+      }
+
+      // Render dedicated Executive Takeaway Callout Box at bottom
+      if (hasTakeaway) {
+        const takeawayBox = newSlide.shapes.addTextBox(`💡 Strategic Takeaway: ${takeaway}`, {
+          left: 50,
+          top: 395,
+          width: hasImages ? 400 : 860,
+          height: 75
+        });
+        takeawayBox.textFrame.textRange.font.size = 14;
+        takeawayBox.textFrame.textRange.font.italic = true;
+        try {
+          takeawayBox.textFrame.textRange.getSubstring(0, 22).font.bold = true;
+        } catch (_) {}
       }
     }
 
