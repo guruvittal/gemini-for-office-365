@@ -164,6 +164,203 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
 }
 
 /**
+ * Populates native PowerPoint 3-column metric cards on a slide using geometric shapes and styled textboxes.
+ */
+function populate3ColumnMetricGrid(newSlide, visualData, slideNum, contentTop = 110) {
+  const cards = (visualData && visualData.cards) ? visualData.cards : [];
+  if (!cards || cards.length === 0) return;
+
+  const cardCount = Math.min(cards.length, 3);
+  const cardWidth = 265;
+  const cardHeight = 360;
+  const gap = 32;
+  const startLeft = 50;
+
+  for (let i = 0; i < cardCount; i++) {
+    const card = cards[i];
+    const left = startLeft + i * (cardWidth + gap);
+    const top = contentTop;
+
+    // 1. Try adding geometric shape card background
+    try {
+      if (typeof newSlide.shapes.addGeometricShape === "function" && PowerPoint.GeometricShapeType) {
+        const shapeType = PowerPoint.GeometricShapeType.roundRectangle || PowerPoint.GeometricShapeType.rectangle;
+        const bgShape = newSlide.shapes.addGeometricShape(shapeType, {
+          left: left,
+          top: top,
+          width: cardWidth,
+          height: cardHeight
+        });
+        if (bgShape.fill && typeof bgShape.fill.setSolidColor === "function") {
+          bgShape.fill.setSolidColor("#F8FAFC");
+        }
+        if (bgShape.line) {
+          bgShape.line.color = "#CBD5E1";
+          bgShape.line.weight = 1.5;
+        }
+      }
+    } catch (e) {
+      console.warn("Geometric shape card fallback to textbox:", e);
+    }
+
+    // 2. Add Metric callout box (e.g. "+42%")
+    const metricText = card.metric || "";
+    if (metricText) {
+      const metricBox = newSlide.shapes.addTextBox(metricText, {
+        left: left + 16,
+        top: top + 16,
+        width: cardWidth - 32,
+        height: 52
+      });
+      metricBox.textFrame.textRange.font.size = 38;
+      metricBox.textFrame.textRange.font.bold = true;
+      metricBox.textFrame.textRange.font.color = "#0078D4";
+    }
+
+    // 3. Add Card Title
+    const titleTop = metricText ? (top + 72) : (top + 20);
+    const titleBox = newSlide.shapes.addTextBox(card.title || `Metric ${i + 1}`, {
+      left: left + 16,
+      top: titleTop,
+      width: cardWidth - 32,
+      height: 28
+    });
+    titleBox.textFrame.textRange.font.size = 15;
+    titleBox.textFrame.textRange.font.bold = true;
+    titleBox.textFrame.textRange.font.color = "#0F172A";
+
+    let bulletsTop = titleTop + 30;
+    if (card.subtitle) {
+      const subBox = newSlide.shapes.addTextBox(card.subtitle, {
+        left: left + 16,
+        top: bulletsTop,
+        width: cardWidth - 32,
+        height: 22
+      });
+      subBox.textFrame.textRange.font.size = 11;
+      subBox.textFrame.textRange.font.italic = true;
+      subBox.textFrame.textRange.font.color = "#64748B";
+      bulletsTop += 26;
+    }
+
+    // 4. Add Supporting Bullets
+    const bullets = card.bullets || [];
+    if (bullets.length > 0) {
+      const bulletContent = bullets.map(b => `• ${b}`).join("\n");
+      const bulletsBox = newSlide.shapes.addTextBox(bulletContent, {
+        left: left + 16,
+        top: bulletsTop,
+        width: cardWidth - 32,
+        height: Math.max(80, (top + cardHeight - 16) - bulletsTop)
+      });
+      bulletsBox.textFrame.textRange.font.size = 12.5;
+      bulletsBox.textFrame.textRange.font.color = "#334155";
+    }
+  }
+
+  logToPPTConsole(`Slide ${slideNum}: Added native 3-Column Metric Grid with ${cardCount} cards.`);
+}
+
+/**
+ * Populates native PowerPoint Before/After comparison cards on a slide.
+ */
+function populateBeforeAfterComparison(newSlide, visualData, slideNum, contentTop = 110) {
+  const beforeData = (visualData && visualData.before) || { title: "Current State / Challenges", bullets: [] };
+  const afterData = (visualData && visualData.after) || { title: "Target State / Transformation", bullets: [] };
+
+  const cardWidth = 415;
+  const cardHeight = 365;
+  const gap = 30;
+  const top = contentTop;
+
+  // 1. BEFORE Card (Left)
+  const leftBefore = 50;
+  try {
+    if (typeof newSlide.shapes.addGeometricShape === "function" && PowerPoint.GeometricShapeType) {
+      const bgBefore = newSlide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.roundRectangle, {
+        left: leftBefore,
+        top: top,
+        width: cardWidth,
+        height: cardHeight
+      });
+      if (bgBefore.fill && typeof bgBefore.fill.setSolidColor === "function") {
+        bgBefore.fill.setSolidColor("#FFF8F8");
+      }
+      if (bgBefore.line) {
+        bgBefore.line.color = "#FECACA";
+        bgBefore.line.weight = 1.5;
+      }
+    }
+  } catch (_) {}
+
+  // Before Header Badge
+  const beforeHeader = newSlide.shapes.addTextBox(`🔴 BEFORE: ${beforeData.title || 'Current State'}`, {
+    left: leftBefore + 20,
+    top: top + 18,
+    width: cardWidth - 40,
+    height: 36
+  });
+  beforeHeader.textFrame.textRange.font.size = 16;
+  beforeHeader.textFrame.textRange.font.bold = true;
+  beforeHeader.textFrame.textRange.font.color = "#991B1B";
+
+  // Before Bullets
+  const beforeBullets = (beforeData.bullets || []).map(b => `• ${b}`).join("\n\n");
+  const beforeBox = newSlide.shapes.addTextBox(beforeBullets || "• Legacy workflow bottlenecks", {
+    left: leftBefore + 20,
+    top: top + 64,
+    width: cardWidth - 40,
+    height: cardHeight - 80
+  });
+  beforeBox.textFrame.textRange.font.size = 13.5;
+  beforeBox.textFrame.textRange.font.color = "#450A0A";
+
+  // 2. AFTER Card (Right)
+  const leftAfter = leftBefore + cardWidth + gap;
+  try {
+    if (typeof newSlide.shapes.addGeometricShape === "function" && PowerPoint.GeometricShapeType) {
+      const bgAfter = newSlide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.roundRectangle, {
+        left: leftAfter,
+        top: top,
+        width: cardWidth,
+        height: cardHeight
+      });
+      if (bgAfter.fill && typeof bgAfter.fill.setSolidColor === "function") {
+        bgAfter.fill.setSolidColor("#F0FDF4");
+      }
+      if (bgAfter.line) {
+        bgAfter.line.color = "#BBF7D0";
+        bgAfter.line.weight = 1.5;
+      }
+    }
+  } catch (_) {}
+
+  // After Header Badge
+  const afterHeader = newSlide.shapes.addTextBox(`🟢 AFTER: ${afterData.title || 'Target State'}`, {
+    left: leftAfter + 20,
+    top: top + 18,
+    width: cardWidth - 40,
+    height: 36
+  });
+  afterHeader.textFrame.textRange.font.size = 16;
+  afterHeader.textFrame.textRange.font.bold = true;
+  afterHeader.textFrame.textRange.font.color = "#166534";
+
+  // After Bullets
+  const afterBullets = (afterData.bullets || []).map(b => `• ${b}`).join("\n\n");
+  const afterBox = newSlide.shapes.addTextBox(afterBullets || "• Accelerated AI transformation", {
+    left: leftAfter + 20,
+    top: top + 64,
+    width: cardWidth - 40,
+    height: cardHeight - 80
+  });
+  afterBox.textFrame.textRange.font.size = 13.5;
+  afterBox.textFrame.textRange.font.color = "#052E16";
+
+  logToPPTConsole(`Slide ${slideNum}: Added native Before/After Comparison cards.`);
+}
+
+/**
  * Queries slide masters to locate the 'Blank' layout for the active presentation.
  */
 async function getThemeBlankLayoutOptions() {
@@ -358,8 +555,12 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
       contentTop = compactHeader ? 78 : 105;
     }
 
-    // If tableData is present, create native PowerPoint table
-    if (hasTable) {
+    // If Executive Visual layout is specified, render native shape cards
+    if (slideData.visualType === "metric_grid_3col") {
+      populate3ColumnMetricGrid(newSlide, slideData.visualData, slideNum, contentTop);
+    } else if (slideData.visualType === "before_after") {
+      populateBeforeAfterComparison(newSlide, slideData.visualData, slideNum, contentTop);
+    } else if (hasTable) {
       const colCount = Math.max(
         tableData.headers ? tableData.headers.length : 0,
         ...tableData.rows.map(r => r.length),

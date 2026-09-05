@@ -33,6 +33,78 @@ export function cleanSlideDisplayMarkdown(text) {
   return cleanLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+/**
+ * Renders structured executive visual JSON (3-column metric grid or before/after comparison)
+ * into a rich visual HTML card directly inside the chat interface.
+ */
+export function renderExecutiveVisualHtml(jsonString) {
+  let data;
+  try {
+    data = typeof jsonString === 'object' ? jsonString : JSON.parse(jsonString);
+  } catch (_) {
+    return null;
+  }
+  if (!data || !data.visualType) return null;
+
+  if (data.visualType === "metric_grid_3col") {
+    const cards = data.cards || [];
+    const cardHtml = cards.map(c => `
+      <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:10px; display:flex; flex-direction:column; gap:4px; flex:1; min-width:140px; box-sizing:border-box;">
+        <div style="font-size:22px; font-weight:800; color:#0284c7; line-height:1.1;">${c.metric || ''}</div>
+        <div style="font-size:12px; font-weight:700; color:#0f172a;">${c.title || ''}</div>
+        ${c.subtitle ? `<div style="font-size:10px; color:#64748b; font-style:italic;">${c.subtitle}</div>` : ''}
+        <ul style="margin:6px 0 0 14px; padding:0; font-size:11px; color:#334155; line-height:1.35;">
+          ${(c.bullets || []).map(b => `<li>${b}</li>`).join('')}
+        </ul>
+      </div>
+    `).join('');
+
+    return `
+      <div class="rendered-visual-container" style="background:#ffffff; border:1px solid #e2e8f0; border-radius:10px; padding:12px; margin:14px 0; box-shadow:0 2px 8px rgba(0,0,0,0.04);">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+          <div style="font-size:13.5px; font-weight:700; color:#0f172a;">${data.title || 'Executive Performance Metrics'}</div>
+          <span style="background:#e0f2fe; color:#0369a1; font-size:9.5px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase;">📊 Metric Grid</span>
+        </div>
+        ${data.subtitle ? `<div style="font-size:11px; color:#64748b; margin-bottom:10px; font-style:italic;">${data.subtitle}</div>` : ''}
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          ${cardHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  if (data.visualType === "before_after") {
+    const before = data.before || { title: "Current State", bullets: [] };
+    const after = data.after || { title: "Target State", bullets: [] };
+
+    return `
+      <div class="rendered-visual-container" style="background:#ffffff; border:1px solid #e2e8f0; border-radius:10px; padding:12px; margin:14px 0; box-shadow:0 2px 8px rgba(0,0,0,0.04);">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+          <div style="font-size:13.5px; font-weight:700; color:#0f172a;">${data.title || 'Operational Transformation'}</div>
+          <span style="background:#fee2e2; color:#991b1b; font-size:9.5px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase;">⚖️ Comparison</span>
+        </div>
+        ${data.subtitle ? `<div style="font-size:11px; color:#64748b; margin-bottom:10px; font-style:italic;">${data.subtitle}</div>` : ''}
+        <div style="display:flex; gap:10px; flex-direction:column;">
+          <div style="background:#fff8f8; border:1px solid #fecaca; border-radius:8px; padding:10px;">
+            <div style="font-size:11.5px; font-weight:700; color:#991b1b; margin-bottom:4px;">🔴 BEFORE: ${before.title || 'Current State'}</div>
+            <ul style="margin:2px 0 0 14px; padding:0; font-size:11px; color:#450a0a; line-height:1.35;">
+              ${(before.bullets || []).map(b => `<li>${b}</li>`).join('')}
+            </ul>
+          </div>
+          <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:10px;">
+            <div style="font-size:11.5px; font-weight:700; color:#166534; margin-bottom:4px;">🟢 AFTER: ${after.title || 'Target State'}</div>
+            <ul style="margin:2px 0 0 14px; padding:0; font-size:11px; color:#052e16; line-height:1.35;">
+              ${(after.bullets || []).map(b => `<li>${b}</li>`).join('')}
+            </ul>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  return null;
+}
+
 export function parseMarkdown(text) {
   if (!text) return "";
 
@@ -101,6 +173,32 @@ export function parseMarkdown(text) {
       if (chartHtml) {
         const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
         visualTokens.push(chartHtml);
+        return `\n\n${token}\n\n`;
+      }
+    } catch (_) {}
+    return match;
+  });
+
+  // 6. Pre-extract and render structured Executive Visual JSON blocks (3-Column Metric Grid or Before/After)
+  sanitized = sanitized.replace(/```(?:json)?\s*(\{[\s\S]*?"visualType"\s*:\s*"(?:metric_grid_3col|before_after)"[\s\S]*?\})\s*```/gi, (fullMatch, codeContent) => {
+    try {
+      const visualHtml = renderExecutiveVisualHtml(codeContent);
+      if (visualHtml) {
+        const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
+        visualTokens.push(visualHtml);
+        return `\n\n${token}\n\n`;
+      }
+    } catch (_) {}
+    return fullMatch;
+  });
+
+  // 7. Pre-extract standalone Executive Visual JSON objects without code fences
+  sanitized = sanitized.replace(/\{\s*"visualType"\s*:\s*"(?:metric_grid_3col|before_after)"[\s\S]*?\n\s*\}/gi, (match) => {
+    try {
+      const visualHtml = renderExecutiveVisualHtml(match);
+      if (visualHtml) {
+        const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
+        visualTokens.push(visualHtml);
         return `\n\n${token}\n\n`;
       }
     } catch (_) {}

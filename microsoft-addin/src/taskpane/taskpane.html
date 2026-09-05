@@ -256,6 +256,173 @@
             white-space: pre-wrap;
             margin: 0;
         }
+
+        /* Executive Visual Generator Modal */
+        .exec-modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(15, 23, 42, 0.45);
+            backdrop-filter: blur(2px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 12px;
+            box-sizing: border-box;
+        }
+        .exec-modal-dialog {
+            background: #ffffff;
+            border-radius: 10px;
+            width: 100%;
+            max-width: 330px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
+            border: 1px solid #cbd5e1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            animation: modalFadeIn 0.2s ease-out;
+        }
+        @keyframes modalFadeIn {
+            from { opacity: 0; transform: scale(0.96); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .exec-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .exec-modal-close {
+            background: none;
+            border: none;
+            color: #64748b;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .exec-modal-close:hover {
+            background: #e2e8f0;
+            color: #0f172a;
+        }
+        .exec-modal-body {
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .exec-visual-options {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .exec-visual-card {
+            border: 1.5px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 10px;
+            cursor: pointer;
+            transition: all 0.18s ease;
+            background: #ffffff;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .exec-visual-card:hover {
+            border-color: #93c5fd;
+            background: #f0f7ff;
+        }
+        .exec-visual-card.selected {
+            border-color: #0284c7;
+            background: #f0f9ff;
+            box-shadow: 0 0 0 1px #0284c7;
+        }
+        .exec-card-badge {
+            font-size: 9.5px;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #e0f2fe;
+            color: #0369a1;
+            align-self: flex-start;
+            letter-spacing: 0.3px;
+        }
+        .exec-card-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .exec-card-desc {
+            font-size: 10.5px;
+            color: #64748b;
+            line-height: 1.35;
+        }
+        .exec-card-preview {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 4px;
+        }
+        .preview-metric {
+            background: #e2e8f0;
+            border-radius: 4px;
+            font-size: 9.5px;
+            font-weight: 700;
+            color: #1e293b;
+            padding: 2px 5px;
+        }
+        .preview-badge {
+            font-size: 9px;
+            font-weight: 700;
+            padding: 1px 5px;
+            border-radius: 3px;
+        }
+        .preview-badge.red {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+        .preview-badge.green {
+            background: #dcfce7;
+            color: #15803d;
+        }
+        .exec-modal-footer {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 10px 12px;
+            background: #f8fafc;
+            border-top: 1px solid #e2e8f0;
+        }
+        .exec-btn {
+            border: none;
+            border-radius: 5px;
+            padding: 6px 12px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .exec-btn.primary {
+            background: #0078d4;
+            color: #ffffff;
+        }
+        .exec-btn.primary:hover {
+            background: #106ebe;
+        }
+        .exec-btn.secondary {
+            background: #ffffff;
+            color: #475569;
+            border: 1px solid #cbd5e1;
+        }
+        .exec-btn.secondary:hover {
+            background: #f1f5f9;
+        }
     </style>
 </head>
 <body>
@@ -369,5 +536,56 @@
             </div>
         </div>
     </details>
+
+    <!-- Executive Visual Generator Modal -->
+    <div id="execVisualModal" class="exec-modal-backdrop" style="display:none;">
+        <div class="exec-modal-dialog">
+            <div class="exec-modal-header">
+                <div style="font-weight:700; font-size:12.5px; color:#1e293b; display:flex; align-items:center; gap:6px;">
+                    <span>✨</span>
+                    <span>Insert Executive Visual</span>
+                </div>
+                <button id="closeExecVisualModal" class="exec-modal-close" title="Close">✕</button>
+            </div>
+            <div class="exec-modal-body">
+                <div style="font-size:11px; color:#64748b; line-height:1.4;">
+                    Select a layout to generate styled PowerPoint shape cards powered by Gemini Enterprise:
+                </div>
+                
+                <div class="exec-visual-options">
+                    <div class="exec-visual-card selected" id="optMetricGrid" data-type="metric_grid_3col">
+                        <div class="exec-card-badge">📊 Metric Grid</div>
+                        <div class="exec-card-title">3-Column Metric Grid</div>
+                        <div class="exec-card-desc">3 styled native cards featuring large KPI metric callouts, subtitles, and strategic takeaway bullets.</div>
+                        <div class="exec-card-preview">
+                            <span class="preview-metric">+42%</span>
+                            <span class="preview-metric">$1.2B</span>
+                            <span class="preview-metric">99.9%</span>
+                        </div>
+                    </div>
+
+                    <div class="exec-visual-card" id="optBeforeAfter" data-type="before_after">
+                        <div class="exec-card-badge" style="background:#fee2e2; color:#991b1b;">⚖️ Comparison</div>
+                        <div class="exec-card-title">Before / After Comparison</div>
+                        <div class="exec-card-desc">2 split cards contrasting legacy operational pain points with target state AI transformation outcomes.</div>
+                        <div class="exec-card-preview">
+                            <span class="preview-badge red">BEFORE</span>
+                            <span style="color:#94a3b8; font-size:11px;">➔</span>
+                            <span class="preview-badge green">AFTER</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <label style="display:block; font-size:11px; font-weight:600; color:#334155; margin-bottom:4px;">Topic or Key Metrics (Optional):</label>
+                    <input type="text" id="execVisualPrompt" placeholder="e.g. Q3 Sales Growth & Margin Expansion (or leave blank to use slide context)" style="width:100%; border:1px solid #cbd5e1; border-radius:4px; padding:6px 8px; font-size:11px; box-sizing:border-box;" />
+                </div>
+            </div>
+            <div class="exec-modal-footer">
+                <button id="cancelExecVisualBtn" class="exec-btn secondary">Cancel</button>
+                <button id="generateExecVisualBtn" class="exec-btn primary">Generate & Insert Slide</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

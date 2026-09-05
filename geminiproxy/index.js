@@ -781,12 +781,22 @@ async function extractDocumentText(att) {
                 fileAdded = true;
                 console.log(`[STREAM_ASSIST] Successfully registered context file '${att.fileName}' -> fileId: ${addData.fileId}, tokenCount: ${addData.tokenCount || 'N/A'}`);
               }
+            } else if (addRes.status === 404) {
+              // Endpoint does not support addContextFile ("Method not found"). Break early and use reliable text grounding.
+              if (process.env.VERBOSE_LOGGING === 'true') {
+                console.log(`[STREAM_ASSIST] addContextFile not supported on this engine (404). Proceeding with text grounding.`);
+              }
+              break;
             } else {
-              const addErrText = await addRes.text();
-              console.log(`[STREAM_ASSIST] addContextFile status ${addRes.status} on ${addFileUrl.includes('/sessions/-:') ? 'dynamic session' : 'active session'}: ${addErrText.slice(0, 120)}`);
+              if (process.env.VERBOSE_LOGGING === 'true') {
+                const addErrText = await addRes.text();
+                console.log(`[STREAM_ASSIST] addContextFile status ${addRes.status}: ${addErrText.slice(0, 100)}`);
+              }
             }
           } catch (attErr) {
-            console.log(`[STREAM_ASSIST] addContextFile network note: ${attErr.message}`);
+            if (process.env.VERBOSE_LOGGING === 'true') {
+              console.log(`[STREAM_ASSIST] addContextFile network note: ${attErr.message}`);
+            }
           }
         }
       }

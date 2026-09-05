@@ -12,6 +12,18 @@
 export function enhancePromptForPowerPoint(userPrompt) {
   const lowerPrompt = userPrompt.toLowerCase();
 
+  // Rule set for executive visuals (metric grid, before/after comparison)
+  if (lowerPrompt.includes("executive visual") || lowerPrompt.includes("metric grid") || lowerPrompt.includes("comparison card") || lowerPrompt.includes("before/after") || lowerPrompt.includes("before and after")) {
+    const rules = `
+CRITICAL INSTRUCTIONS FOR EXECUTIVE VISUAL GENERATION:
+1. Provide EXACTLY ONE definitive visual design. NEVER output multiple options.
+2. DO NOT output conversational preamble, pleasantries, or conclusions.
+3. For Metric Grids, output a structured JSON code block with "visualType": "metric_grid_3col" containing "title", "subtitle", and an array of 3 "cards", each with "metric", "title", "subtitle", and "bullets".
+4. For Before/After Comparisons, output a structured JSON code block with "visualType": "before_after" containing "title", "subtitle", "before" ({ "title", "bullets" }), and "after" ({ "title", "bullets" }).
+`;
+    return `${userPrompt}\n\n${rules}`;
+  }
+
   // Rule set for editing / shortening / making smaller / rewriting
   if (lowerPrompt.includes("shorten") || lowerPrompt.includes("smaller") || lowerPrompt.includes("concise") || lowerPrompt.includes("rewrite") || lowerPrompt.includes("punchy") || lowerPrompt.includes("fluff") || lowerPrompt.includes("trim")) {
     const rules = `

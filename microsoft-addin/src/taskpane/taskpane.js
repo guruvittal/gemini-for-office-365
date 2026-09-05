@@ -129,6 +129,9 @@ Office.onReady(async (info) => {
   // Setup Transform Doc to Deck Feature
   initDocToDeckFeature();
 
+  // Setup Insert Executive Visual Feature
+  initExecutiveVisualFeature();
+
   // Wire Tip Banner Dismiss button
   const dismissTipBtn = document.getElementById("dismissTipBtn");
   if (dismissTipBtn) {
@@ -352,7 +355,8 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
       }
 
       container.innerHTML = `
-        <button class="quick-chip" id="chipTakeaways" style="background-color:#e0f2fe; color:#0369a1; border-color:#bae6fd;">🎯 Slide Takeaways</button>
+        <button class="quick-chip" id="chipSummarize" style="background-color:#e0f2fe; color:#0369a1; border-color:#bae6fd;">📊 Summarize Slides</button>
+        <button class="quick-chip" id="chipExecVisual" style="background-color:#ecfdf5; color:#047857; border-color:#a7f3d0; font-weight:600;">✨ Insert Executive Visual</button>
         <button class="quick-chip" id="chipRisks" style="background-color:#fef3c7; color:#b45309; border-color:#fde68a;">⚠️ Key Risks</button>
         <button class="quick-chip" id="chipRewrite" style="background-color:#f3e8ff; color:#7e22ce; border-color:#e9d5ff;">🪄 Rewrite Slide</button>
         <button class="quick-chip" id="chipDocToDeck" style="background-color:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600;">📄 Doc to Deck</button>
@@ -360,8 +364,11 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
         <button class="quick-chip" id="chipTable">📊 Table</button>
       `;
 
-      const cTakeaways = document.getElementById("chipTakeaways");
-      if (cTakeaways) cTakeaways.onclick = () => runPowerPointSlideAction("takeaways");
+      const cSummarize = document.getElementById("chipSummarize");
+      if (cSummarize) cSummarize.onclick = () => runPowerPointSlideAction("takeaways");
+
+      const cExecVisual = document.getElementById("chipExecVisual");
+      if (cExecVisual) cExecVisual.onclick = () => openExecutiveVisualModal();
 
       const cRisks = document.getElementById("chipRisks");
       if (cRisks) cRisks.onclick = () => runPowerPointSlideAction("risks");
@@ -391,9 +398,8 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
 
       container.innerHTML = `
         <button class="quick-chip" id="chipDocToDeck" style="background-color:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600;">📄 Doc to Deck</button>
-        <button class="quick-chip" id="chipSummarize">📊 Summarize Slides</button>
-        <button class="quick-chip" id="chipActionItems">✅ Action Items</button>
-        <button class="quick-chip" id="chipExecBox">🎯 Slide Takeaways</button>
+        <button class="quick-chip" id="chipExecVisual" style="background-color:#ecfdf5; color:#047857; border-color:#a7f3d0; font-weight:600;">✨ Insert Executive Visual</button>
+        <button class="quick-chip" id="chipSummarize" style="background-color:#e0f2fe; color:#0369a1; border-color:#bae6fd;">📊 Summarize Slides</button>
       `;
 
       const cDocToDeck = document.getElementById("chipDocToDeck");
@@ -404,14 +410,11 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
         };
       }
 
+      const cExecVisual = document.getElementById("chipExecVisual");
+      if (cExecVisual) cExecVisual.onclick = () => openExecutiveVisualModal();
+
       const cSum = document.getElementById("chipSummarize");
-      if (cSum) cSum.onclick = () => runPowerPointSlideAction("summarize");
-
-      const cAct = document.getElementById("chipActionItems");
-      if (cAct) cAct.onclick = () => runPowerPointSlideAction("action_items");
-
-      const cBox = document.getElementById("chipExecBox");
-      if (cBox) cBox.onclick = () => runPowerPointSlideAction("takeaways");
+      if (cSum) cSum.onclick = () => runPowerPointSlideAction("takeaways");
     }
   } else if (hostName === "Excel") {
     if (isSelected) {
@@ -738,16 +741,13 @@ async function runPowerPointSlideAction(actionType) {
       displayBubble = `⚠️ [Key Risks] Generating new risk analysis slide from ${slideLabel}...`;
       break;
     case "summarize":
-      taskInstruction = `Based on the context from the ${slideLabel} provided below, generate an executive summary slide. Create content for a new PowerPoint slide titled "📊 Executive Slide Summary" with key takeaways, strategic findings, and structured bullet points.`;
-      displayBubble = `📊 [Slide Summary] Generating summary slide from ${slideLabel}...`;
+    case "takeaways":
+      taskInstruction = `Based on the context from the ${slideLabel} provided below, create an executive summary slide. Create content for a new PowerPoint slide titled "📊 Executive Slide Summary" highlighting high-impact findings, core metrics, and strategic implications.`;
+      displayBubble = `📊 [Summarize Slides] Generating executive summary slide from ${slideLabel}...`;
       break;
     case "action_items":
       taskInstruction = `Based on the context from the ${slideLabel} provided below, extract all Action Items, Deliverables, Next Steps, and Ownership. Create content for a new PowerPoint slide titled "✅ Action Items & Next Steps" with actionable task bullets, suggested owners, and priority levels.`;
       displayBubble = `✅ [Action Items] Generating action items slide from ${slideLabel}...`;
-      break;
-    case "takeaways":
-      taskInstruction = `Based on the context from the ${slideLabel} provided below, create an executive takeaway slide. Create content for a new PowerPoint slide titled "🎯 Strategic Takeaways" highlighting high-impact findings, core metrics, and strategic implications.`;
-      displayBubble = `🎯 [Slide Takeaways] Generating takeaway slide from ${slideLabel}...`;
       break;
   }
 
@@ -875,6 +875,157 @@ PowerPoint Slide Deck Requirements:
       if (loadingText) loadingText.style.display = "none";
     }
   });
+}
+
+// Feature: Insert Executive Visual (3-Column Metric Grid or Before/After Comparison)
+function initExecutiveVisualFeature() {
+  const modal = document.getElementById("execVisualModal");
+  const closeBtn = document.getElementById("closeExecVisualModal");
+  const cancelBtn = document.getElementById("cancelExecVisualBtn");
+  const generateBtn = document.getElementById("generateExecVisualBtn");
+  const promptInput = document.getElementById("execVisualPrompt");
+  const optMetric = document.getElementById("optMetricGrid");
+  const optBeforeAfter = document.getElementById("optBeforeAfter");
+
+  if (!modal) return;
+
+  let selectedType = "metric_grid_3col";
+
+  if (optMetric) {
+    optMetric.onclick = () => {
+      selectedType = "metric_grid_3col";
+      optMetric.classList.add("selected");
+      if (optBeforeAfter) optBeforeAfter.classList.remove("selected");
+    };
+  }
+
+  if (optBeforeAfter) {
+    optBeforeAfter.onclick = () => {
+      selectedType = "before_after";
+      optBeforeAfter.classList.add("selected");
+      if (optMetric) optMetric.classList.remove("selected");
+    };
+  }
+
+  const closeModal = () => {
+    modal.style.display = "none";
+  };
+
+  if (closeBtn) closeBtn.onclick = closeModal;
+  if (cancelBtn) cancelBtn.onclick = closeModal;
+
+  if (generateBtn) {
+    generateBtn.onclick = async () => {
+      closeModal();
+      const customTopic = promptInput ? promptInput.value.trim() : "";
+      if (promptInput) promptInput.value = "";
+      await runGenerateExecutiveVisual(selectedType, customTopic);
+    };
+  }
+}
+
+function openExecutiveVisualModal() {
+  const modal = document.getElementById("execVisualModal");
+  if (modal) {
+    modal.style.display = "flex";
+    const promptInput = document.getElementById("execVisualPrompt");
+    if (promptInput) promptInput.focus();
+  }
+}
+
+async function runGenerateExecutiveVisual(visualType, customTopic = "") {
+  let slideContext = "";
+  try {
+    if (typeof hostAdapter.getSelectedSlidesText === "function") {
+      slideContext = await hostAdapter.getSelectedSlidesText();
+    }
+  } catch (_) {}
+
+  const topicContext = customTopic || (slideContext && slideContext.length > 20 
+    ? `the following slide context:\n"""\n${slideContext.substring(0, 30000)}\n"""` 
+    : "enterprise transformation, operational performance, and strategic execution");
+
+  let prompt = "";
+  let displayBubble = "";
+
+  if (visualType === "metric_grid_3col") {
+    displayBubble = `✨ [Executive Visual] Generating 3-Column Metric Grid...`;
+    prompt = `You are an elite executive presentation designer. Create a high-impact PowerPoint 3-Column Metric Grid visual slide based on: ${topicContext}.
+
+You MUST return a JSON object inside a \`\`\`json markdown code block adhering strictly to this schema:
+\`\`\`json
+{
+  "visualType": "metric_grid_3col",
+  "title": "Short Impactful Slide Title (e.g. FY25 Key Performance Indicators)",
+  "subtitle": "Clear Context Subtitle (e.g. Accelerating enterprise revenue and cloud operational scale)",
+  "cards": [
+    {
+      "metric": "+42%",
+      "title": "Revenue Growth",
+      "subtitle": "Year-over-Year ARR",
+      "bullets": [
+        "Driven by cloud AI enterprise adoption",
+        "Net retention rate expanded to 124%"
+      ]
+    },
+    {
+      "metric": "$1.4B",
+      "title": "Global Bookings",
+      "subtitle": "Record Annual High",
+      "bullets": [
+        "Closed 38 Fortune 500 deals",
+        "Pipeline grew 3.2x across key verticals"
+      ]
+    },
+    {
+      "metric": "99.98%",
+      "title": "Operational Uptime",
+      "subtitle": "Mission-Critical SLA",
+      "bullets": [
+        "Sub-second p99 latency globally",
+        "Automated failover across multi-region clusters"
+      ]
+    }
+  ]
+}
+\`\`\`
+Ensure metrics are short and punchy (e.g., +35%, $4.2B, 10x, 99.9%). Each card should have exactly 2-3 concise takeaway bullets.`;
+  } else {
+    displayBubble = `✨ [Executive Visual] Generating Before/After Comparison...`;
+    prompt = `You are an elite executive presentation designer. Create a high-impact PowerPoint Before/After Comparison visual slide based on: ${topicContext}.
+
+You MUST return a JSON object inside a \`\`\`json markdown code block adhering strictly to this schema:
+\`\`\`json
+{
+  "visualType": "before_after",
+  "title": "Short Impactful Slide Title (e.g. Operational Modernization & AI Transformation)",
+  "subtitle": "Clear Context Subtitle (e.g. Transitioning from legacy bottlenecks to intelligent automation)",
+  "before": {
+    "title": "Legacy / Current State Challenges",
+    "bullets": [
+      "Fragmented data silos causing 3-day reporting delays",
+      "High human operational overhead and error-prone reconciliation",
+      "Static quarterly projections lacking predictive insights"
+    ]
+  },
+  "after": {
+    "title": "Gemini AI / Future State Transformation",
+    "bullets": [
+      "Sub-second unified intelligence across enterprise data",
+      "Automated presentation drafting & 99.9% data accuracy",
+      "Continuous predictive forecasting with actionable real-time alerts"
+    ]
+  }
+}
+\`\`\`
+Ensure each side has 3-4 clear, parallel, high-contrast bullet points.`;
+  }
+
+  // Apply PowerPoint prompt enhancer rules
+  const { enhancePromptForPowerPoint } = await import('../adapters/ppt/promptEnhancer.js');
+  prompt = enhancePromptForPowerPoint(prompt);
+
+  await executeGeminiWorkflow(prompt, displayBubble);
 }
 
 async function executeGeminiWorkflow(fullPrompt, displayUserBubble, attachments = null) {

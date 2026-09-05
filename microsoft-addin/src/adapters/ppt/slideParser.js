@@ -253,6 +253,55 @@ export function parseSlides(htmlContent, rawText = "") {
   noteCallouts.forEach(n => n.remove());
 
   // -------------------------------------------------------------
+  // Strategy 0: Executive Visual JSON (3-Column Metric Grid, Before/After)
+  // -------------------------------------------------------------
+  const fullSearchText = (rawText || "") + "\n" + (tempDiv.innerText || "");
+  const jsonBlocks = fullSearchText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/gi) || [];
+  let visualPayload = null;
+
+  for (const block of jsonBlocks) {
+    try {
+      const cleanBlock = block.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+      const parsed = JSON.parse(cleanBlock);
+      if (parsed && (parsed.visualType === "metric_grid_3col" || parsed.visualType === "before_after")) {
+        visualPayload = parsed;
+        break;
+      }
+    } catch (_) {}
+  }
+
+  if (!visualPayload) {
+    const rawJsonMatch = fullSearchText.match(/\{[\s\S]*?"visualType"\s*:\s*"(?:metric_grid_3col|before_after)"[\s\S]*?\}/);
+    if (rawJsonMatch) {
+      try {
+        visualPayload = JSON.parse(rawJsonMatch[0]);
+      } catch (_) {}
+    }
+  }
+
+  if (visualPayload && (visualPayload.visualType === "metric_grid_3col" || visualPayload.visualType === "before_after")) {
+    const isMetric = visualPayload.visualType === "metric_grid_3col";
+    let formattedBody = "";
+    if (isMetric) {
+      formattedBody = (visualPayload.cards || []).map(c => `• ${c.metric || ''} ${c.title || ''}: ${(c.bullets || []).join('; ')}`).join('\n');
+    } else {
+      const beforeList = (visualPayload.before?.bullets || []).map(b => `  - ${b}`).join('\n');
+      const afterList = (visualPayload.after?.bullets || []).map(b => `  - ${b}`).join('\n');
+      formattedBody = `• 🔴 BEFORE: ${visualPayload.before?.title || 'Current State'}\n${beforeList}\n\n• 🟢 AFTER: ${visualPayload.after?.title || 'Target State'}\n${afterList}`;
+    }
+
+    return [{
+      slideNumber: 1,
+      title: visualPayload.title || "Executive Visual",
+      subtitle: visualPayload.subtitle || "",
+      visualType: visualPayload.visualType,
+      visualData: visualPayload,
+      body: formattedBody,
+      base64Images: allImages
+    }];
+  }
+
+  // -------------------------------------------------------------
   // Strategy 1: Explicit Slide Headings (H1, H2, H3)
   // -------------------------------------------------------------
   const headerEls = Array.from(tempDiv.querySelectorAll("h1, h2, h3"));
