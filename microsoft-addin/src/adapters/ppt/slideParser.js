@@ -12,6 +12,22 @@
  * @author Sathya AG, Principal Architect, Google
  */
 
+/**
+ * Detects whether a string is conversational preamble or tool disclaimer rather than slide content.
+ */
+export function isConversationalPreamble(line) {
+  if (!line) return false;
+  const l = line.trim().toLowerCase();
+  return (
+    /^(?:here\s+(?:is|are)\s+(?:the|your|a|this)?\s*(?:content|slide|slides|presentation|deck|breakdown|summary|overview)?|below\s+(?:is|are)\s+(?:the|your|a)?\s*(?:content|slide|slides)?)/i.test(l) ||
+    /^(?:sure[!,.]?|certainly[!,.]?|of\s+course[!,.]?|absolutely[!,.]?|great[!,.]?|i'\''d\s+be\s+happy\s+to|i\s+have\s+(?:created|prepared|generated))/i.test(l) ||
+    /^(?:based\s+on\s+your\s+(?:request|focus|documents|data)|as\s+requested|per\s+your\s+request)/i.test(l) ||
+    /^note:\s*i\s+don'\''t\s+have\s+a\s+direct\s+slide/i.test(l) ||
+    /^\*?note:\s*/i.test(l) ||
+    /^---+$/.test(l)
+  );
+}
+
 export function extractSlideMetadataAndBullets(rawLines) {
   let subtitle = "";
   let visualConcept = "";
@@ -22,16 +38,24 @@ export function extractSlideMetadataAndBullets(rawLines) {
 
   for (const rawLine of rawLines) {
     if (!rawLine) continue;
-    const line = rawLine.replace(/^[-•*]\s*/, "").replace(/\*\*/g, "").trim();
+    if (isConversationalPreamble(rawLine)) continue;
+
+    // Remove leading bullet/hash symbols and bold markers
+    let line = rawLine
+      .replace(/^[-•*]\s*/, "")
+      .replace(/^[#\s]+/, "")
+      .trim();
     if (!line) continue;
 
-    const subMatch = line.match(/^(?:Sub-?title|Subtitle\s*Text):\s*(.*)$/i);
-    if (subMatch) {
-      subtitle = subMatch[1].trim();
+    const subMatch = line.match(/^(?:Sub-?title|Subtitle\s*Text|Effective|Target|Date|Author|Quarter):\s*(.*)$/i);
+    if (subMatch && !subtitle) {
+      subtitle = (subMatch[1] ? subMatch[1].trim() : line).replace(/\*\*/g, "").replace(/^[*_]+|[*_]+$/g, "");
       continue;
     }
 
-    const colorMatch = line.match(/^(?:Color|Colour|Color\s*Scheme|Palette|Theme\s*Color):\s*(.*)$/i);
+    const cleanLine = line.replace(/\*\*/g, "").replace(/^[*_]+|[*_]+$/g, "").trim();
+
+    const colorMatch = cleanLine.match(/^(?:Color|Colour|Color\s*Scheme|Palette|Theme\s*Color):\s*(.*)$/i);
     if (colorMatch) {
       const colorVal = colorMatch[1].trim();
       const hex = colorVal.match(/#[A-Fa-f0-9]{6}/);
@@ -50,35 +74,39 @@ export function extractSlideMetadataAndBullets(rawLines) {
       continue;
     }
 
-    const tSizeMatch = line.match(/^Title\s*(?:Font\s*)?Size(?:\s*\(pt\))?:\s*(\d+)/i);
+    const tSizeMatch = cleanLine.match(/^Title\s*(?:Font\s*)?Size(?:\s*\(pt\))?:\s*(\d+)/i);
     if (tSizeMatch) {
       titleSize = parseInt(tSizeMatch[1], 10);
       continue;
     }
 
-    const sSizeMatch = line.match(/^Subtitle\s*(?:Font\s*)?Size(?:\s*\(pt\))?:\s*(\d+)/i);
+    const sSizeMatch = cleanLine.match(/^Subtitle\s*(?:Font\s*)?Size(?:\s*\(pt\))?:\s*(\d+)/i);
     if (sSizeMatch) {
       subtitleSize = parseInt(sSizeMatch[1], 10);
       continue;
     }
 
-    const visMatch = line.match(/^(?:Visual(?:\s*Concept|\s*Description|\s*Prompt|\s*Idea)?|Image(?:\s*Prompt|\s*Concept|\s*Description)?):\s*(.*)$/i);
+    const visMatch = cleanLine.match(/^(?:Visual(?:\s*Concept|\s*Description|\s*Prompt|\s*Idea)?|Image(?:\s*Prompt|\s*Concept|\s*Description)?):\s*(.*)$/i);
     if (visMatch) {
       visualConcept = visMatch[1].trim();
       continue;
     }
 
-    if (/^(?:Main\s*)?Content:?$/i.test(line)) {
+    if (/^(?:Main\s*)?Content:?$/i.test(cleanLine)) {
       continue;
     }
 
-    if (/^(?:Layout|Slide\s*Layout|Template|Design\s*Theme):/i.test(line)) {
+    if (/^(?:Layout|Slide\s*Layout|Template|Design\s*Theme):/i.test(cleanLine)) {
       continue;
     }
 
-    if (/^`+$/.test(line)) continue;
+    if (/^`+$/.test(cleanLine)) continue;
 
-    contentBullets.push(`•  ${line.replace(/^[-•*]\s*/, "")}`);
+    // Clean bullet formatting
+    const formattedBullet = cleanLine.replace(/^[-•*]\s*/, "").replace(/^[*_]+|[*_]+$/g, "").trim();
+    if (formattedBullet) {
+      contentBullets.push(`•  ${formattedBullet}`);
+    }
   }
 
   return {
@@ -213,20 +241,34 @@ export function parseSlides(htmlContent, rawText = "") {
   // -------------------------------------------------------------
   // Strategy 1: Explicit Slide Headings (H1, H2, H3)
   // -------------------------------------------------------------
-  const headerEls = Array.from(tempDiv.querySelectorAll("h1, h2, h3"));
-  if (headerEls.length >= 2) {
+  let headerEls = Array.from(tempDiv.querySelectorAll("h1, h2"));
+  let boundaryTagNames = ["H1", "H2"];
+
+  // If no H1 or H2, fallback to H3
+  if (headerEls.length === 0) {
+    headerEls = Array.from(tempDiv.querySelectorAll("h3"));
+    boundaryTagNames = ["H1", "H2", "H3"];
+  }
+
+  if (headerEls.length >= 1) {
     const slides = [];
     for (let i = 0; i < headerEls.length; i++) {
       const h = headerEls[i];
       const rawTitle = (h.innerText || h.textContent || "").trim();
-      const title = cleanSlideTitle(rawTitle, i + 1);
+      const title = cleanSlideTitle(rawTitle, slides.length + 1);
+      if (!title) continue;
 
       const bodyLines = [];
       const sectionImgs = [];
       let sectionTableData = null;
       let curr = h.nextElementSibling;
 
-      while (curr && !["H1", "H2", "H3"].includes(curr.tagName)) {
+      while (curr && !boundaryTagNames.includes(curr.tagName)) {
+        if (curr.tagName === "HR") {
+          curr = curr.nextElementSibling;
+          continue;
+        }
+
         // Collect images inside this section
         const currImgs = Array.from(curr.querySelectorAll("img"))
           .map(img => img.src || img.getAttribute("src") || "")
@@ -238,8 +280,8 @@ export function parseSlides(htmlContent, rawText = "") {
         }
         if (currImgs.length > 0) sectionImgs.push(...currImgs);
 
-        // Skip verified source footers
-        if (curr.innerText && curr.innerText.includes("Verified Sources")) {
+        // Skip verified source footers or preamble/notes
+        if (curr.innerText && (curr.innerText.includes("Verified Sources") || isConversationalPreamble(curr.innerText))) {
           curr = curr.nextElementSibling;
           continue;
         }
@@ -254,14 +296,22 @@ export function parseSlides(htmlContent, rawText = "") {
               rows: tbl.dataRows
             };
           }
+        } else if (curr.tagName === "H3" && !boundaryTagNames.includes("H3")) {
+          // H3 inside an H1/H2 slide: format as subsection heading
+          const subHeading = (curr.innerText || curr.textContent || "").trim();
+          if (subHeading && !isConversationalPreamble(subHeading)) {
+            bodyLines.push(`### ${subHeading}`);
+          }
         } else if (curr.tagName === "UL" || curr.tagName === "OL") {
           Array.from(curr.querySelectorAll("li")).forEach(li => {
             const txt = (li.innerText || li.textContent || "").trim();
-            if (txt) bodyLines.push(`• ${txt.replace(/^[-•*]\s*/, "")}`);
+            if (txt && !isConversationalPreamble(txt)) {
+              bodyLines.push(`• ${txt.replace(/^[-•*]\s*/, "")}`);
+            }
           });
         } else {
           const txt = (curr.innerText || curr.textContent || "").trim();
-          if (txt) {
+          if (txt && !isConversationalPreamble(txt)) {
             bodyLines.push(txt);
           }
         }
@@ -271,7 +321,7 @@ export function parseSlides(htmlContent, rawText = "") {
       const parsed = extractSlideMetadataAndBullets(bodyLines);
 
       slides.push({
-        slideNumber: i + 1,
+        slideNumber: slides.length + 1,
         title: title,
         subtitle: parsed.subtitle,
         visualConcept: parsed.visualConcept,
@@ -284,7 +334,7 @@ export function parseSlides(htmlContent, rawText = "") {
       });
     }
 
-    if (slides.length >= 2) return slides;
+    if (slides.length >= 1) return slides;
   }
 
   // -------------------------------------------------------------
@@ -453,7 +503,7 @@ export function parseSlides(htmlContent, rawText = "") {
     }
   }
 
-  if (outlineSlides.length >= 2) {
+  if (outlineSlides.length >= 1) {
     return outlineSlides;
   }
 
@@ -470,7 +520,7 @@ export function parseSlides(htmlContent, rawText = "") {
       let prevEl = standaloneTable.previousElementSibling;
       while (prevEl) {
         const txt = (prevEl.innerText || prevEl.textContent || "").trim();
-        if (txt && !txt.startsWith("Verified Sources")) {
+        if (txt && !txt.startsWith("Verified Sources") && !isConversationalPreamble(txt)) {
           tableTitle = txt;
           break;
         }
@@ -478,15 +528,18 @@ export function parseSlides(htmlContent, rawText = "") {
       }
 
       if (!tableTitle) {
-        const firstLine = (tempDiv.innerText || tempDiv.textContent || "").split("\n").map(l => l.trim()).find(l => l.length > 0);
-        if (firstLine && !firstLine.startsWith("|")) tableTitle = firstLine;
+        const firstLine = (tempDiv.innerText || tempDiv.textContent || "")
+          .split("\n")
+          .map(l => l.trim())
+          .find(l => l.length > 0 && !l.startsWith("|") && !isConversationalPreamble(l));
+        if (firstLine) tableTitle = firstLine;
       }
 
       if (!tableTitle && tbl.headers.length > 0) {
         tableTitle = `${tbl.headers[0]} Comparison`;
       }
 
-      const cleanTitle = cleanSlideTitle(tableTitle || "Comparison Table", 1);
+      const cleanTitle = cleanSlideTitle(tableTitle || "Comparison Table", 1) || "Comparison Table";
       return [{
         slideNumber: 1,
         title: cleanTitle,
@@ -506,11 +559,14 @@ export function parseSlides(htmlContent, rawText = "") {
   }
 
   // Check for raw markdown table in text
-  const textContent = tempDiv.innerText || tempDiv.textContent || rawText;
+  const textContent = rawText || tempDiv.textContent || tempDiv.innerText || "";
   const mdTable = parseMarkdownTable(textContent);
   if (mdTable && mdTable.dataRows.length > 0) {
-    const firstLine = textContent.split("\n").map(l => l.trim()).find(l => l.length > 0 && !l.startsWith("|"));
-    const cleanTitle = cleanSlideTitle(firstLine || "Comparison Table", 1);
+    const firstLine = textContent
+      .split("\n")
+      .map(l => l.trim())
+      .find(l => l.length > 0 && !l.startsWith("|") && !isConversationalPreamble(l));
+    const cleanTitle = cleanSlideTitle(firstLine || "Comparison Table", 1) || "Comparison Table";
     return [{
       slideNumber: 1,
       title: cleanTitle,
@@ -531,19 +587,23 @@ export function parseSlides(htmlContent, rawText = "") {
   // -------------------------------------------------------------
   // Strategy 5: Raw Text Block Splitting
   // -------------------------------------------------------------
+  const hasPrimaryHeaders = /(?:^|\n)#{1,2}\s+/i.test(textContent);
+  const splitRegex = hasPrimaryHeaders
+    ? /(?:^|\n)(?=(?:#{1,2}\s+|Slide\s*\d+[:\-]|(?:\d+\.\s+\*\*Slide)))/gi
+    : /(?:^|\n)(?=(?:#{1,3}\s+|Slide\s*\d+[:\-]|(?:\d+\.\s+\*\*Slide)))/gi;
+
   const blocks = textContent
-    .split(/(?:^|\n)(?=(?:#{1,3}\s+|Slide\s*\d+[:\-]|(?:\d+\.\s+\*\*Slide)))/gi)
+    .split(splitRegex)
     .map(b => b.trim())
     .filter(b => {
       if (b.length < 5) return false;
-      // Skip conversational intro preambles like "Here is a comparison..." if they precede real headings
-      if (/^(?:here\s+is\s+|below\s+is\s+|sure|certainly|i've\s+prepared)/i.test(b) && !b.includes("\n#") && !b.includes("\n•")) {
+      if (isConversationalPreamble(b) && !b.includes("\n#") && !b.includes("\n•")) {
         return false;
       }
       return true;
     });
 
-  if (blocks.length >= 2) {
+  if (blocks.length >= 1) {
     const textSlides = [];
     blocks.forEach((block, idx) => {
       const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
@@ -555,11 +615,13 @@ export function parseSlides(htmlContent, rawText = "") {
           .trim();
 
         const title = cleanSlideTitle(rawTitle, idx + 1);
+        if (!title) return; // Skip conversational intro blocks
+
         const blockMdTable = parseMarkdownTable(block);
         const parsed = extractSlideMetadataAndBullets(lines.slice(1));
 
         textSlides.push({
-          slideNumber: idx + 1,
+          slideNumber: textSlides.length + 1,
           title: title,
           subtitle: parsed.subtitle,
           visualConcept: parsed.visualConcept,
@@ -573,15 +635,51 @@ export function parseSlides(htmlContent, rawText = "") {
       }
     });
 
-    if (textSlides.length >= 2) return textSlides;
+    if (textSlides.length >= 1) return textSlides;
   }
 
   // -------------------------------------------------------------
   // Strategy 6: Single Slide Fallback
   // -------------------------------------------------------------
-  const lines = textContent.split("\n").map(l => l.trim()).filter(Boolean);
-  const singleTitle = lines[0] ? cleanSlideTitle(lines[0], 1) : "Presentation Overview";
-  const parsed = extractSlideMetadataAndBullets(lines.slice(1));
+  const allLines = textContent.split("\n").map(l => l.trim()).filter(Boolean);
+  const cleanLines = allLines.filter(l => !isConversationalPreamble(l));
+
+  let titleIndex = -1;
+  let singleTitle = "Executive Briefing";
+
+  // Check for a heading line (# or ##)
+  for (let i = 0; i < cleanLines.length; i++) {
+    const l = cleanLines[i];
+    if (l.startsWith("#")) {
+      const candidate = cleanSlideTitle(l, 1);
+      if (candidate) {
+        singleTitle = candidate;
+        titleIndex = i;
+        break;
+      }
+    }
+  }
+
+  // If no # heading, pick first non-bullet line that is a valid title
+  if (titleIndex === -1) {
+    for (let i = 0; i < cleanLines.length; i++) {
+      const l = cleanLines[i];
+      if (!l.startsWith("•") && !l.startsWith("-") && !l.startsWith("*") && !l.startsWith("|")) {
+        const candidate = cleanSlideTitle(l, 1);
+        if (candidate) {
+          singleTitle = candidate;
+          titleIndex = i;
+          break;
+        }
+      }
+    }
+  }
+
+  const remainingLines = titleIndex >= 0 
+    ? cleanLines.filter((_, idx) => idx !== titleIndex)
+    : cleanLines;
+
+  const parsed = extractSlideMetadataAndBullets(remainingLines);
 
   return [{
     slideNumber: 1,
@@ -596,20 +694,26 @@ export function parseSlides(htmlContent, rawText = "") {
   }];
 }
 
-function cleanSlideTitle(rawTitle, defaultNum = 1) {
+export function cleanSlideTitle(rawTitle, defaultNum = 1) {
   if (!rawTitle) return `Slide ${defaultNum}`;
+  if (isConversationalPreamble(rawTitle)) return null;
+
   let clean = rawTitle
     .replace(/^[#*\s:]+/, "")
     .replace(/^\d+[\.\)]\s*/, "")
     .replace(/^Slide\s*\d+[:\-–—]?\s*/i, "")
     .replace(/^(?:of\s+course[.,]?\s*|sure[.,]?\s*|certainly[.,]?\s*|absolutely[.,]?\s*)/i, "")
-    .replace(/^(?:here\s+is\s+(?:a\s+)?(?:table|comparison|list|breakdown|summary)?\s+(?:of|comparing|for)?|below\s+is\s+(?:a\s+)?(?:table|comparison|list|breakdown|summary)?\s+(?:of|comparing|for)?)\s*/i, "")
+    .replace(/^(?:here\s+(?:is|are)\s+(?:the|your|a)?\s*(?:content|slide|slides|presentation)?\s*(?:for|of|on|about)?|below\s+(?:is|are)\s+(?:the|your|a)?\s*(?:content|slide|slides)?\s*(?:for|of|on|about)?)\s*/i, "")
     .replace(/^(?:a\s+table\s+of|a\s+comparison\s+of|table\s+of|comparison\s+of)\s*/i, "")
     .replace(/[:.]+$/, "")
     .replace(/\*\*/g, "")
     .trim();
 
-  // Enforce maximum 4 words (under 40 chars)
+  if (!clean || isConversationalPreamble(clean) || /^(?:the\s+)?slide$/i.test(clean)) {
+    return null;
+  }
+
+  // Enforce maximum 5 words if emoji, else 4 words (under 40 chars)
   const words = clean.split(/\s+/);
   if (words.length > 5) {
     const hasEmoji = /^\p{Extended_Pictographic}/u.test(words[0]);
@@ -622,5 +726,6 @@ function cleanSlideTitle(rawTitle, defaultNum = 1) {
     clean = clean.substring(0, 40).replace(/\s+\S*$/, "").trim();
   }
 
-  return clean || `Slide ${defaultNum}`;
+  clean = clean.replace(/[:.\-–—\s]+$/, "").trim();
+  return clean || null;
 }

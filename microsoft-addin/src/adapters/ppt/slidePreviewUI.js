@@ -120,7 +120,7 @@ export function enhanceBubbleWithSlideDeck(bubbleEl, htmlContent, rawText, adapt
   if (!bubbleEl || bubbleEl.querySelector(".ppt-deck-preview-container")) return;
 
   const slides = parseSlides(htmlContent, rawText);
-  if (slides.length < 2) return;
+  if (!slides || slides.length === 0) return;
 
   injectPowerPointStyles();
 
@@ -131,8 +131,8 @@ export function enhanceBubbleWithSlideDeck(bubbleEl, htmlContent, rawText, adapt
   const header = document.createElement("div");
   header.className = "ppt-deck-header";
   header.innerHTML = `
-    <div class="ppt-deck-title">📊 <span>Presentation Deck Ready</span></div>
-    <div class="ppt-deck-badge">${slides.length} Slides</div>
+    <div class="ppt-deck-title">📊 <span>Presentation ${slides.length > 1 ? "Deck " : ""}Ready</span></div>
+    <div class="ppt-deck-badge">${slides.length} Slide${slides.length > 1 ? "s" : ""}</div>
   `;
   container.appendChild(header);
 
@@ -182,7 +182,7 @@ export function enhanceBubbleWithSlideDeck(bubbleEl, htmlContent, rawText, adapt
   // Footer instruction
   const footerHint = document.createElement("div");
   footerHint.className = "ppt-deck-footer-hint";
-  footerHint.innerHTML = `👉 Click <b>"+ Insert into Slides"</b> below to create all ${slides.length} slides.`;
+  footerHint.innerHTML = `👉 Click <b>"${slides.length > 1 ? '+ Insert ' + slides.length + ' Slides' : '+ Insert into Slide'}"</b> below to create the ${slides.length > 1 ? 'slides' : 'slide'}.`;
   container.appendChild(footerHint);
 
   // Optional collapsible raw text outline
@@ -202,11 +202,11 @@ export function enhanceBubbleWithSlideDeck(bubbleEl, htmlContent, rawText, adapt
   if (actionsContainer) {
     const insertBtn = actionsContainer.querySelector(".insert-btn") || actionsContainer.querySelector(".action-btn.insert");
     if (insertBtn) {
-      insertBtn.innerHTML = `➕ Insert ${slides.length} Slides`;
+      insertBtn.innerHTML = slides.length > 1 ? `➕ Insert ${slides.length} Slides` : `➕ Insert into Slide`;
     }
     const replaceBtn = actionsContainer.querySelector(".replace-btn") || actionsContainer.querySelector(".action-btn.replace");
     if (replaceBtn) {
-      replaceBtn.innerHTML = `🔄 Replace with ${slides.length} Slides`;
+      replaceBtn.innerHTML = slides.length > 1 ? `🔄 Replace with ${slides.length} Slides` : `🔄 Replace Current Slide`;
     }
 
     // Hide all raw markdown text siblings to eliminate duplicate visual text

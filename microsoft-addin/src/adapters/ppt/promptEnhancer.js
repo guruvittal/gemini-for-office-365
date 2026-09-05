@@ -26,6 +26,7 @@ IMPORTANT RULES FOR SLIDE GENERATION:
    - Recommended **Title Font Size** and **Subtitle Font Size** (e.g., "Title Size: 44", "Subtitle Size: 24").
 4. If presenting structured comparison data or metrics, format the main content as a clean Markdown table.
 5. Provide all slides in a single response, cleanly separated by headings.
+6. CRITICAL: Output ONLY the slide content starting directly with ## [Emoji] [Title]. Do NOT output conversational preambles (e.g. "Here is the slide", "Certainly! Here is...") or closing tool disclaimers.
 `;
     return `${userPrompt}\n\n${rules}`;
   }

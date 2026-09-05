@@ -180,7 +180,10 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
  * Creates a single slide atomically in PowerPoint with title, body bullets, native tables, or images.
  */
 async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
-  const cleanTitle = (slideData.title || `Slide ${slideNum}`).replace(/\*\*/g, "").trim();
+  let cleanTitle = (slideData.title || `Slide ${slideNum}`).replace(/\*\*/g, "").trim();
+  if (/^(?:here\s+(?:is|are)\s+(?:the\s+)?slide|the\s+slide|slide)$/i.test(cleanTitle)) {
+    cleanTitle = `Executive Briefing`;
+  }
   const subtitle = slideData.subtitle || "";
   const titleSize = slideData.titleSize || 40;
   const subtitleSize = slideData.subtitleSize || 20;
