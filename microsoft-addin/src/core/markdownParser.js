@@ -3,6 +3,9 @@
  * 
  * @author Sathya AG, Principal Architect, Google
  */
+
+import { renderChartHtml } from './chartRenderer.js';
+
 /**
  * Strips internal developer and slide layout metadata lines
  * (Visual Concept, Color, Title Size, Subtitle Size, Layout) from raw LLM text
@@ -64,6 +67,46 @@ export function parseMarkdown(text) {
     visualTokens.push(imgHtml);
     return `\n\n${token}\n\n`;
   });
+
+  // 4. Pre-extract and render structured Chart JSON blocks (Pie, Doughnut, Bar, Column, Line)
+  sanitized = sanitized.replace(/```(?:json|chart|pie|bar|line|doughnut|donut|column|vega|vega-lite)?\s*([\s\S]*?)```/gi, (fullMatch, codeContent) => {
+    const trimmedCode = (codeContent || '').trim();
+    if (trimmedCode.startsWith('{') && (
+      trimmedCode.includes('chartType') ||
+      trimmedCode.includes('chart_type') ||
+      trimmedCode.includes('"pie"') ||
+      trimmedCode.includes('"bar"') ||
+      trimmedCode.includes('"doughnut"') ||
+      trimmedCode.includes('"line"') ||
+      (trimmedCode.includes('"data"') && trimmedCode.includes('"value"'))
+    )) {
+      try {
+        const chartHtml = renderChartHtml(trimmedCode);
+        if (chartHtml) {
+          const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
+          visualTokens.push(chartHtml);
+          return `\n\n${token}\n\n`;
+        }
+      } catch (e) {
+        console.warn("Client chart rendering failed:", e);
+      }
+    }
+    return fullMatch;
+  });
+
+  // 5. Pre-extract standalone JSON chart objects without code fences
+  sanitized = sanitized.replace(/\{\s*"(?:chartType|chart_type|type)"\s*:\s*"(?:pie|bar|line|doughnut|donut|column)"[\s\S]*?\n\s*\}/gi, (match) => {
+    try {
+      const chartHtml = renderChartHtml(match);
+      if (chartHtml) {
+        const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
+        visualTokens.push(chartHtml);
+        return `\n\n${token}\n\n`;
+      }
+    } catch (_) {}
+    return match;
+  });
+
 
   // 3. Block-level parsing (Headings, Lists, Tables, Blockquotes, Paragraphs)
   const lines = sanitized.split(/\r?\n/);

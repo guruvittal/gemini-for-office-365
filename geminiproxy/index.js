@@ -199,12 +199,29 @@ async function inlineImagesInContent(text) {
     }
   }
 
-  // 4. Catch any trailing prompt fragments (e.g. 'Clean white background... modern flat 2D...')
-  processed = processed.replace(/(?:and operating income[^\n]*\.\s*)?Clean white background[^\n]*\)?/gi, '');
-  processed = processed.replace(/['"],?data:,?backgroundColor:[^)]+\)\)?/gi, '');
+  // 5. Fetch remote image URLs (https://...) and convert to base64 data URIs for native Office insertion
+  const remoteImgRegex = /!\[([^\]]*)\]\((https:\/\/[^\s\)]+)\)/gi;
+  const remoteMatches = [...processed.matchAll(remoteImgRegex)];
+  for (const m of remoteMatches) {
+    const [fullMatch, alt, url] = m;
+    try {
+      const imgRes = await fetch(url);
+      if (imgRes.ok) {
+        const buffer = await imgRes.arrayBuffer();
+        const base64 = Buffer.from(buffer).toString('base64');
+        const mime = imgRes.headers.get('content-type') || 'image/png';
+        const dataUri = `data:${mime};base64,${base64}`;
+        const imgTag = `<div style="margin:18px 0; text-align:center;"><img src="${dataUri}" alt="${escapeXml(alt || 'Generated Image')}" style="max-width:100%; border-radius:6px; border:1px solid #c7e0f4; box-shadow:0 3px 10px rgba(0,0,0,0.08);" /></div>`;
+        processed = processed.replace(fullMatch, imgTag);
+      }
+    } catch (fetchErr) {
+      console.warn('[INLINE_IMAGES] Could not fetch remote image URL:', url, fetchErr.message);
+    }
+  }
 
   return processed;
 }
+
 
 // 1. Office-Native Visual Storyboard (100% Word & PPT Compatible)
 function renderOfficeStoryboard(title, subtitle, panels) {
@@ -462,21 +479,74 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
   let returnedSessionResource = null;
   const citations = [];
   const seenCitations = new Set();
+  const extractedImages = [];
 
   for (const chunk of parsedChunks) {
     if (chunk.sessionInfo?.session) {
       returnedSessionResource = chunk.sessionInfo.session;
     }
 
+    // Check if image generation tool was invoked
+    const invokedTools = chunk.invocationTools || chunk.answer?.invocationTools || [];
+    if (Array.isArray(invokedTools) && invokedTools.includes('image_generation')) {
+      console.log('[STREAM_ASSIST] Image generation tool invoked by Gemini Enterprise');
+    }
+
+    // Check top-level chunk images/media
+    if (chunk.images && Array.isArray(chunk.images)) {
+      for (const img of chunk.images) {
+        if (img.bytesBase64Encoded || img.data) {
+          extractedImages.push(`data:${img.mimeType || 'image/png'};base64,${img.bytesBase64Encoded || img.data}`);
+        } else if (img.uri || img.url) {
+          extractedImages.push(img.uri || img.url);
+        }
+      }
+    }
+
     const replies = chunk.answer?.replies || [];
     for (const reply of replies) {
-      const contentObj = reply.groundedContent?.content;
-      if (contentObj && contentObj.text && !contentObj.thought) {
-        aggregatedText += contentObj.text;
-      } else if (reply.replyText) {
-        aggregatedText += reply.replyText;
+      // 1. Check content parts (text, inlineData, fileData, image, media)
+      const parts = reply.groundedContent?.content?.parts || [];
+      if (parts.length > 0) {
+        for (const part of parts) {
+          if (part.text && !part.thought) {
+            aggregatedText += part.text;
+          } else if (part.inlineData?.data) {
+            const mime = part.inlineData.mimeType || 'image/png';
+            extractedImages.push(`data:${mime};base64,${part.inlineData.data}`);
+            console.log(`[STREAM_ASSIST] Found inlineData image artifact (${part.inlineData.data.length} bytes)`);
+          } else if (part.fileData?.fileUri) {
+            extractedImages.push(part.fileData.fileUri);
+            console.log(`[STREAM_ASSIST] Found fileData image artifact (${part.fileData.fileUri})`);
+          } else if (part.image?.uri || part.image?.url) {
+            extractedImages.push(part.image.uri || part.image.url);
+          }
+        }
+      } else {
+        const contentObj = reply.groundedContent?.content;
+        if (contentObj && contentObj.text && !contentObj.thought) {
+          aggregatedText += contentObj.text;
+        } else if (reply.replyText) {
+          aggregatedText += reply.replyText;
+        }
       }
 
+      // 2. Check reply media/images
+      const replyMedia = reply.media || reply.images || reply.groundedContent?.media || reply.groundedContent?.images;
+      if (replyMedia) {
+        const mediaList = Array.isArray(replyMedia) ? replyMedia : [replyMedia];
+        for (const m of mediaList) {
+          if (typeof m === 'string') {
+            extractedImages.push(m);
+          } else if (m.bytesBase64Encoded || m.data) {
+            extractedImages.push(`data:${m.mimeType || 'image/png'};base64,${m.bytesBase64Encoded || m.data}`);
+          } else if (m.uri || m.url) {
+            extractedImages.push(m.uri || m.url);
+          }
+        }
+      }
+
+      // 3. Grounded citations
       const grounded = reply.groundedContent || {};
       if (grounded.searchChunk || grounded.web || reply.replyId) {
         const title = grounded.title || grounded.searchChunk?.title || 'Enterprise Data Source';
@@ -496,6 +566,15 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
     }
   }
 
+  // Append extracted images as Markdown images if not already embedded
+  if (extractedImages.length > 0) {
+    for (const imgUrl of extractedImages) {
+      if (!aggregatedText.includes(imgUrl)) {
+        aggregatedText += `\n\n![Generated Image](${imgUrl})\n\n`;
+      }
+    }
+  }
+
   let shortSessionId = returnedSessionResource;
   if (returnedSessionResource && returnedSessionResource.includes('/sessions/')) {
     shortSessionId = returnedSessionResource.split('/sessions/').pop();
@@ -505,9 +584,11 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
     resultText: aggregatedText,
     sessionResource: returnedSessionResource,
     sessionId: shortSessionId || originalSessionId,
-    citations: citations
+    citations: citations,
+    images: extractedImages
   };
 }
+
 
 async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, userGoogleToken, authMode, attachments }) {
   if (!PROJECT_ID) {
@@ -565,10 +646,12 @@ async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, us
     }
   };
 
-  // Use empty vertexAiSearchSpec to dynamically use all engine-attached datastores
+  // Enable Vertex AI Search and Image Generation (powered by Imagen) in toolsSpec
   requestBody.toolsSpec = {
-    vertexAiSearchSpec: {}
+    vertexAiSearchSpec: {},
+    imageGenerationSpec: {}
   };
+
 
   if (sessionId) {
     let fullSessionName = sessionId;

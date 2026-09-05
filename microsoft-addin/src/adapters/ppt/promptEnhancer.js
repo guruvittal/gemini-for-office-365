@@ -25,6 +25,29 @@ CRITICAL INSTRUCTIONS FOR SLIDE EDITING:
     return `${userPrompt}\n\n${rules}`;
   }
 
+  // Rule set for chart generation (pie, bar, line, doughnut)
+  if (lowerPrompt.includes("chart") || lowerPrompt.includes("pie") || lowerPrompt.includes("bar") || lowerPrompt.includes("graph") || lowerPrompt.includes("visualization") || lowerPrompt.includes("visualize")) {
+    const rules = `
+CRITICAL INSTRUCTIONS FOR CHART GENERATION:
+1. When generating a chart, output a structured JSON code block:
+\`\`\`json
+{
+  "chartType": "pie",
+  "title": "Chart Title",
+  "data": [
+    { "label": "Category / Label", "value": 12345 }
+  ]
+}
+\`\`\`
+Supported chartType values: "pie", "doughnut", "bar", "column", "line". Use exact numeric values (not strings).
+2. Also provide a clean Markdown Table with the data metrics (| Category | Metric | Share % |).
+3. Provide 2-3 executive bullet points with bold lead-ins highlighting strategic insights.
+4. DO NOT output conversational preamble or pleasantries.
+`;
+    return `${userPrompt}\n\n${rules}`;
+  }
+
+
   // Rule set for slide generation
   if (lowerPrompt.includes("slide") || lowerPrompt.includes("presentation") || lowerPrompt.includes("deck") || lowerPrompt.includes("table") || lowerPrompt.includes("pitch")) {
     const rules = `
