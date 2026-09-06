@@ -645,24 +645,13 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
     }
 
     if (!newSlide) {
-      // 1. Snapshot all existing slide IDs so we can accurately locate the exact newly added slide
-      slides.load("items/id");
+      // 1. Get slide count before addition (in PowerPoint Office.js, slides.add() appends to the end;
+      // the count before addition is the exact 0-based index of the new slide at the end)
+      const countResult = slides.getCount();
       await context.sync();
-      const existingIds = new Set((slides.items || []).map(s => s.id));
-      const preCount = slides.items ? slides.items.length : 0;
+      const insertIndex = countResult.value;
 
-      // 2. If slides already exist, set selection to the last slide so PowerPoint inserts AFTER it
-      if (preCount > 0) {
-        const lastExistingSlide = slides.items[preCount - 1];
-        try {
-          if (typeof context.presentation.setSelectedSlides === "function") {
-            context.presentation.setSelectedSlides([lastExistingSlide.id]);
-            await context.sync();
-          }
-        } catch (_) {}
-      }
-
-      // 3. Add the new slide
+      // 2. Add the slide to the end of the presentation
       let added = false;
       if (layoutOptions) {
         try {
@@ -677,38 +666,10 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         slides.add();
       }
 
-      // 4. Reload slide IDs to locate the exact newly added slide
-      slides.load("items/id");
       await context.sync();
 
-      let newlyAddedSlide = (slides.items || []).find(s => !existingIds.has(s.id));
-      if (!newlyAddedSlide) {
-        newlyAddedSlide = slides.getItemAt(slides.items.length - 1);
-      }
-      newSlide = newlyAddedSlide;
-
-      // 5. Ensure the new slide is moved to the end of the presentation if PowerPoint placed it elsewhere
-      const totalCount = slides.items ? slides.items.length : 0;
-      const currentIndex = (slides.items || []).indexOf(newSlide);
-      if (currentIndex !== -1 && currentIndex < totalCount - 1) {
-        if (typeof newSlide.moveTo === "function") {
-          try {
-            newSlide.moveTo(totalCount - 1);
-            await context.sync();
-          } catch (mErr) {
-            console.warn("moveTo end notice:", mErr);
-          }
-        }
-      }
-
-      // 6. Set selection to the new slide so any subsequent slide insertion naturally appends after it
-      try {
-        if (typeof context.presentation.setSelectedSlides === "function") {
-          context.presentation.setSelectedSlides([newSlide.id]);
-          await context.sync();
-        }
-      } catch (_) {}
-
+      // 3. Obtain reference to the newly appended slide at insertIndex
+      newSlide = slides.getItemAt(insertIndex);
       newSlide.shapes.load("items/name, items/type");
       await context.sync();
     }
@@ -917,71 +878,30 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         const finalCleanText = finalParagraphs.map(p => p.cleanText.trim()).join('\n\n');
         const { cleanText: reClean, parsedParagraphs: cleanParagraphs } = parseMarkdownFormatting(finalCleanText);
 
-        // Render soft executive container card behind narrative bullets
-        if (isNarrativeSlide) {
-          try {
-            if (typeof newSlide.shapes.addGeometricShape === "function" && PowerPoint.GeometricShapeType) {
-              const cardBg = newSlide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.roundRectangle, {
-                left: 48,
-                top: contentTop,
-                width: 864,
-                height: hasTakeaway ? 270 : 365
-              });
-              if (cardBg.fill && typeof cardBg.fill.setSolidColor === "function") {
-                cardBg.fill.setSolidColor("#F8FAFC");
-              }
-              if (cardBg.line) {
-                cardBg.line.color = "#E2E8F0";
-                cardBg.line.weight = 1;
-              }
-            }
-          } catch (_) {}
-        }
-
         const bulletBox = newSlide.shapes.addTextBox(reClean, {
-          left: isNarrativeSlide ? 68 : 50,
-          top: isNarrativeSlide ? (contentTop + 14) : contentTop,
-          width: isNarrativeSlide ? 824 : (hasImages ? 400 : 860),
-          height: isNarrativeSlide ? (hasTakeaway ? 242 : 337) : (hasTakeaway ? 260 : 380)
+          left: 50,
+          top: contentTop,
+          width: hasImages ? 400 : 860,
+          height: hasTakeaway ? 260 : 380
         });
         bulletBox.textFrame.wordWrap = true;
-        bulletBox.textFrame.textRange.font.size = hasImages ? 13.5 : (hasTakeaway && cleanParagraphs.length >= 4 ? 13.5 : 14.5);
-        bulletBox.textFrame.textRange.font.color = "#1E293B";
+        bulletBox.textFrame.textRange.font.size = hasImages ? 13.5 : (hasTakeaway && cleanParagraphs.length >= 4 ? 13.5 : 15);
         await applyParagraphFormatting(bulletBox, cleanParagraphs, context);
       }
 
-      // Render dedicated Executive Takeaway Callout Box at bottom
+      // Render Executive Takeaway at bottom (clean text box respecting presentation theme)
       if (hasTakeaway) {
-        try {
-          if (typeof newSlide.shapes.addGeometricShape === "function" && PowerPoint.GeometricShapeType) {
-            const takeawayBg = newSlide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.roundRectangle, {
-              left: 48,
-              top: 395,
-              width: 864,
-              height: 75
-            });
-            if (takeawayBg.fill && typeof takeawayBg.fill.setSolidColor === "function") {
-              takeawayBg.fill.setSolidColor("#EFF6FF");
-            }
-            if (takeawayBg.line) {
-              takeawayBg.line.color = "#BFDBFE";
-              takeawayBg.line.weight = 1;
-            }
-          }
-        } catch (_) {}
-
         const rawTakeaway = `💡 Strategic Takeaway: ${takeaway}`;
         const { cleanText, parsedParagraphs } = parseMarkdownFormatting(rawTakeaway);
         const takeawayBox = newSlide.shapes.addTextBox(cleanText, {
-          left: 64,
-          top: 403,
-          width: 832,
-          height: 60
+          left: 50,
+          top: 395,
+          width: hasImages ? 400 : 860,
+          height: 75
         });
         takeawayBox.textFrame.wordWrap = true;
         takeawayBox.textFrame.textRange.font.size = 13.5;
         takeawayBox.textFrame.textRange.font.italic = true;
-        takeawayBox.textFrame.textRange.font.color = "#1E40AF";
         await applyParagraphFormatting(takeawayBox, parsedParagraphs, context);
       }
     }
@@ -1363,21 +1283,8 @@ export async function insertOnCurrentSlide(slideStructures, options = {}) {
       throw new Error("No slide available in presentation to insert content onto.");
     }
 
-    // Check if the user had a shape selected (e.g. selected text to create image from)
+    // Selected shape tracking disabled to prevent host selection triggers
     let selectedShapeBox = null;
-    try {
-      if (context.presentation.getSelectedShapes) {
-        const selShapes = context.presentation.getSelectedShapes();
-        selShapes.load("items/left, items/top, items/width, items/height");
-        await context.sync();
-        if (selShapes.items && selShapes.items.length > 0) {
-          const s = selShapes.items[0];
-          if (s.width > 20 && s.height > 20) {
-            selectedShapeBox = { left: s.left, top: s.top, width: s.width, height: s.height };
-          }
-        }
-      }
-    } catch (_) {}
 
     // Load existing shapes on the active slide to detect occupied space
     activeSlide.shapes.load("items/left, items/top, items/width, items/height, items/type, items/name");

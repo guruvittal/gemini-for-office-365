@@ -96,122 +96,19 @@ export class PPTAdapter {
     return resultText;
   }
 
-  // Read text and metadata from ALL currently highlighted/selected slide(s) in PowerPoint
+  // All automatic highlighting and selection functionality is completely disabled
+  // per user request to isolate and prevent PowerPoint Online selection jitters, slide jumps, and DLP popups.
   async getSelectedSlidesText() {
-    const selectedSlidesData = [];
-    try {
-      if (typeof PowerPoint !== 'undefined') {
-        const slideIds = [];
-
-        // Step 1: Query the IDs of all currently highlighted / selected slides
-        await PowerPoint.run(async (context) => {
-          if (context.presentation.getSelectedSlides) {
-            const selectedSlides = context.presentation.getSelectedSlides();
-            selectedSlides.load("items/id");
-            await context.sync();
-
-            if (selectedSlides.items && selectedSlides.items.length > 0) {
-              for (const s of selectedSlides.items) {
-                if (s.id) slideIds.push(s.id);
-              }
-            }
-          }
-        });
-
-        console.log(`[PPTAdapter] getSelectedSlides returned ${slideIds.length} slides:`, slideIds);
-
-        // Case 1: Multiple slides are explicitly highlighted in the slide thumbnail list
-        if (slideIds.length > 1) {
-          for (let i = 0; i < slideIds.length; i++) {
-            const sId = slideIds[i];
-            const slideText = await this._extractSlideTextById(sId);
-            if (slideText && slideText.trim()) {
-              selectedSlidesData.push({
-                slideNumber: i + 1,
-                id: sId,
-                text: slideText.trim(),
-                isMultiSlide: true
-              });
-            }
-          }
-          return selectedSlidesData;
-        }
-
-        // Case 2: User is on a single slide. Only attach if user highlighted specific text/shape!
-        const shapeText = await this.getSelectedShapeText();
-        if (shapeText && shapeText.trim()) {
-          selectedSlidesData.push({
-            slideNumber: 1,
-            id: slideIds.length > 0 ? slideIds[0] : "active-shape",
-            text: shapeText.trim(),
-            isTextSelection: true
-          });
-          return selectedSlidesData;
-        }
-
-        // Case 3: User merely clicked on a single slide without highlighting any text.
-        // Return empty so it stays in Deck Mode and does NOT enter "attached slide mode".
-        return [];
-      }
-    } catch (err) {
-      console.warn("PowerPoint getSelectedSlidesText warning:", err);
-    }
-
-    return selectedSlidesData;
+    return [];
   }
 
-  // Read currently highlighted shape or text frame on the active slide
+  // Read currently highlighted shape or text frame on the active slide (disabled)
   async getSelectedShapeText() {
-    let selectedText = "";
-    try {
-      if (typeof PowerPoint !== 'undefined') {
-        await PowerPoint.run(async (context) => {
-          if (context.presentation.getSelectedShapes) {
-            const selection = context.presentation.getSelectedShapes();
-            selection.load("items/name, items/type");
-            await context.sync();
-
-            if (selection.items && selection.items.length > 0) {
-              const textTrackers = [];
-              for (const shape of selection.items) {
-                try {
-                  if (shape.textFrame) {
-                    const tr = shape.textFrame.textRange;
-                    tr.load("text");
-                    textTrackers.push(tr);
-                  }
-                } catch (_) {}
-              }
-              await context.sync();
-
-              const texts = [];
-              for (const tr of textTrackers) {
-                try {
-                  if (tr.text && tr.text.trim()) {
-                    texts.push(tr.text.trim());
-                  }
-                } catch (_) {}
-              }
-              selectedText = texts.join("\n\n");
-            }
-          }
-        });
-      }
-    } catch (err) {
-      console.warn("PowerPoint getSelectedShapeText error:", err);
-    }
-    return selectedText;
+    return "";
   }
 
-  // Read currently highlighted slide(s) text or active shape selection
+  // Read currently highlighted slide(s) text or active shape selection (disabled)
   async getSelectedText() {
-    const selectedSlides = await this.getSelectedSlidesText();
-    if (selectedSlides && selectedSlides.length > 0) {
-      if (selectedSlides.length === 1 && selectedSlides[0].isTextSelection) {
-        return selectedSlides[0].text;
-      }
-      return selectedSlides.map(s => `[Slide ${s.slideNumber}]:\n${s.text}`).join("\n\n---\n\n");
-    }
     return "";
   }
 
