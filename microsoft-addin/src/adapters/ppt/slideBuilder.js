@@ -840,8 +840,19 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         if (clean.length > 50) {
           const imgLeft = isImageOnlySlide ? 200 : 470;
           const imgWidth = isImageOnlySlide ? 560 : 440;
-          // Maintain exact 16:10 aspect ratio of the 800x500 canvas to prevent vertical distortion and blurriness
-          const imgHeight = Math.min(360, Math.round(imgWidth * (500 / 800))); // ~350pt if centered, ~275pt if split
+          // Calculate natural aspect ratio from image to prevent distortion and blurriness
+          let aspect = 1.6;
+          try {
+            if (clean.length > 64 && typeof atob === "function") {
+              const binStr = atob(clean.slice(0, 64));
+              if (binStr.charCodeAt(0) === 0x89 && binStr.charCodeAt(1) === 0x50 && binStr.charCodeAt(2) === 0x4E && binStr.charCodeAt(3) === 0x47) {
+                const w = (binStr.charCodeAt(16) << 24) | (binStr.charCodeAt(17) << 16) | (binStr.charCodeAt(18) << 8) | binStr.charCodeAt(19);
+                const h = (binStr.charCodeAt(20) << 24) | (binStr.charCodeAt(21) << 16) | (binStr.charCodeAt(22) << 8) | binStr.charCodeAt(23);
+                if (w > 0 && h > 0) aspect = w / h;
+              }
+            }
+          } catch (_) {}
+          const imgHeight = Math.min(360, Math.round(imgWidth / aspect));
           const imgTop = contentTop + 10;
 
           let picInserted = false;

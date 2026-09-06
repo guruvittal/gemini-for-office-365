@@ -717,11 +717,33 @@ async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, us
   }
 
   const endpointUrl = `https://${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com/v1alpha/projects/${PROJECT_ID}/locations/${GCP_LOCATION}/collections/${ENTERPRISE_COLLECTION_ID}/engines/${ENTERPRISE_APP_ID}/assistants/${ENTERPRISE_ASSISTANT_ID}:streamAssist`;
-  // Upgraded to v1alpha for full toolsSpec/grounding support
+  let effectivePrompt = prompt;
+  const lowerPrompt = prompt.toLowerCase();
+  const isChartIntent = lowerPrompt.includes("chart") || lowerPrompt.includes("pie") || lowerPrompt.includes("bar") || lowerPrompt.includes("graph") || lowerPrompt.includes("visualization") || lowerPrompt.includes("visualize") || lowerPrompt.includes("plot") || lowerPrompt.includes("doughnut") || lowerPrompt.includes("donut") || lowerPrompt.includes("column");
+
+  if (isChartIntent && !lowerPrompt.includes("critical instructions for chart generation")) {
+    effectivePrompt += `\n\nCRITICAL INSTRUCTIONS FOR CHART GENERATION:
+1. Generate an image of the chart: Use your chart / image generation tool to create a clean, modern, high-resolution corporate visual chart image (e.g. pie chart, doughnut chart, or bar chart) illustrating the quantitative breakdown and key data. Ensure clean corporate styling, professional colors, and ensure all titles and data labels do not overlap (placing a clean legend to the side with percentage callouts).
+2. Also output a structured JSON code block with the exact data metrics:
+\`\`\`json
+{
+  "chartType": "pie",
+  "title": "Chart Title",
+  "data": [
+    { "label": "Category / Label", "value": 12345 }
+  ]
+}
+\`\`\`
+Supported chartType values: "pie", "doughnut", "bar", "column", "line". Use exact numeric values (not strings).
+3. Also provide a clean Markdown Table with the data metrics (| Category | Metric | Share % |).
+4. Provide 2-3 executive bullet points with bold lead-ins highlighting strategic insights.
+5. DO NOT output conversational preamble or pleasantries.`;
+    console.log(`[STREAM_ASSIST] Server-side prompt enhanced with chart image generation instructions for prompt: "${prompt.slice(0, 60)}..."`);
+  }
 
   const requestBody = {
     query: {
-      text: prompt
+      text: effectivePrompt
     }
   };
 

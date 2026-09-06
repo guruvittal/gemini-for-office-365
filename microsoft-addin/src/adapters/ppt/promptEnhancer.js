@@ -41,7 +41,7 @@ CRITICAL INSTRUCTIONS FOR SLIDE EDITING:
   if (lowerPrompt.includes("chart") || lowerPrompt.includes("pie") || lowerPrompt.includes("bar") || lowerPrompt.includes("graph") || lowerPrompt.includes("visualization") || lowerPrompt.includes("visualize") || lowerPrompt.includes("plot") || lowerPrompt.includes("breakdown") || lowerPrompt.includes("doughnut") || lowerPrompt.includes("column")) {
     const rules = `
 CRITICAL INSTRUCTIONS FOR CHART GENERATION:
-1. Generate an image of the chart: Create a high-resolution, modern, clean corporate visual chart image (e.g. pie chart, donut chart, or bar chart) illustrating the quantitative breakdown and key data using your image generation tool.
+1. Generate an image of the chart: Use your chart / image generation tool to create a clean, modern, high-resolution corporate visual chart image (e.g. pie chart, doughnut chart, or bar chart) illustrating the quantitative breakdown and key data. Ensure clean corporate styling, professional colors, and ensure all titles and data labels do not overlap (placing a clean legend to the side with percentage callouts).
 2. Also output a structured JSON code block with the exact data metrics:
 \`\`\`json
 {
