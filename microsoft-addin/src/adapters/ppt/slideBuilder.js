@@ -630,32 +630,37 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
 
   // 1. Single atomic PowerPoint.run session to add slide and populate all elements
   await PowerPoint.run(async (context) => {
-    let newSlide;
+    let newSlide = null;
     const slides = context.presentation.slides;
 
     if (targetSlideId) {
       try {
-        newSlide = slides.getItem(targetSlideId);
-        newSlide.shapes.load("items/name, items/type");
-        await context.sync();
+        if (typeof slides.getItemOrNullObject === "function") {
+          const cand = slides.getItemOrNullObject(targetSlideId);
+          cand.load("isNullObject, id");
+          await context.sync();
+          if (!cand.isNullObject) {
+            newSlide = cand;
+          }
+        } else {
+          newSlide = slides.getItem(targetSlideId);
+          newSlide.load("id");
+          await context.sync();
+        }
       } catch (itemErr) {
-        console.warn("Could not retrieve targetSlideId, falling back to adding new slide:", itemErr);
+        console.warn("Could not retrieve targetSlideId, falling back to appending new slide:", itemErr);
         newSlide = null;
       }
     }
 
     if (!newSlide) {
-      // 1. Get slide count before addition (in PowerPoint Office.js, slides.add() appends to the end;
-      // the count before addition is the exact 0-based index of the new slide at the end)
-      const countResult = slides.getCount();
-      await context.sync();
-      const insertIndex = countResult.value;
-
-      // 2. Add the slide to the end of the presentation
+      // 1. Add new slide to presentation
+      // (PowerPoint Office.js slides.add() appends to the very end of the presentation)
       let added = false;
       if (layoutOptions) {
         try {
           slides.add(layoutOptions);
+          await context.sync();
           added = true;
         } catch (layoutErr) {
           console.warn("Adding slide with blank layout failed, falling back to standard add:", layoutErr);
@@ -664,15 +669,25 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
 
       if (!added) {
         slides.add();
+        await context.sync();
       }
 
+      // 2. Load presentation slides collection to acquire the newly appended slide at the end
+      slides.load("items");
       await context.sync();
 
-      // 3. Obtain reference to the newly appended slide at insertIndex
-      newSlide = slides.getItemAt(insertIndex);
-      newSlide.shapes.load("items/name, items/type");
-      await context.sync();
+      if (slides.items && slides.items.length > 0) {
+        newSlide = slides.items[slides.items.length - 1];
+      } else {
+        const countResult = slides.getCount();
+        await context.sync();
+        const lastIdx = Math.max(0, countResult.value - 1);
+        newSlide = slides.getItemAt(lastIdx);
+      }
     }
+
+    newSlide.shapes.load("items/name, items/type");
+    await context.sync();
 
     // Clean up default template placeholders ("Click to add title", etc.)
     if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
@@ -726,7 +741,8 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
       contentTop = compactHeader ? 78 : 105;
     }
 
-    // If Executive Visual layout is specified, render native shape cards
+    try {
+      // If Executive Visual layout is specified, render native shape cards
     if (slideData.visualType === "metric_grid_3col") {
       populate3ColumnMetricGrid(newSlide, slideData.visualData, slideNum, contentTop);
     } else if (slideData.visualType === "before_after") {
@@ -977,7 +993,30 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
       }
     }
 
-    await context.sync();
+      await context.sync();
+    } catch (popErr) {
+      console.warn(`[SlideBuilder] Slide ${slideNum} element error, rendering fallback bullets:`, popErr);
+      logToPPTConsole(`Slide ${slideNum} Notice: Complex element issue (${popErr.message}). Rendering fallback bullets on slide.`, true);
+      try {
+        const fallbackText = (slideData.body && slideData.body.trim() !== "• Executive slide content")
+          ? slideData.body
+          : (tableData && tableData.rows && tableData.rows.length > 0
+              ? tableData.rows.map(r => `• ${r.join(" | ")}`).join("\n\n")
+              : "• Executive slide content");
+        const { cleanText } = parseMarkdownFormatting(fallbackText);
+        const fbBox = newSlide.shapes.addTextBox(cleanText, {
+          left: 50,
+          top: contentTop,
+          width: 860,
+          height: 380
+        });
+        fbBox.textFrame.wordWrap = true;
+        fbBox.textFrame.textRange.font.size = 14;
+        await context.sync();
+      } catch (fbErr) {
+        console.warn(`[SlideBuilder] Slide ${slideNum} fallback box error:`, fbErr);
+      }
+    }
   });
 
   logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}${tableData ? 'and Native Table.' : 'and Bullets.'}`);
@@ -1069,32 +1108,14 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
       await Promise.race([slidePromise, timeoutPromise]);
       successfulSlides++;
     } catch (slideErr) {
-      logToPPTConsole(`Slide ${slideNum} Notice: ${slideErr.message}. Attempting resilient continuation...`, true);
+      logToPPTConsole(`Slide ${slideNum} Notice: ${slideErr.message}`, true);
       console.warn(`[PPTBuilder] Slide ${slideNum} issue:`, slideErr);
-      try {
-        const fallbackBody = (slideData.body && slideData.body.trim() !== "• Executive slide content")
-          ? slideData.body
-          : (slideData.tableData && slideData.tableData.rows && slideData.tableData.rows.length > 0
-              ? slideData.tableData.rows.map(r => `• ${r.join(" | ")}`).join("\n\n")
-              : "• Executive slide content");
-
-        const fallbackData = {
-          ...slideData,
-          base64Images: [],
-          tableData: null,
-          visualType: null,
-          body: fallbackBody
-        };
-        await createSingleSlide(fallbackData, slideNum, blankLayoutOptions, targetSlideId);
-        logToPPTConsole(`Slide ${slideNum}: Added basic text fallback slide.`);
-        successfulSlides++;
-      } catch (fbErr) {
-        console.warn(`[PPTBuilder] Slide ${slideNum} fallback failed:`, fbErr);
-      }
+      // NOTE: Do NOT call createSingleSlide again here! If slides.add() already succeeded,
+      // re-invoking createSingleSlide creates an unwanted duplicate/blank slide.
     }
 
-    // Yield event loop for 400ms to allow PowerPoint host to finalize layout before next slide
-    await new Promise(resolve => setTimeout(resolve, 400));
+    // Yield event loop for 750ms to allow PowerPoint Online host to finalize slide state before adding the next
+    await new Promise(resolve => setTimeout(resolve, 750));
   }
 
   if (successfulSlides === 0) {
