@@ -183,95 +183,38 @@ async function createSingleSlide(slideData, slideNum) {
       throw new Error("Unable to obtain reference to PowerPoint Slide proxy after creation.");
     }
 
-    // Safely delete default template placeholders (e.g. "Click to add title")
-    try {
-      newSlide.shapes.load("items");
-      await context.sync();
-
-      if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
-        for (let i = newSlide.shapes.items.length - 1; i >= 0; i--) {
-          try {
-            newSlide.shapes.items[i].delete();
-          } catch (dErr) {}
-        }
-        await context.sync();
-      }
-    } catch (cleanErr) {
-      // Safe continuation even if template locks default placeholders
-      console.warn("Placeholder cleanup notice:", cleanErr);
-    }
-
-    // Add Clean Title at Top using Gemini's requested title font size
-    const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
+    // 1. Add Title Textbox
+    newSlide.shapes.addTextBox(cleanTitle, {
       left: 50,
-      top: 25,
+      top: 35,
       width: 860,
-      height: 50
+      height: 55
     });
-    try {
-      if (titleBox && titleBox.textFrame && titleBox.textFrame.textRange) {
-        titleBox.textFrame.textRange.font.size = titleSize;
-        titleBox.textFrame.textRange.font.bold = true;
-        if (color) titleBox.textFrame.textRange.font.color = color;
-      }
-    } catch (fErr) {}
-    try {
-      titleBox.textFrame.wordWrap = false;
-    } catch (wErr) {}
 
-    let contentTop = 85;
+    let contentTop = 95;
 
-    // Add Subtitle if present
+    // 2. Add Subtitle if present
     if (subtitle) {
-      const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
+      newSlide.shapes.addTextBox(subtitle, {
         left: 50,
-        top: 75,
+        top: 85,
         width: 860,
-        height: 30
+        height: 35
       });
-      try {
-        if (subtitleBox && subtitleBox.textFrame && subtitleBox.textFrame.textRange) {
-          subtitleBox.textFrame.textRange.font.size = subtitleSize;
-          subtitleBox.textFrame.textRange.font.italic = true;
-          if (color) subtitleBox.textFrame.textRange.font.color = color;
-        }
-      } catch (fErr) {}
-      contentTop = 112;
+      contentTop = 125;
     }
 
-    // If tableData is present, create native PowerPoint table
+    // 3. If tableData is present, create native PowerPoint table
     if (tableData && tableData.rows && tableData.rows.length > 0) {
       populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop);
     } else {
-      // Body text / bullets and images
-      const bodyTop = contentTop;
-      const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
+      // Body text / bullets
+      newSlide.shapes.addTextBox(bodyTextContent, {
         left: 50,
-        top: bodyTop,
-        width: hasImages ? 400 : 860,
+        top: contentTop,
+        width: 860,
         height: 380
       });
-      try {
-        if (bodyBox && bodyBox.textFrame && bodyBox.textFrame.textRange) {
-          bodyBox.textFrame.textRange.font.size = 18;
-        }
-      } catch (fErr) {}
-
-      if (hasImages) {
-        for (const rawImg of imagesToInsert) {
-          const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
-          if (clean.length > 50) {
-            try {
-              newSlide.shapes.addImage(clean, {
-                left: 480,
-                top: bodyTop,
-                width: 380,
-                height: 300
-              });
-            } catch (imgErr) {}
-          }
-        }
-      }
     }
 
     await context.sync();
