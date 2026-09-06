@@ -8,7 +8,6 @@
  */
 
 import functions from '@google-cloud/functions-framework';
-import { VertexAI } from '@google-cloud/vertexai';
 import { GoogleAuth } from 'google-auth-library';
 import express from 'express';
 import corsLib from 'cors';
@@ -18,11 +17,9 @@ const cors = corsLib({ origin: true });
 // Environment Configuration (Configured via .env or GCP Cloud Run environment variables)
 const PROJECT_ID = process.env.GE_GCP_PROJECT_ID || process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT;
 const REGION = process.env.GCP_REGION || 'us-central1';
-const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-const IMAGE_MODEL_NAME = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
 const DATASTORE_ID = process.env.VERTEX_DATASTORE_ID || process.env.VERTEX_DATASTORE || '';
 
-// Gemini Enterprise StreamAssist API Configuration
+// Gemini Enterprise StreamAssist API Configuration (STRICT: All requests route through StreamAssist)
 const BACKEND_MODE = (process.env.BACKEND_MODE || 'streamassist').toLowerCase();
 const STREAM_ASSIST_ENDPOINT_LOCATION = process.env.STREAM_ASSIST_ENDPOINT_LOCATION || 'global';
 const GCP_LOCATION = process.env.GE_GCP_LOCATION || process.env.GCP_LOCATION || 'global';
@@ -36,81 +33,11 @@ const auth = new GoogleAuth({
 });
 
 if (!PROJECT_ID) {
-  console.warn('WARNING: GE_GCP_PROJECT_ID environment variable is not set. Vertex AI client will use default credentials.');
-}
-
-// Pre-warmed global VertexAI client instance (connection pooling & token caching)
-let vertexAI;
-function getVertexAI() {
-  if (!vertexAI) {
-    vertexAI = new VertexAI({
-      project: PROJECT_ID || 'genai-demo-catalog',
-      location: REGION,
-    });
-  }
-  return vertexAI;
-}
-
-const modelCache = new Map();
-
-function getCachedModel(modelName, enableGrounding = true) {
-  const name = modelName || MODEL_NAME;
-  const cacheKey = `${name}_grounded_${enableGrounding}`;
-  if (!modelCache.has(cacheKey)) {
-    const modelConfig = {
-      model: name,
-      systemInstruction: {
-        parts: [{ text: SYSTEM_INSTRUCTION_TEXT }]
-      },
-      generationConfig: {
-        temperature: 0.4,
-        maxOutputTokens: 8192
-      }
-    };
-
-    if (enableGrounding && DATASTORE_ID) {
-      modelConfig.tools = [
-        {
-          retrieval: {
-            vertexAiSearch: {
-              datastore: DATASTORE_ID
-            }
-          }
-        }
-      ];
-    }
-
-    const model = getVertexAI().getGenerativeModel(modelConfig);
-    modelCache.set(cacheKey, model);
-  }
-  return { model: modelCache.get(cacheKey), name };
+  console.warn('WARNING: GE_GCP_PROJECT_ID environment variable is not set.');
 }
 
 // In-memory session store for multi-turn chats
 const sessionStore = new Map();
-
-function getImageModel() {
-  return getVertexAI().getGenerativeModel({
-    model: IMAGE_MODEL_NAME
-  });
-}
-
-async function generateVertexImage(prompt) {
-  try {
-    console.log('Generating image via Vertex AI (gemini-2.5-flash-image):', prompt.substring(0, 70) + '...');
-    const res = await getImageModel().generateContent(
-      `Create a professional corporate financial infographic chart reflecting exact data: ${prompt}. Use exact company name and exact numbers provided. DO NOT use generic placeholder names like "Global Innovations Inc.". Flat 2D vector graphic design, crisp typography, clean white background.`
-    );
-    const parts = (await res.response)?.candidates?.[0]?.content?.parts || [];
-    const imgPart = parts.find(p => p.inlineData);
-    if (imgPart && imgPart.inlineData?.data) {
-      return `data:${imgPart.inlineData.mimeType || 'image/png'};base64,${imgPart.inlineData.data}`;
-    }
-  } catch (err) {
-    console.warn('Vertex image generation error:', err.message);
-  }
-  return null;
-}
 
 const SYSTEM_INSTRUCTION_TEXT = `You are Ask Gemini, a versatile, intelligent corporate AI assistant for Microsoft Office (Word, PowerPoint, and Excel).
 
@@ -128,78 +55,12 @@ CRITICAL FORMATTING RULES:
    - Use clean, punchy takeaways that C-level executives can scan and absorb immediately.
 4. Use standard markdown tables (| Header 1 | Header 2 | ...) for tabular data and executive callouts (> [!NOTE] ...).`;
 
-// Inlines Vertex AI generated images into base64 data URIs
+// Inlines images into base64 data URIs for native Office insertion (strictly without direct model calls)
 async function inlineImagesInContent(text) {
   if (!text) return '';
   let processed = text;
 
-  // 1. Process ```image or ```imagen or ```visual blocks
-  const codeBlockRegex = /```(?:image|imagen|visual)\s*([\s\S]*?)```/gi;
-  const codeMatches = [...processed.matchAll(codeBlockRegex)];
-  for (const match of codeMatches) {
-    const [fullMatch, promptText] = match;
-    const cleanPrompt = promptText.trim();
-    if (cleanPrompt) {
-      const dataUri = await generateVertexImage(cleanPrompt);
-      if (dataUri) {
-        const imgTag = `<div style="margin:18px 0; text-align:center;"><img src="${dataUri}" alt="Visual Chart" style="max-width:100%; border-radius:6px; border:1px solid #c7e0f4; box-shadow:0 3px 10px rgba(0,0,0,0.08);" /></div>`;
-        processed = processed.replace(fullMatch, imgTag);
-      }
-    }
-  }
-
-  // 2. Process ![alt](image: ...) with full balanced parenthesis support
-  const startMarkerRegex = /!\[([^\]]*)\]\((?:image:|image-prompt:|imagen:)\s*/gi;
-  let match;
-  const itemsToReplace = [];
-
-  while ((match = startMarkerRegex.exec(processed)) !== null) {
-    const fullStart = match[0];
-    const alt = match[1];
-    const startIndex = match.index;
-    const contentStartIndex = startIndex + fullStart.length;
-
-    let openCount = 1;
-    let i = contentStartIndex;
-    while (i < processed.length && openCount > 0) {
-      if (processed[i] === '(') openCount++;
-      else if (processed[i] === ')') openCount--;
-      i++;
-    }
-
-    if (openCount === 0) {
-      const prompt = processed.substring(contentStartIndex, i - 1).trim();
-      const rawMatch = processed.substring(startIndex, i);
-      itemsToReplace.push({ rawMatch, alt, prompt });
-    }
-  }
-
-  for (const item of itemsToReplace) {
-    const dataUri = await generateVertexImage(item.prompt);
-    if (dataUri) {
-      const imgTag = `<div style="margin:18px 0; text-align:center;"><img src="${dataUri}" alt="${escapeXml(item.alt || 'Visual')}" style="max-width:100%; border-radius:6px; border:1px solid #c7e0f4; box-shadow:0 3px 10px rgba(0,0,0,0.08);" /></div>`;
-      processed = processed.replace(item.rawMatch, imgTag);
-    } else {
-      processed = processed.replace(item.rawMatch, '');
-    }
-  }
-
-  // 3. Clean up any accidental malformed chart URLs and convert to images
-  const malformedChartRegex = /!\[([^\]]*)\]\(https?:\/\/quickchart\.io\/chart[^\)]*\)/gi;
-  const malformedMatches = [...processed.matchAll(malformedChartRegex)];
-  for (const m of malformedMatches) {
-    const [fullMatch, alt] = m;
-    const fallbackPrompt = alt || "Corporate financial revenue and operating income comparison bar chart";
-    const dataUri = await generateVertexImage(fallbackPrompt);
-    if (dataUri) {
-      const imgTag = `<div style="margin:18px 0; text-align:center;"><img src="${dataUri}" alt="${escapeXml(alt)}" style="max-width:100%; border-radius:6px; border:1px solid #c7e0f4; box-shadow:0 3px 10px rgba(0,0,0,0.08);" /></div>`;
-      processed = processed.replace(fullMatch, imgTag);
-    } else {
-      processed = processed.replace(fullMatch, '');
-    }
-  }
-
-  // 5. Fetch remote image URLs (https://...) and convert to base64 data URIs for native Office insertion
+  // 1. Fetch remote image URLs (https://...) and convert to base64 data URIs for native Office insertion
   const remoteImgRegex = /!\[([^\]]*)\]\((https:\/\/[^\s\)]+)\)/gi;
   const remoteMatches = [...processed.matchAll(remoteImgRegex)];
   for (const m of remoteMatches) {
@@ -217,6 +78,15 @@ async function inlineImagesInContent(text) {
     } catch (fetchErr) {
       console.warn('[INLINE_IMAGES] Could not fetch remote image URL:', url, fetchErr.message);
     }
+  }
+
+  // 2. Convert markdown data:image URIs to styled HTML images
+  const dataImgRegex = /!\[([^\]]*)\]\((data:image\/[^;]+;base64,[^\)]+)\)/gi;
+  const dataMatches = [...processed.matchAll(dataImgRegex)];
+  for (const m of dataMatches) {
+    const [fullMatch, alt, dataUri] = m;
+    const imgTag = `<div style="margin:18px 0; text-align:center;"><img src="${dataUri}" alt="${escapeXml(alt || 'Visual')}" style="max-width:100%; border-radius:6px; border:1px solid #c7e0f4; box-shadow:0 3px 10px rgba(0,0,0,0.08);" /></div>`;
+    processed = processed.replace(fullMatch, imgTag);
   }
 
   return processed;
@@ -387,91 +257,8 @@ function processChartsInContent(text) {
 }
 
 async function handleGeminiRequest(req, res) {
-  cors(req, res, async () => {
-    try {
-      if (req.method !== 'POST') {
-        return res.status(405).json({ error: 'Method Not Allowed' });
-      }
-
-      const { prompt, history, sessionId, model } = req.body;
-      if (!prompt) {
-        return res.status(400).json({ error: 'Prompt is required' });
-      }
-
-      const { enableGrounding = true } = req.body;
-      const { model: generativeModel, name: selectedModel } = getCachedModel(model, enableGrounding);
-      let activeSessionId = sessionId || ('session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
-
-      let formattedHistory = [];
-      if (Array.isArray(history) && history.length > 0) {
-        formattedHistory = history.map(item => {
-          let role = item.role === 'assistant' ? 'model' : (item.role || 'user');
-          let text = '';
-          if (typeof item.text === 'string') {
-            text = item.text;
-          } else if (Array.isArray(item.parts)) {
-            text = item.parts.map(p => typeof p === 'string' ? p : (p.text || '')).join('\n');
-          } else if (typeof item.parts === 'string') {
-            text = item.parts;
-          }
-          return { role: role, parts: [{ text: text.trim() }] };
-        }).filter(item => item.parts[0].text.length > 0);
-      }
-
-      const chatSession = generativeModel.startChat({ history: formattedHistory });
-      console.log('Sending prompt to Gemini (' + selectedModel + ') on Vertex AI (Session: ' + activeSessionId + ', Grounding: ' + enableGrounding + ')...');
-      const result = await chatSession.sendMessage(prompt);
-      const response = await result.response;
-      
-      const candidate = response.candidates?.[0];
-      const rawParts = candidate?.content?.parts || [];
-      let rawText = rawParts.map(p => p.text || '').join('\n').trim();
-
-      // Extract enterprise grounding citations
-      const citations = [];
-      const groundingMetadata = candidate?.groundingMetadata;
-      if (groundingMetadata?.groundingChunks?.length) {
-        const seenSources = new Set();
-        const citationItems = [];
-
-        for (const chunk of groundingMetadata.groundingChunks) {
-          const ctx = chunk.retrievedContext;
-          if (ctx) {
-            const key = ctx.title || ctx.uri;
-            if (key && !seenSources.has(key)) {
-              seenSources.add(key);
-              const title = ctx.title || (ctx.uri ? ctx.uri.split('/').pop() : 'Document');
-              const cleanUri = ctx.uri ? ctx.uri.replace('gs://', '') : '';
-              citations.push({ title, uri: ctx.uri });
-              citationItems.push(`* 📄 **${title}**${cleanUri ? ` \`(${cleanUri})\`` : ''}`);
-            }
-          }
-        }
-
-        if (citationItems.length > 0) {
-          rawText += `\n\n---\n> [!NOTE] **Verified Sources from Advance Auto Parts Data Store:**\n> ` + citationItems.join('\n> ');
-        }
-      }
-
-      const processedText = await inlineImagesInContent(rawText);
-      const updatedHistory = await chatSession.getHistory();
-      sessionStore.set(activeSessionId, updatedHistory);
-
-      return res.status(200).json({
-        result: processedText,
-        sessionId: activeSessionId,
-        history: updatedHistory,
-        citations: citations,
-        groundingMetadata: groundingMetadata || null
-      });
-    } catch (error) {
-      console.error('Error in Gemini handler:', error);
-      return res.status(500).json({
-        error: 'Failed to process request',
-        details: error.message,
-      });
-    }
-  });
+  // STRICT: Route all requests through Gemini Enterprise StreamAssist API
+  return handleGeminiEnterpriseRequest(req, res);
 }
 
 function processStreamAssistChunks(parsedChunks, originalSessionId) {
@@ -480,6 +267,7 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
   const citations = [];
   const seenCitations = new Set();
   const extractedImages = [];
+  const thoughtParts = [];
 
   for (const chunk of parsedChunks) {
     if (chunk.sessionInfo?.session) {
@@ -493,8 +281,9 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
     }
 
     // Check top-level chunk images/media
-    if (chunk.images && Array.isArray(chunk.images)) {
-      for (const img of chunk.images) {
+    const chunkImgs = chunk.images || chunk.answer?.images;
+    if (chunkImgs && Array.isArray(chunkImgs)) {
+      for (const img of chunkImgs) {
         if (img.bytesBase64Encoded || img.data) {
           extractedImages.push(`data:${img.mimeType || 'image/png'};base64,${img.bytesBase64Encoded || img.data}`);
         } else if (img.uri || img.url) {
@@ -503,14 +292,20 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
       }
     }
 
-    const replies = chunk.answer?.replies || [];
+    const replies = chunk.answer?.replies || chunk.replies || [];
     for (const reply of replies) {
-      // 1. Check content parts (text, inlineData, fileData, image, media)
-      const parts = reply.groundedContent?.content?.parts || [];
+      // 1. Check content parts (support both grounded and ungrounded parts)
+      const parts = reply.groundedContent?.content?.parts 
+        || reply.content?.parts 
+        || reply.parts 
+        || [];
+
       if (parts.length > 0) {
         for (const part of parts) {
           if (part.text && !part.thought) {
             aggregatedText += part.text;
+          } else if (part.thought && part.text) {
+            thoughtParts.push(part.text);
           } else if (part.inlineData?.data) {
             const mime = part.inlineData.mimeType || 'image/png';
             extractedImages.push(`data:${mime};base64,${part.inlineData.data}`);
@@ -523,9 +318,13 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
           }
         }
       } else {
-        const contentObj = reply.groundedContent?.content;
+        const contentObj = reply.groundedContent?.content || reply.content;
         if (contentObj && contentObj.text && !contentObj.thought) {
           aggregatedText += contentObj.text;
+        } else if (contentObj && contentObj.thought && contentObj.text) {
+          thoughtParts.push(contentObj.text);
+        } else if (reply.text) {
+          aggregatedText += reply.text;
         } else if (reply.replyText) {
           aggregatedText += reply.replyText;
         }
@@ -559,7 +358,12 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
     }
 
     if (!aggregatedText) {
-      let chunkText = chunk.answer?.replyText || chunk.replyText || '';
+      const chunkText = chunk.answer?.replyText 
+        || chunk.answer?.text 
+        || chunk.answer?.content?.text 
+        || chunk.replyText 
+        || chunk.text 
+        || '';
       if (chunkText) {
         aggregatedText += chunkText;
       }
@@ -572,6 +376,16 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
       if (!aggregatedText.includes(imgUrl)) {
         aggregatedText += `\n\n![Generated Image](${imgUrl})\n\n`;
       }
+    }
+  }
+
+  // Graceful fallback if no direct text was found
+  if (!aggregatedText.trim()) {
+    if (thoughtParts.length > 0) {
+      aggregatedText = thoughtParts.join('\n\n');
+    } else {
+      console.warn('[STREAM_ASSIST] StreamAssist returned empty chunks for this query.');
+      aggregatedText = "I processed your request with Gemini Enterprise, but no narrative content was generated. Please try rephrasing your request or asking for slide summaries, structured tables, or data comparisons.";
     }
   }
 

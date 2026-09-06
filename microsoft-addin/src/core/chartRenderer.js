@@ -514,6 +514,11 @@ function drawRoundedRect(ctx, x, y, width, height, radius) {
   ctx.closePath();
 }
 
+function escapeHtmlAttr(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 /**
  * Convenience method that parses raw text/JSON and renders an HTML image wrapper.
  * @param {string} text - Raw chart JSON string
@@ -525,8 +530,9 @@ export function renderChartHtml(text) {
 
   const dataUri = renderChartToDataUrl(spec);
   if (dataUri) {
+    const chartTitle = spec.title || 'Generated Chart';
     const alt = spec.title ? `${spec.title} (${spec.chartType} chart)` : 'Generated Chart';
-    return `<div class="rendered-chart-container" style="margin:18px 0; text-align:center;">
+    return `<div class="rendered-chart-container" data-chart-title="${escapeHtmlAttr(chartTitle)}" style="margin:18px 0; text-align:center;">
       <img src="${dataUri}" alt="${alt}" style="max-width:100%; border-radius:8px; border:1px solid #d2e3fc; box-shadow:0 3px 12px rgba(0,0,0,0.07);" />
     </div>`;
   }

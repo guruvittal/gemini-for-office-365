@@ -601,14 +601,31 @@ export function parseSlides(htmlContent, rawText = "") {
     const tbl = extractTableContent(standaloneTable);
     if (tbl && tbl.dataRows.length > 0) {
       let tableTitle = "";
-      let prevEl = standaloneTable.previousElementSibling;
-      while (prevEl) {
-        const txt = (prevEl.innerText || prevEl.textContent || "").trim();
-        if (txt && !txt.startsWith("Verified Sources")) {
-          tableTitle = txt;
-          break;
+      
+      // Check if there is a rendered chart container or chart image in tempDiv
+      const chartEl = tempDiv.querySelector(".rendered-chart-container, [data-chart-title]");
+      if (chartEl && chartEl.getAttribute("data-chart-title")) {
+        tableTitle = chartEl.getAttribute("data-chart-title");
+      } else {
+        const chartImg = tempDiv.querySelector("img[alt*='chart' i], img[alt]");
+        if (chartImg && chartImg.getAttribute("alt")) {
+          const altText = chartImg.getAttribute("alt").replace(/\s*\([^)]*chart\)/i, "").trim();
+          if (altText && altText !== "Image" && altText !== "Generated Chart") {
+            tableTitle = altText;
+          }
         }
-        prevEl = prevEl.previousElementSibling;
+      }
+
+      if (!tableTitle) {
+        let prevEl = standaloneTable.previousElementSibling;
+        while (prevEl) {
+          const txt = (prevEl.innerText || prevEl.textContent || "").trim();
+          if (txt && !txt.startsWith("Verified Sources")) {
+            tableTitle = txt;
+            break;
+          }
+          prevEl = prevEl.previousElementSibling;
+        }
       }
 
       if (!tableTitle) {
@@ -795,7 +812,6 @@ export function isConversationalPreamble(line) {
   if (/^(?:here\s+(?:is|are)|below\s+(?:is|are)|sure|certainly|of\s+course|as\s+requested|optimized|revised|concise|punchy|in\s+summary|to\s+make)/i.test(l)) return true;
   if (l.includes("optimized for a presentation") || l.includes("version optimized") || l.includes("concise and punchy version") || l.includes("minimalist layout") || l.includes("presentation slide")) return true;
   if (/^[-•*]/.test(l)) return true; // Starts with bullet
-  if (l.includes(":") && l.length > 30) return true; // Bullet item with key-value
   return false;
 }
 
@@ -825,7 +841,6 @@ export function extractCleanBulletPoints(htmlContent, rawText = "") {
 
 export function cleanSlideTitle(rawTitle, defaultNum = 1) {
   if (!rawTitle) return `Slide ${defaultNum}`;
-  if (isConversationalPreamble(rawTitle)) return null;
 
   let clean = rawTitle
     .replace(/^[#*\s:]+/, "")
@@ -838,19 +853,28 @@ export function cleanSlideTitle(rawTitle, defaultNum = 1) {
     .replace(/\*\*/g, "")
     .trim();
 
-  if (isConversationalPreamble(clean)) return null;
-
-  // Enforce maximum 4 words (under 40 chars)
-  const words = clean.split(/\s+/);
-  if (words.length > 5) {
-    const hasEmoji = /^\p{Extended_Pictographic}/u.test(words[0]);
-    const maxWords = hasEmoji ? 5 : 4;
-    if (words.length > maxWords) {
-      clean = words.slice(0, maxWords).join(" ");
+  // If preamble was detected on the cleaned string, but it contains a colon, extract candidate after colon
+  if (isConversationalPreamble(clean)) {
+    if (clean.includes(":")) {
+      const parts = clean.split(":");
+      const candidate = parts.slice(1).join(":").trim();
+      if (candidate && !isConversationalPreamble(candidate)) {
+        clean = candidate;
+      } else {
+        return `Slide ${defaultNum}`;
+      }
+    } else {
+      return `Slide ${defaultNum}`;
     }
   }
-  if (clean.length > 40) {
-    clean = clean.substring(0, 40).replace(/\s+\S*$/, "").trim();
+
+  // Preserve meaningful titles up to 8 words or 60 chars
+  const words = clean.split(/\s+/);
+  if (words.length > 8) {
+    clean = words.slice(0, 8).join(" ");
+  }
+  if (clean.length > 60) {
+    clean = clean.substring(0, 60).replace(/\s+\S*$/, "").trim();
   }
 
   return clean || `Slide ${defaultNum}`;

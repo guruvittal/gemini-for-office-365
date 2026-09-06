@@ -79,22 +79,18 @@ function estimateTableRenderedHeight(tableData, colWidth = 280) {
   if (!tableData) return 0;
   const headers = tableData.headers || [];
   const rows = tableData.rows || [];
-  let totalHeight = headers.length > 0 ? 34 : 0; // Header row height
+  let totalHeight = headers.length > 0 ? 36 : 0; // Header row height
 
   for (const row of rows) {
     // Determine maximum length among cell values in this row
     const maxChars = Math.max(...row.map(c => String(c !== undefined && c !== null ? c : "").trim().length), 0);
-    // At ~280pt column width, approx 28-30 characters fit per line
-    const charsPerLine = Math.max(15, Math.floor(colWidth / 9.5));
+    // At ~colWidth, approx colWidth / 8.5 characters fit per line
+    const charsPerLine = Math.max(12, Math.floor(colWidth / 8.5));
     const approxLines = Math.max(1, Math.ceil(maxChars / charsPerLine));
 
-    if (approxLines >= 3) {
-      totalHeight += 58;
-    } else if (approxLines === 2) {
-      totalHeight += 44;
-    } else {
-      totalHeight += 30;
-    }
+    // Cell padding (14pt) + line spacing (~16pt per line)
+    const rowHeight = Math.max(28, approxLines * 16 + 14);
+    totalHeight += rowHeight;
   }
   return totalHeight;
 }
@@ -129,9 +125,10 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
   const estimatedHeight = estimateTableRenderedHeight(tableData, approxColWidth);
   const tableHeight = customHeight || Math.min(380, Math.max(90, estimatedHeight));
 
+  let addedShape = null;
   try {
     if (typeof newSlide.shapes.addTable === "function") {
-      newSlide.shapes.addTable(rowCount, colCount, {
+      addedShape = newSlide.shapes.addTable(rowCount, colCount, {
         left: 50,
         top: tableTop,
         width: tableWidth,
@@ -139,28 +136,44 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
         values: tableValues
       });
       logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table (${rowCount} rows x ${colCount} cols, rendered height ~${estimatedHeight}pt).`);
-      return estimatedHeight;
     }
   } catch (err) {
     console.warn("shapes.addTable with options failed, trying basic addTable:", err);
   }
 
-  try {
-    const shape = newSlide.shapes.addTable(rowCount, colCount);
-    const table = shape.getTable();
-    for (let r = 0; r < tableValues.length; r++) {
-      for (let c = 0; c < colCount; c++) {
-        const cell = table.getCellOrNullObject(r, c);
-        if (cell) cell.text = tableValues[r][c];
+  if (!addedShape) {
+    try {
+      addedShape = newSlide.shapes.addTable(rowCount, colCount);
+      const table = addedShape.getTable();
+      for (let r = 0; r < tableValues.length; r++) {
+        for (let c = 0; c < colCount; c++) {
+          const cell = table.getCellOrNullObject(r, c);
+          if (cell) cell.text = tableValues[r][c];
+        }
       }
+      logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table via getCell.`);
+    } catch (fallbackErr) {
+      console.error("Native table shape creation failed:", fallbackErr);
+      return estimatedHeight;
     }
-    logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table via getCell.`);
-    return estimatedHeight;
-  } catch (fallbackErr) {
-    console.error("Native table shape creation failed:", fallbackErr);
-    logToPPTConsole(`Slide ${slideNum}: ⚠️ Table shape notice: ${fallbackErr.message}`);
-    return 0;
   }
+
+  // Format table font size to 11-12pt so cells fit cleanly without extreme wrapping
+  if (addedShape && typeof addedShape.getTable === "function") {
+    try {
+      const table = addedShape.getTable();
+      for (let r = 0; r < tableValues.length; r++) {
+        for (let c = 0; c < colCount; c++) {
+          const cell = table.getCellOrNullObject(r, c);
+          if (cell && cell.textFrame && cell.textFrame.textRange) {
+            cell.textFrame.textRange.font.size = r === 0 ? 12 : 11;
+            if (r === 0) cell.textFrame.textRange.font.bold = true;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+  return estimatedHeight;
 }
 
 /**
@@ -577,15 +590,16 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
       // Render takeaway or additional notes below the table without overlapping
       const bottomContent = hasTakeaway ? `💡 Strategic Takeaway: ${takeaway}` : additionalBody;
       if (bottomContent && bottomContent.trim().length > 0) {
-        const notesTop = contentTop + realTableHeight + 12;
-        const notesHeight = Math.max(50, 520 - notesTop);
+        const notesTop = Math.max(contentTop + realTableHeight + 16, 320);
+        const notesHeight = Math.max(45, Math.min(140, 520 - notesTop));
         const notesBox = newSlide.shapes.addTextBox(bottomContent, {
           left: 50,
           top: notesTop,
           width: tableWidth,
           height: notesHeight
         });
-        notesBox.textFrame.textRange.font.size = 13;
+        notesBox.textFrame.wordWrap = true;
+        notesBox.textFrame.textRange.font.size = realTableHeight > 200 ? 11.5 : 12.5;
         notesBox.textFrame.textRange.font.italic = true;
         try {
           if (hasTakeaway) {
@@ -648,13 +662,24 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
         if (clean.length > 50) {
           try {
-            newSlide.shapes.addImage(clean, {
-              left: 480,
-              top: contentTop,
-              width: 380,
-              height: 300
-            });
-          } catch (imgErr) {}
+            const imgShape = newSlide.shapes.addImage(clean);
+            imgShape.left = 460;
+            imgShape.top = contentTop;
+            imgShape.width = 440;
+            imgShape.height = 330;
+            logToPPTConsole(`Slide ${slideNum}: Added chart image shape.`);
+          } catch (imgErr) {
+            console.warn("shapes.addImage failed with clean base64, trying raw:", imgErr);
+            try {
+              const imgShape2 = newSlide.shapes.addImage(rawImg);
+              imgShape2.left = 460;
+              imgShape2.top = contentTop;
+              imgShape2.width = 440;
+              imgShape2.height = 330;
+            } catch (fallbackErr) {
+              console.error("shapes.addImage failed:", fallbackErr);
+            }
+          }
         }
       }
     }
