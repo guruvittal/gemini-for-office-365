@@ -57,8 +57,8 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 1920, maxHeight
         resolve("");
         return;
       }
-      // If image is already reasonably sized (< 3.5MB base64), preserve 100% original sharp vector quality without canvas downsampling
-      if (cleanRaw.length < 3500000) {
+      // If image is already lightweight (< 250KB base64), preserve without downsampling
+      if (cleanRaw.length < 250000) {
         clearTimeout(timer);
         resolve(cleanRaw);
         return;
@@ -68,10 +68,12 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 1920, maxHeight
         if (resolved) return;
         resolved = true;
         clearTimeout(timer);
-        let w = img.width || 1200;
-        let h = img.height || 800;
-        if (w > maxWidth || h > maxHeight) {
-          const ratio = Math.min(maxWidth / w, maxHeight / h);
+        let w = img.width || 960;
+        let h = img.height || 640;
+        const targetMaxWidth = Math.min(maxWidth || 960, 960);
+        const targetMaxHeight = Math.min(maxHeight || 640, 640);
+        if (w > targetMaxWidth || h > targetMaxHeight) {
+          const ratio = Math.min(targetMaxWidth / w, targetMaxHeight / h);
           w = Math.round(w * ratio);
           h = Math.round(h * ratio);
         }
@@ -81,7 +83,8 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 1920, maxHeight
         const ctx = canvas.getContext("2d");
         ctx.clearRect(0, 0, w, h);
         ctx.drawImage(img, 0, 0, w, h);
-        const dataUrl = canvas.toDataURL("image/png");
+        const isJpeg = base64Str.startsWith("data:image/jpeg") || base64Str.startsWith("data:image/jpg");
+        const dataUrl = isJpeg ? canvas.toDataURL("image/jpeg", 0.85) : canvas.toDataURL("image/png");
         const compressedBase64 = dataUrl.replace(/^data:image\/[^;]+;base64,/, "");
         resolve(compressedBase64);
       };
@@ -289,15 +292,11 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
   const colCount = Math.max(headers.length, ...rows.map(r => r.length), 1);
   const rowCount = (headers.length > 0 ? 1 : 0) + rows.length;
 
-  if (rowCount < 1 || colCount < 1) {
-    return 0;
-  }
-
   const tableValues = [];
   if (headers.length > 0) {
     const hRow = [];
     for (let c = 0; c < colCount; c++) {
-      hRow.push(headers[c] !== undefined && headers[c] !== null ? String(headers[c]) : "");
+      hRow.push(headers[c] || "");
     }
     tableValues.push(hRow);
   }
@@ -310,79 +309,45 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
   }
 
   const tableWidth = customWidth || 860;
-  const approxColWidth = Math.max(20, Math.round(tableWidth / colCount));
+  const approxColWidth = tableWidth / Math.max(1, colCount);
   const estimatedHeight = estimateTableRenderedHeight(tableData, approxColWidth);
-  const tableHeight = customHeight || Math.min(380, Math.max(80, Math.round(estimatedHeight)));
-
-  const colProps = Array.from({ length: colCount }, () => ({
-    columnWidth: approxColWidth
-  }));
-
-  // Executive Light Theme Properties (White header, bold black text, alternating soft ice-blue rows, and #165B7D borders)
-  const specificCellProperties = Array.from({ length: rowCount }, (_, r) =>
-    Array.from({ length: colCount }, (_, c) => {
-      const isHeader = r === 0 && headers.length > 0;
-      if (isHeader) {
-        return {
-          fill: { color: "#FFFFFF" },
-          font: { color: "#000000", bold: true, size: 11 },
-          borders: {
-            bottom: { color: "#165B7D", weight: 1 },
-            top: { color: "#165B7D", weight: 1 },
-            left: { color: "#165B7D", weight: 1 },
-            right: { color: "#165B7D", weight: 1 }
-          }
-        };
-      } else {
-        const isOddDataRow = (headers.length > 0 ? r : r + 1) % 2 === 1;
-        return {
-          fill: { color: isOddDataRow ? "#E1EDF5" : "#FFFFFF" },
-          font: { color: "#000000", bold: false, size: 10 },
-          borders: {
-            bottom: { color: "#165B7D", weight: 1 },
-            top: { color: "#165B7D", weight: 1 },
-            left: { color: "#165B7D", weight: 1 },
-            right: { color: "#165B7D", weight: 1 }
-          }
-        };
-      }
-    })
-  );
+  const tableHeight = customHeight || Math.min(380, Math.max(80, estimatedHeight));
 
   let addedShape = null;
   try {
     if (typeof newSlide.shapes.addTable === "function") {
       addedShape = newSlide.shapes.addTable(rowCount, colCount, {
-        left: Math.round(customLeft),
-        top: Math.round(tableTop),
-        height: Math.round(tableHeight),
-        columns: colProps,
-        values: tableValues,
-        specificCellProperties: specificCellProperties
+        left: customLeft,
+        top: tableTop,
+        width: tableWidth,
+        height: tableHeight,
+        values: tableValues
       });
-      logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table with light theme (${rowCount} rows x ${colCount} cols).`);
+      logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table (${rowCount} rows x ${colCount} cols, rendered height ~${estimatedHeight}pt).`);
     }
   } catch (err) {
-    console.warn("shapes.addTable with light theme options failed, trying basic addTable:", err);
+    console.warn("shapes.addTable with options failed, trying basic addTable:", err);
   }
 
   if (!addedShape) {
     try {
       addedShape = newSlide.shapes.addTable(rowCount, colCount);
       if (addedShape) {
-        addedShape.left = Math.round(customLeft);
-        addedShape.top = Math.round(tableTop);
-        addedShape.height = Math.round(tableHeight);
+        addedShape.left = customLeft;
+        addedShape.top = tableTop;
+        addedShape.width = tableWidth;
+        addedShape.height = tableHeight;
         const table = addedShape.table || (typeof addedShape.getTable === "function" ? addedShape.getTable() : null);
         if (table) {
           for (let r = 0; r < tableValues.length; r++) {
             for (let c = 0; c < colCount; c++) {
               try {
-                const cell = (typeof table.getCellOrNullObject === "function")
-                  ? table.getCellOrNullObject(r, c)
-                  : null;
-                if (cell && cell.text !== undefined) {
-                  cell.text = tableValues[r][c];
+                const cell = (typeof table.getCell === "function")
+                  ? table.getCell(r, c)
+                  : (typeof table.getCellOrNullObject === "function" ? table.getCellOrNullObject(r, c) : null);
+                if (cell) {
+                  if (cell.textRange) cell.textRange.text = tableValues[r][c];
+                  else if (cell.text !== undefined) cell.text = tableValues[r][c];
                 }
               } catch (_) {}
             }
@@ -395,7 +360,6 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
       return estimatedHeight;
     }
   }
-
   return estimatedHeight;
 }
 
@@ -1104,11 +1068,26 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     }
 
     try {
-      await createSingleSlide(slideData, slideNum, blankLayoutOptions, targetSlideId);
+      const slidePromise = createSingleSlide(slideData, slideNum, blankLayoutOptions, targetSlideId);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout (20s) creating slide in PowerPoint")), 20000)
+      );
+      await Promise.race([slidePromise, timeoutPromise]);
     } catch (slideErr) {
-      logToPPTConsole(`Slide ${slideNum} Error: ${slideErr.message}`, true);
-      console.error(`[PPTBuilder] Slide ${slideNum} Error:`, slideErr);
-      throw slideErr;
+      logToPPTConsole(`Slide ${slideNum} Notice: ${slideErr.message}. Attempting resilient continuation...`, true);
+      console.warn(`[PPTBuilder] Slide ${slideNum} issue:`, slideErr);
+      try {
+        const fallbackData = {
+          ...slideData,
+          base64Images: [],
+          tableData: null,
+          visualType: null
+        };
+        await createSingleSlide(fallbackData, slideNum, blankLayoutOptions, targetSlideId);
+        logToPPTConsole(`Slide ${slideNum}: Added basic text fallback slide.`);
+      } catch (fbErr) {
+        console.warn(`[PPTBuilder] Slide ${slideNum} fallback skipped:`, fbErr);
+      }
     }
 
     // Yield event loop for 400ms to allow PowerPoint host to finalize layout before next slide

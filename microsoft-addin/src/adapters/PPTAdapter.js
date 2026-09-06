@@ -260,6 +260,7 @@ export class PPTAdapter {
     const isInsertCurrent = options.mode === "insert_current" || options.mode === "insert_current_slide";
 
     try {
+      window.__isGeneratingSlides = true;
       if (typeof PowerPoint === 'undefined') {
         throw new Error("PowerPoint Office.js environment is not available.");
       }
@@ -378,6 +379,8 @@ export class PPTAdapter {
         loadingText.innerText = `🔴 Error: ${errDetail}`;
       }
       throw err;
+    } finally {
+      window.__isGeneratingSlides = false;
     }
   }
 

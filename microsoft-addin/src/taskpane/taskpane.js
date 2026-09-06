@@ -567,51 +567,62 @@ function setupSelectionChips() {
   }
 }
 
+let selectionDebounceTimer = null;
+
 // Handle Host Selection Changes Dynamically (Adapts Top Bar and Shows Attachment Pill)
-async function handleSelectionChanged() {
-  if (!hostAdapter) return;
+function handleSelectionChanged() {
+  if (!hostAdapter || window.__isGeneratingSlides || isProcessingInDocCommand) return;
 
-  try {
-    const text = await hostAdapter.getSelectedText();
-    const newText = text ? text.trim() : "";
-
-    // If selection content changed, reset explicit dismissal flag
-    if (newText !== currentSelectedText) {
-      userClearedSelection = false;
-    }
-
-    if (userClearedSelection) {
-      return;
-    }
-
-    currentSelectedText = newText;
-
-    if (currentSelectedText.length > 5) {
-      const words = currentSelectedText.split(/\s+/).filter(w => w.length > 0).length;
-      let slideCount = 1;
-      let isTextSelection = false;
-      if (hostAdapter.name === "PowerPoint" && typeof hostAdapter.getSelectedSlidesText === "function") {
-        try {
-          const slides = await hostAdapter.getSelectedSlidesText();
-          if (slides && slides.length > 0) {
-            slideCount = slides.length;
-            if (slides.length === 1 && slides[0].isTextSelection) {
-              isTextSelection = true;
-            }
-          }
-        } catch (e) {}
-      }
-      renderAdaptiveActionChips(true, slideCount, words, isTextSelection);
-    } else {
-      renderAdaptiveActionChips(false);
-    }
-
-    // Check for in-document @gemini command
-    await checkForInDocumentCommands(false);
-  } catch (err) {
-    console.warn("Selection change handler error:", err);
+  if (selectionDebounceTimer) {
+    clearTimeout(selectionDebounceTimer);
   }
+
+  selectionDebounceTimer = setTimeout(async () => {
+    if (!hostAdapter || window.__isGeneratingSlides || isProcessingInDocCommand) return;
+
+    try {
+      const text = await hostAdapter.getSelectedText();
+      const newText = text ? text.trim() : "";
+
+      // If selection content changed, reset explicit dismissal flag
+      if (newText !== currentSelectedText) {
+        userClearedSelection = false;
+      }
+
+      if (userClearedSelection) {
+        return;
+      }
+
+      currentSelectedText = newText;
+
+      if (currentSelectedText.length > 5) {
+        const words = currentSelectedText.split(/\s+/).filter(w => w.length > 0).length;
+        let slideCount = 1;
+        let isTextSelection = false;
+        if (hostAdapter.name === "PowerPoint" && typeof hostAdapter.getSelectedSlidesText === "function") {
+          try {
+            const slides = await hostAdapter.getSelectedSlidesText();
+            if (slides && slides.length > 0) {
+              slideCount = slides.length;
+              if (slides.length === 1 && slides[0].isTextSelection) {
+                isTextSelection = true;
+              }
+            }
+          } catch (e) {}
+        }
+        renderAdaptiveActionChips(true, slideCount, words, isTextSelection);
+      } else {
+        renderAdaptiveActionChips(false);
+      }
+
+      // Check for in-document @gemini command
+      await checkForInDocumentCommands(false);
+    } catch (err) {
+      console.warn("Selection change handler error:", err);
+    }
+  }, 400);
 }
+
 
 // Universal In-Document / In-App Command Processor (@gemini <prompt>)
 async function checkForInDocumentCommands(forceRun = false) {
