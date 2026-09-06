@@ -250,23 +250,44 @@ export function parseSlides(htmlContent, rawText = "") {
   tempDiv.innerHTML = htmlContent || rawText;
 
   // Extract all images upfront from HTML DOM, markdown images, and data URIs
-  const allImages = Array.from(tempDiv.querySelectorAll("img"))
+  const highResChartEl = tempDiv.querySelector(".rendered-chart-container img");
+  const highResChartSrc = highResChartEl ? (highResChartEl.src || highResChartEl.getAttribute("src") || "") : "";
+
+  const rawDomImages = Array.from(tempDiv.querySelectorAll("img"))
     .map(img => img.src || img.getAttribute("src") || "")
     .filter(s => s && s.length > 50);
 
   const combinedSearch = ((htmlContent || '') + ' ' + (rawText || ''));
-  const mdImgMatches = combinedSearch.match(/!\[.*?\]\(\s*<?(data:image\/[^;]+;base64,[A-Za-z0-9+/=]+|https?:\/\/[^\s\)>]+)/gi) || [];
-  for (const m of mdImgMatches) {
-    const u = m.replace(/^!\[.*?\]\(\s*<?/i, '').replace(/>?\s*$/i, '').trim();
-    if (u && !allImages.includes(u)) {
-      allImages.push(u);
-    }
-  }
+  const hasDistinctNonChartImageIntent = /(?:photo|photograph|portrait|illustration|logo|camera|scenery|picture of|image of a)/i.test(combinedSearch);
 
-  const rawDataMatches = combinedSearch.match(/data:image\/(?:png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]{100,}/gi) || [];
-  for (const d of rawDataMatches) {
-    if (!allImages.includes(d)) {
-      allImages.push(d);
+  const allImages = [];
+  if (highResChartSrc) {
+    allImages.push(highResChartSrc);
+    // If the request requested distinct non-chart images (e.g. photos, logos), include them as well
+    if (hasDistinctNonChartImageIntent) {
+      for (const img of rawDomImages) {
+        if (img !== highResChartSrc && !allImages.includes(img)) {
+          allImages.push(img);
+        }
+      }
+    }
+  } else {
+    for (const img of rawDomImages) {
+      if (!allImages.includes(img)) allImages.push(img);
+    }
+    const mdImgMatches = combinedSearch.match(/!\[.*?\]\(\s*<?(data:image\/[^;]+;base64,[A-Za-z0-9+/=]+|https?:\/\/[^\s\)>]+)/gi) || [];
+    for (const m of mdImgMatches) {
+      const u = m.replace(/^!\[.*?\]\(\s*<?/i, '').replace(/>?\s*$/i, '').trim();
+      if (u && !allImages.includes(u)) {
+        allImages.push(u);
+      }
+    }
+
+    const rawDataMatches = combinedSearch.match(/data:image\/(?:png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]{100,}/gi) || [];
+    for (const d of rawDataMatches) {
+      if (!allImages.includes(d)) {
+        allImages.push(d);
+      }
     }
   }
 

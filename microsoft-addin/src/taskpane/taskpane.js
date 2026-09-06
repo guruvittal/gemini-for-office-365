@@ -641,17 +641,23 @@ async function checkForInDocumentCommands(forceRun = false) {
         if (Array.isArray(data.history)) chatHistoryState = data.history;
 
         const aiResultText = data.result || "No content returned.";
-        appendAssistantBubble(aiResultText, data);
+        appendAssistantBubble(aiResultText, data, userPrompt);
+
+        const hasStructuredChart = /```(?:json|chart|pie|bar|column|line|doughnut|donut)?\s*\{[\s\S]*?(?:chartType|chart_type|pie|bar|column|line|doughnut)[\s\S]*?```/i.test(aiResultText) ||
+                                   /\{\s*"(?:chartType|chart_type)"\s*:\s*"(?:pie|bar|line|doughnut|donut|column)"/i.test(aiResultText);
+        const hasDistinctNonChartImageIntent = /(?:photo|photograph|portrait|illustration|logo|camera|scenery|picture of|image of a)/i.test((userPrompt || '').toLowerCase());
 
         let fullAiText = aiResultText;
         if (data && Array.isArray(data.images) && data.images.length > 0) {
-          for (const imgUrl of data.images) {
-            if (imgUrl && !fullAiText.includes(imgUrl)) {
-              fullAiText += `\n\n![Generated Image](${imgUrl})\n\n`;
+          if (!hasStructuredChart || hasDistinctNonChartImageIntent) {
+            for (const imgUrl of data.images) {
+              if (imgUrl && !fullAiText.includes(imgUrl)) {
+                fullAiText += `\n\n![Generated Image](${imgUrl})\n\n`;
+              }
             }
           }
         }
-        return parseMarkdown(fullAiText);
+        return parseMarkdown(fullAiText, { hasDistinctNonChartImageIntent });
       } catch (err) {
         console.error("In-document command execution error:", err);
         if (debugStatus) debugStatus.innerText = "Error: " + err.message;
@@ -1063,7 +1069,7 @@ async function executeGeminiWorkflow(fullPrompt, displayUserBubble, attachments 
     }
 
     const aiResponse = data.result || "No content returned.";
-    appendAssistantBubble(aiResponse, data);
+    appendAssistantBubble(aiResponse, data, displayUserBubble || fullPrompt);
 
   } catch (error) {
     appendBubble("Error: " + error.message, "system");
@@ -1084,24 +1090,37 @@ function appendBubble(text, type) {
   historyDiv.scrollTop = historyDiv.scrollHeight;
 }
 
-function appendAssistantBubble(text, apiData = null) {
+function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
   const historyDiv = document.getElementById("chatHistory");
   if (!historyDiv) return;
   const bubble = document.createElement("div");
   bubble.className = "chat-bubble assistant";
 
-  // Ensure any images returned in apiData are included in the markdown text
+  // Check if response contains structured chart JSON
+  const hasStructuredChart = /```(?:json|chart|pie|bar|column|line|doughnut|donut)?\s*\{[\s\S]*?(?:chartType|chart_type|pie|bar|column|line|doughnut)[\s\S]*?```/i.test(text) ||
+                             /\{\s*"(?:chartType|chart_type)"\s*:\s*"(?:pie|bar|line|doughnut|donut|column)"/i.test(text);
+
+  // Check if user requested distinct non-chart image content (e.g. photo, illustration, logo)
+  const promptLower = (originalPrompt || "").toLowerCase();
+  const hasDistinctNonChartImageIntent = /(?:photo|photograph|portrait|illustration|logo|camera|scenery|picture of|image of a)/i.test(promptLower);
+
   let fullText = text;
+  // If apiData has images:
+  // RULE: If structured chart is present and user did NOT ask for a distinct non-chart image,
+  // do NOT append duplicate lower-res tool chart attachments from StreamAssist.
+  // BUT if there is distinct non-chart image content, DO append it.
   if (apiData && Array.isArray(apiData.images) && apiData.images.length > 0) {
-    for (const imgUrl of apiData.images) {
-      if (imgUrl && !fullText.includes(imgUrl)) {
-        fullText += `\n\n![Generated Image](${imgUrl})\n\n`;
+    if (!hasStructuredChart || hasDistinctNonChartImageIntent) {
+      for (const imgUrl of apiData.images) {
+        if (imgUrl && !fullText.includes(imgUrl)) {
+          fullText += `\n\n![Generated Image](${imgUrl})\n\n`;
+        }
       }
     }
   }
 
   // Parse markdown into executive HTML
-  const formattedHtml = parseMarkdown(fullText);
+  const formattedHtml = parseMarkdown(fullText, { hasDistinctNonChartImageIntent });
 
   const textDiv = document.createElement("div");
   textDiv.innerHTML = formattedHtml;

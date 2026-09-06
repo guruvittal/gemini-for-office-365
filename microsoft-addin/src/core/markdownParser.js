@@ -180,9 +180,6 @@ export function parseMarkdown(text) {
 
   // 5. Pre-extract standalone JSON chart objects without code fences
   sanitized = sanitized.replace(/\{\s*"(?:chartType|chart_type|type)"\s*:\s*"(?:pie|bar|line|doughnut|donut|column)"[\s\S]*?\n\s*\}/gi, (match) => {
-    if (hasGeneratedChartImage) {
-      return '';
-    }
     try {
       const chartHtml = renderChartHtml(match);
       if (chartHtml) {
@@ -219,6 +216,19 @@ export function parseMarkdown(text) {
     } catch (_) {}
     return match;
   });
+
+  // After chart & visual extraction: Check if high-resolution chart was successfully rendered
+  const hasRenderedHighResChart = visualTokens.some(tok => tok && tok.includes('class="rendered-chart-container"'));
+
+  // RULE: If high-resolution chart is rendered, suppress duplicate lower-res tool chart image attachments
+  // UNLESS the user explicitly asked for distinct non-chart image content (e.g. photos, illustrations, logos)
+  if (hasRenderedHighResChart && !options.hasDistinctNonChartImageIntent) {
+    for (let i = 0; i < visualTokens.length; i++) {
+      if (visualTokens[i] && visualTokens[i].includes('class="office-visual-image-container"') && !visualTokens[i].includes('class="rendered-chart-container"')) {
+        visualTokens[i] = ''; // Suppress duplicate lower-res tool chart
+      }
+    }
+  }
 
 
   // 3. Block-level parsing (Headings, Lists, Tables, Blockquotes, Paragraphs)

@@ -835,7 +835,8 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
       const isIntroOrEmpty = !rawBody || rawBody.toLowerCase().startsWith("here is the image") || rawBody === "• Executive slide content";
       const isImageOnlySlide = !hasTable && isIntroOrEmpty;
 
-      for (const rawImg of imagesToInsert) {
+      for (let imgIndex = 0; imgIndex < imagesToInsert.length; imgIndex++) {
+        const rawImg = imagesToInsert[imgIndex];
         const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
         if (clean.length > 50) {
           const imgLeft = isImageOnlySlide ? 200 : 470;
@@ -852,8 +853,17 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
               }
             }
           } catch (_) {}
-          const imgHeight = Math.min(360, Math.round(imgWidth / aspect));
-          const imgTop = contentTop + 10;
+
+          let imgHeight, imgTop;
+          if (imagesToInsert.length === 1) {
+            imgHeight = Math.min(360, Math.round(imgWidth / aspect));
+            imgTop = contentTop + 10;
+          } else {
+            // Stack multiple images vertically without overlapping
+            const maxSlotHeight = Math.floor(340 / imagesToInsert.length);
+            imgHeight = Math.min(maxSlotHeight, Math.round(imgWidth / aspect));
+            imgTop = contentTop + 10 + imgIndex * (maxSlotHeight + 12);
+          }
 
           let picInserted = false;
           // Strategy 1: Standard PowerPoint Office.js shapes.addPicture(base64, options)
