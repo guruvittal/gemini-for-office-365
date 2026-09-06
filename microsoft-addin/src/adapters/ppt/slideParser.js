@@ -172,7 +172,7 @@ export function extractTableContent(tableEl) {
     if (row.length === 1) {
       formattedBullets.push(`• ${row[0]}`);
     } else if (row.length === 2) {
-      formattedBullets.push(`• **${row[0]}:** ${row[1]}`);
+      formattedBullets.push(`• ${row[0]}: ${row[1]}`);
     } else {
       const itemName = row[0];
       const details = [];
@@ -180,7 +180,7 @@ export function extractTableContent(tableEl) {
         const h = headers[c] ? `${headers[c]}: ` : "";
         details.push(`${h}${row[c]}`);
       }
-      formattedBullets.push(`• **${itemName}:** ${details.join("  |  ")}`);
+      formattedBullets.push(`• ${itemName}: ${details.join("  |  ")}`);
     }
   });
 
@@ -219,7 +219,7 @@ export function parseMarkdownTable(text) {
     if (row.length === 1) {
       formattedBullets.push(`• ${row[0]}`);
     } else if (row.length === 2) {
-      formattedBullets.push(`• **${row[0]}:** ${row[1]}`);
+      formattedBullets.push(`• ${row[0]}: ${row[1]}`);
     } else {
       const itemName = row[0];
       const details = [];
@@ -227,7 +227,7 @@ export function parseMarkdownTable(text) {
         const h = headers[c] ? `${headers[c]}: ` : "";
         details.push(`${h}${row[c]}`);
       }
-      formattedBullets.push(`• **${itemName}:** ${details.join("  |  ")}`);
+      formattedBullets.push(`• ${itemName}: ${details.join("  |  ")}`);
     }
   });
 
@@ -925,9 +925,22 @@ function consolidateExecutiveSummarySlides(slides, allImages = []) {
       if (cleanLine.toLowerCase().startsWith("the chart and table below") || cleanLine.toLowerCase().startsWith("here is the")) {
         continue;
       }
-      if (cleanLine.length > 5 && !seen.has(cleanLine.toLowerCase())) {
-        seen.add(cleanLine.toLowerCase());
+      const normKey = cleanLine.toLowerCase().replace(/[*_`]/g, "");
+      if (normKey.length > 5 && !seen.has(normKey)) {
+        seen.add(normKey);
         uniqueBullets.push(line.startsWith("•") ? line : `• ${cleanLine}`);
+      }
+    }
+  }
+
+  // If a native PowerPoint table is present, exclude bullets that are merely converted table rows
+  if (merged.tableData && merged.tableData.rows && merged.tableData.rows.length > 0) {
+    const hasNarrativeBullets = uniqueBullets.some(b => !b.includes(" | ") && !/Metric:\s*/i.test(b));
+    if (hasNarrativeBullets) {
+      const filtered = uniqueBullets.filter(b => !b.includes(" | ") && !/Metric:\s*/i.test(b));
+      if (filtered.length > 0) {
+        uniqueBullets.length = 0;
+        uniqueBullets.push(...filtered);
       }
     }
   }

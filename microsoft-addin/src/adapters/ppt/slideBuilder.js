@@ -142,6 +142,136 @@ function estimateTableRenderedHeight(tableData, colWidth = 280) {
 }
 
 /**
+ * Synchronously parses markdown formatting (**bold**, __bold__, *italic*, _italic_) in text,
+ * strips markdown characters to produce clean text for PowerPoint shapes,
+ * and tracks the exact character ranges for bold and italic styling per paragraph.
+ */
+export function parseMarkdownFormatting(rawContent) {
+  if (!rawContent) return { cleanText: "", parsedParagraphs: [] };
+
+  const lines = String(rawContent).split(/\r?\n/);
+  const cleanLines = [];
+  const parsedParagraphs = [];
+
+  for (const rawLine of lines) {
+    if (!rawLine.trim()) {
+      cleanLines.push("");
+      parsedParagraphs.push({ cleanText: "", boldRanges: [], italicRanges: [] });
+      continue;
+    }
+
+    let cleanText = "";
+    const boldRanges = [];
+    const italicRanges = [];
+
+    // Match **bold**, __bold__, *italic*, _italic_, or normal text
+    const mdRegex = /(\*\*(.*?)\*\*|__([^_]+)__|\*(.*?)\*|_([^_]+)_|([^*_]+|[*_]))/g;
+    let match;
+    while ((match = mdRegex.exec(rawLine)) !== null) {
+      if (match[2] !== undefined) {
+        // **bold**
+        const boldText = match[2];
+        const start = cleanText.length;
+        cleanText += boldText;
+        boldRanges.push({ start, length: boldText.length });
+      } else if (match[3] !== undefined) {
+        // __bold__
+        const boldText = match[3];
+        const start = cleanText.length;
+        cleanText += boldText;
+        boldRanges.push({ start, length: boldText.length });
+      } else if (match[4] !== undefined) {
+        // *italic*
+        const italicText = match[4];
+        const start = cleanText.length;
+        cleanText += italicText;
+        italicRanges.push({ start, length: italicText.length });
+      } else if (match[5] !== undefined) {
+        // _italic_
+        const italicText = match[5];
+        const start = cleanText.length;
+        cleanText += italicText;
+        italicRanges.push({ start, length: italicText.length });
+      } else if (match[6] !== undefined) {
+        cleanText += match[6];
+      }
+    }
+
+    // Expand bold range to include trailing colon or dash (e.g. "**Renewable Energy**:" or "**Key** —")
+    for (const b of boldRanges) {
+      if (cleanText.charAt(b.start + b.length) === ":" || cleanText.charAt(b.start + b.length) === "—") {
+        b.length += 1;
+      }
+    }
+
+    // If no bold ranges were found from markdown, auto-detect colon/dash lead-in (e.g. "• Green Energy Leadership:")
+    if (boldRanges.length === 0) {
+      const colonIdx = cleanText.indexOf(":");
+      const dashIdx = cleanText.indexOf("—");
+      const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
+      if (sepIdx > 0 && sepIdx < 60) {
+        boldRanges.push({ start: 0, length: sepIdx + 1 });
+      }
+    }
+
+    cleanLines.push(cleanText);
+    parsedParagraphs.push({ cleanText, boldRanges, italicRanges });
+  }
+
+  const finalCleanText = cleanLines.join("\n");
+  return { cleanText: finalCleanText, parsedParagraphs };
+}
+
+/**
+ * Applies native bold and italic font styling to individual paragraph ranges
+ * inside a PowerPoint shape's text frame via Office.js getSubstring().
+ */
+export async function applyParagraphFormatting(textBox, parsedParagraphs, context) {
+  if (!textBox || !textBox.textFrame || !parsedParagraphs || parsedParagraphs.length === 0) return;
+
+  try {
+    const paragraphs = textBox.textFrame.textRange.paragraphs;
+    paragraphs.load("items/text");
+    await context.sync();
+
+    if (paragraphs.items) {
+      let pIdx = 0;
+      for (let i = 0; i < parsedParagraphs.length && pIdx < paragraphs.items.length; i++) {
+        const parsed = parsedParagraphs[i];
+        if (!parsed.cleanText) {
+          pIdx++;
+          continue;
+        }
+
+        const p = paragraphs.items[pIdx];
+        if (p && typeof p.getSubstring === "function") {
+          const pLen = (p.text || "").length;
+          for (const b of parsed.boldRanges) {
+            try {
+              if (b.start >= 0 && b.length > 0 && (b.start + b.length) <= pLen) {
+                const sub = p.getSubstring(b.start, b.length);
+                sub.font.bold = true;
+              }
+            } catch (_) {}
+          }
+          for (const it of parsed.italicRanges) {
+            try {
+              if (it.start >= 0 && it.length > 0 && (it.start + it.length) <= pLen) {
+                const sub = p.getSubstring(it.start, it.length);
+                sub.font.italic = true;
+              }
+            } catch (_) {}
+          }
+        }
+        pIdx++;
+      }
+    }
+  } catch (err) {
+    console.warn("Could not apply paragraph text formatting in PowerPoint:", err);
+  }
+}
+
+/**
  * Populates a native Microsoft PowerPoint table using PowerPoint.js shapes.addTable().
  */
 function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, tableTop = 90, customHeight = null, customWidth = null, customLeft = 50) {
@@ -332,7 +462,8 @@ function populate3ColumnMetricGrid(newSlide, visualData, slideNum, contentTop = 
     const bullets = card.bullets || [];
     if (bullets.length > 0) {
       const bulletContent = bullets.map(b => `• ${b}`).join("\n");
-      const bulletsBox = newSlide.shapes.addTextBox(bulletContent, {
+      const { cleanText } = parseMarkdownFormatting(bulletContent);
+      const bulletsBox = newSlide.shapes.addTextBox(cleanText, {
         left: left + 16,
         top: bulletsTop,
         width: cardWidth - 32,
@@ -391,7 +522,8 @@ function populateBeforeAfterComparison(newSlide, visualData, slideNum, contentTo
 
   // Before Bullets
   const beforeBullets = (beforeData.bullets || []).map(b => `• ${b}`).join("\n\n");
-  const beforeBox = newSlide.shapes.addTextBox(beforeBullets || "• Legacy workflow bottlenecks", {
+  const { cleanText: cleanBefore } = parseMarkdownFormatting(beforeBullets || "• Legacy workflow bottlenecks");
+  const beforeBox = newSlide.shapes.addTextBox(cleanBefore, {
     left: leftBefore + 20,
     top: top + 64,
     width: cardWidth - 40,
@@ -433,7 +565,8 @@ function populateBeforeAfterComparison(newSlide, visualData, slideNum, contentTo
 
   // After Bullets
   const afterBullets = (afterData.bullets || []).map(b => `• ${b}`).join("\n\n");
-  const afterBox = newSlide.shapes.addTextBox(afterBullets || "• Accelerated AI transformation", {
+  const { cleanText: cleanAfter } = parseMarkdownFormatting(afterBullets || "• Accelerated AI transformation");
+  const afterBox = newSlide.shapes.addTextBox(cleanAfter, {
     left: leftAfter + 20,
     top: top + 64,
     width: cardWidth - 40,
@@ -665,7 +798,8 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         // --- 3-WAY HYBRID LAYOUT: BULLETS + CHART + TABLE ---
         if (rowCount <= 4) {
           // Layout A (compact table): Bullets on Left Column, Chart on Right-Top, Table on Right-Bottom
-          const notesBox = newSlide.shapes.addTextBox(bottomContent, {
+          const { cleanText, parsedParagraphs } = parseMarkdownFormatting(bottomContent);
+          const notesBox = newSlide.shapes.addTextBox(cleanText, {
             left: 50,
             top: contentTop,
             width: 440,
@@ -674,32 +808,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
           notesBox.textFrame.wordWrap = true;
           notesBox.textFrame.textRange.font.size = 13.5;
           notesBox.textFrame.textRange.font.italic = hasTakeaway;
-          try {
-            if (hasTakeaway) {
-              notesBox.textFrame.textRange.getSubstring(0, 22).font.bold = true;
-            }
-          } catch (_) {}
-
-          // Bold lead-ins before colons in bullet points
-          try {
-            const paragraphs = notesBox.textFrame.textRange.paragraphs;
-            paragraphs.load("items/text");
-            await context.sync();
-            if (paragraphs.items) {
-              for (const p of paragraphs.items) {
-                const pText = p.text || "";
-                const colonIdx = pText.indexOf(":");
-                const dashIdx = pText.indexOf("—");
-                const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
-                if (sepIdx > 0 && sepIdx < 50 && typeof p.getSubstring === "function") {
-                  try {
-                    const leadIn = p.getSubstring(0, sepIdx + 1);
-                    leadIn.font.bold = true;
-                  } catch (_) {}
-                }
-              }
-            }
-          } catch (_) {}
+          await applyParagraphFormatting(notesBox, parsedParagraphs, context);
 
           const tableTop = contentTop + 215;
           const tableWidth = 400;
@@ -718,7 +827,8 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
           );
 
           const notesTop = contentTop + 215;
-          const notesBox = newSlide.shapes.addTextBox(bottomContent, {
+          const { cleanText, parsedParagraphs } = parseMarkdownFormatting(bottomContent);
+          const notesBox = newSlide.shapes.addTextBox(cleanText, {
             left: 510,
             top: notesTop,
             width: 400,
@@ -726,6 +836,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
           });
           notesBox.textFrame.wordWrap = true;
           notesBox.textFrame.textRange.font.size = 11.5;
+          await applyParagraphFormatting(notesBox, parsedParagraphs, context);
         }
       } else if (!hasImages && (rowCount > 4 || (!hasTakeaway && hasBottomText && rowCount > 3))) {
         // --- TWO-COLUMN LAYOUT: Table on Left, Bullets / Analysis on Right ---
@@ -739,7 +850,8 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         );
 
         if (hasBottomText) {
-          const notesBox = newSlide.shapes.addTextBox(bottomContent, {
+          const { cleanText, parsedParagraphs } = parseMarkdownFormatting(bottomContent);
+          const notesBox = newSlide.shapes.addTextBox(cleanText, {
             left: 510,
             top: contentTop,
             width: 400,
@@ -748,32 +860,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
           notesBox.textFrame.wordWrap = true;
           notesBox.textFrame.textRange.font.size = 13.5;
           notesBox.textFrame.textRange.font.italic = hasTakeaway;
-          try {
-            if (hasTakeaway) {
-              notesBox.textFrame.textRange.getSubstring(0, 22).font.bold = true;
-            }
-          } catch (_) {}
-
-          // Bold lead-ins before colons in bullet points
-          try {
-            const paragraphs = notesBox.textFrame.textRange.paragraphs;
-            paragraphs.load("items/text");
-            await context.sync();
-            if (paragraphs.items) {
-              for (const p of paragraphs.items) {
-                const pText = p.text || "";
-                const colonIdx = pText.indexOf(":");
-                const dashIdx = pText.indexOf("—");
-                const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
-                if (sepIdx > 0 && sepIdx < 50 && typeof p.getSubstring === "function") {
-                  try {
-                    const leadIn = p.getSubstring(0, sepIdx + 1);
-                    leadIn.font.bold = true;
-                  } catch (_) {}
-                }
-              }
-            }
-          } catch (_) {}
+          await applyParagraphFormatting(notesBox, parsedParagraphs, context);
         }
       } else {
         // --- STACKED OR TABLE + IMAGE (NO BULLETS) LAYOUT ---
@@ -795,7 +882,8 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         if (hasBottomText && availableSpace >= 65 && (!hasImages || rowCount <= 4)) {
           let textToRender = bottomContent;
           const notesHeight = Math.min(availableSpace - 8, hasImages ? 130 : 200);
-          const notesBox = newSlide.shapes.addTextBox(textToRender, {
+          const { cleanText, parsedParagraphs } = parseMarkdownFormatting(textToRender);
+          const notesBox = newSlide.shapes.addTextBox(cleanText, {
             left: 50,
             top: notesTop,
             width: tableWidth,
@@ -804,32 +892,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
           notesBox.textFrame.wordWrap = true;
           notesBox.textFrame.textRange.font.size = hasImages ? 11 : 12;
           notesBox.textFrame.textRange.font.italic = hasImages || hasTakeaway;
-          try {
-            if (hasTakeaway || (hasImages && textToRender.startsWith("💡"))) {
-              notesBox.textFrame.textRange.getSubstring(0, 16).font.bold = true;
-            }
-          } catch (_) {}
-
-          // Bold lead-ins before colons in bullet points
-          try {
-            const paragraphs = notesBox.textFrame.textRange.paragraphs;
-            paragraphs.load("items/text");
-            await context.sync();
-            if (paragraphs.items) {
-              for (const p of paragraphs.items) {
-                const pText = p.text || "";
-                const colonIdx = pText.indexOf(":");
-                const dashIdx = pText.indexOf("—");
-                const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
-                if (sepIdx > 0 && sepIdx < 50 && typeof p.getSubstring === "function") {
-                  try {
-                    const leadIn = p.getSubstring(0, sepIdx + 1);
-                    leadIn.font.bold = true;
-                  } catch (_) {}
-                }
-              }
-            }
-          } catch (_) {}
+          await applyParagraphFormatting(notesBox, parsedParagraphs, context);
         }
       }
     } else {
@@ -839,7 +902,8 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
 
       if (!isIntroOrEmpty || !hasImages) {
         const bodyHeight = hasTakeaway ? 280 : 380;
-        const bulletBox = newSlide.shapes.addTextBox(slideData.body || "• Executive slide content", {
+        const { cleanText, parsedParagraphs } = parseMarkdownFormatting(slideData.body || "• Executive slide content");
+        const bulletBox = newSlide.shapes.addTextBox(cleanText, {
           left: 50,
           top: contentTop,
           width: hasImages ? 400 : 860,
@@ -847,32 +911,14 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         });
         bulletBox.textFrame.wordWrap = true;
         bulletBox.textFrame.textRange.font.size = hasImages ? 13.5 : 15;
-
-        // Format bold lead-ins for paragraphs
-        try {
-          const paragraphs = bulletBox.textFrame.textRange.paragraphs;
-          paragraphs.load("items/text");
-          await context.sync();
-          if (paragraphs.items) {
-            for (const p of paragraphs.items) {
-              const pText = p.text || "";
-              const colonIdx = pText.indexOf(":");
-              const dashIdx = pText.indexOf("—");
-              const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
-              if (sepIdx > 0 && sepIdx < 50 && typeof p.getSubstring === "function") {
-                try {
-                  const leadIn = p.getSubstring(0, sepIdx + 1);
-                  leadIn.font.bold = true;
-                } catch (_) {}
-              }
-            }
-          }
-        } catch (_) {}
+        await applyParagraphFormatting(bulletBox, parsedParagraphs, context);
       }
 
       // Render dedicated Executive Takeaway Callout Box at bottom
       if (hasTakeaway) {
-        const takeawayBox = newSlide.shapes.addTextBox(`💡 Strategic Takeaway: ${takeaway}`, {
+        const rawTakeaway = `💡 Strategic Takeaway: ${takeaway}`;
+        const { cleanText, parsedParagraphs } = parseMarkdownFormatting(rawTakeaway);
+        const takeawayBox = newSlide.shapes.addTextBox(cleanText, {
           left: 50,
           top: 395,
           width: hasImages ? 400 : 860,
@@ -880,9 +926,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         });
         takeawayBox.textFrame.textRange.font.size = 14;
         takeawayBox.textFrame.textRange.font.italic = true;
-        try {
-          takeawayBox.textFrame.textRange.getSubstring(0, 22).font.bold = true;
-        } catch (_) {}
+        await applyParagraphFormatting(takeawayBox, parsedParagraphs, context);
       }
     }
 
