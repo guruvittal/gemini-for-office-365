@@ -15,7 +15,7 @@ import { logToPPTConsole } from './pptDiagnostics.js';
 /**
  * Safely compresses base64 images with a strict 1-second timeout.
  */
-export function compressImageForPowerPoint(base64Str, maxWidth = 800, maxHeight = 550) {
+export function compressImageForPowerPoint(base64Str, maxWidth = 1920, maxHeight = 1080) {
   return new Promise((resolve) => {
     let resolved = false;
     const timer = setTimeout(() => {
@@ -32,13 +32,19 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 800, maxHeight 
         resolve("");
         return;
       }
+      // If image is already reasonably sized (< 3.5MB base64), preserve 100% original sharp vector quality without canvas downsampling
+      if (cleanRaw.length < 3500000) {
+        clearTimeout(timer);
+        resolve(cleanRaw);
+        return;
+      }
       const img = new Image();
       img.onload = () => {
         if (resolved) return;
         resolved = true;
         clearTimeout(timer);
-        let w = img.width || 800;
-        let h = img.height || 600;
+        let w = img.width || 1200;
+        let h = img.height || 800;
         if (w > maxWidth || h > maxHeight) {
           const ratio = Math.min(maxWidth / w, maxHeight / h);
           w = Math.round(w * ratio);
@@ -65,7 +71,7 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 800, maxHeight 
       if (!resolved) {
         resolved = true;
         clearTimeout(timer);
-        resolve(base64Str.replace(/^data:image\/[^;]+;base64,/, "").replace(/[\r\n\s]+/g, "").trim());
+        resolve(base64Str ? base64Str.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim() : "");
       }
     }
   });
@@ -74,22 +80,27 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 800, maxHeight 
 
 /**
  * Accurately estimates rendered height of a native PowerPoint table based on word-wrapping.
+ * Reflects PowerPoint's default 18pt font and cell padding.
  */
 function estimateTableRenderedHeight(tableData, colWidth = 280) {
   if (!tableData) return 0;
   const headers = tableData.headers || [];
   const rows = tableData.rows || [];
-  let totalHeight = headers.length > 0 ? 28 : 0; // Header row height
+  
+  // Character width at 18pt is ~10pt. Minimum cell padding is ~14pt.
+  const charsPerLine = Math.max(8, Math.floor(colWidth / 10));
+  
+  let totalHeight = 0;
+  if (headers.length > 0) {
+    const maxHeaderChars = Math.max(...headers.map(h => String(h || "").trim().length), 0);
+    const headerLines = Math.max(1, Math.ceil(maxHeaderChars / charsPerLine));
+    totalHeight += Math.max(38, headerLines * 22 + 16);
+  }
 
   for (const row of rows) {
-    // Determine maximum length among cell values in this row
     const maxChars = Math.max(...row.map(c => String(c !== undefined && c !== null ? c : "").trim().length), 0);
-    // At ~colWidth, with 10pt font, approx colWidth / 6.5 characters fit per line
-    const charsPerLine = Math.max(12, Math.floor(colWidth / 6.5));
     const approxLines = Math.max(1, Math.ceil(maxChars / charsPerLine));
-
-    // Cell padding (8pt) + line spacing (~13pt per line)
-    const rowHeight = Math.max(24, approxLines * 13 + 8);
+    const rowHeight = Math.max(34, approxLines * 22 + 14);
     totalHeight += rowHeight;
   }
   return totalHeight;
@@ -605,54 +616,114 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         ...tableData.rows.map(r => r.length),
         1
       );
-      const tableWidth = hasImages ? 400 : 860;
-      const approxColWidth = tableWidth / colCount;
-      const realTableHeight = estimateTableRenderedHeight(tableData, approxColWidth);
-
-      populateSlideTable(
-        newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop, realTableHeight, tableWidth
-      );
-
-      // Render takeaway or additional notes below the table without overlapping
+      const rowCount = tableData.rows.length;
       const bottomContent = hasTakeaway ? `💡 Strategic Takeaway: ${takeaway}` : additionalBody;
-      if (bottomContent && bottomContent.trim().length > 0) {
-        const notesTop = contentTop + realTableHeight + 14;
-        const notesHeight = Math.max(45, Math.min(260, 515 - notesTop));
-        const notesBox = newSlide.shapes.addTextBox(bottomContent, {
-          left: 50,
-          top: notesTop,
-          width: tableWidth,
-          height: notesHeight
-        });
-        notesBox.textFrame.wordWrap = true;
-        notesBox.textFrame.textRange.font.size = hasImages ? 10.5 : 12;
-        notesBox.textFrame.textRange.font.italic = hasTakeaway;
-        try {
-          if (hasTakeaway) {
-            notesBox.textFrame.textRange.getSubstring(0, 22).font.bold = true;
-          }
-        } catch (_) {}
+      const hasBottomText = Boolean(bottomContent && bottomContent.trim().length > 0);
 
-        // Bold lead-ins before colons in bullet points
-        try {
-          const paragraphs = notesBox.textFrame.textRange.paragraphs;
-          paragraphs.load("items/text");
-          await context.sync();
-          if (paragraphs.items) {
-            for (const p of paragraphs.items) {
-              const pText = p.text || "";
-              const colonIdx = pText.indexOf(":");
-              const dashIdx = pText.indexOf("—");
-              const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
-              if (sepIdx > 0 && sepIdx < 50 && typeof p.getSubstring === "function") {
-                try {
-                  const leadIn = p.getSubstring(0, sepIdx + 1);
-                  leadIn.font.bold = true;
-                } catch (_) {}
+      // --- DYNAMIC COLLISION-PROOF LAYOUT ---
+      if (!hasImages && (rowCount > 4 || (!hasTakeaway && hasBottomText && rowCount > 3))) {
+        // --- TWO-COLUMN LAYOUT: Table on Left, Bullets / Analysis on Right ---
+        // Eliminates vertical overlap completely for dense tables!
+        const leftTableWidth = 440;
+        const approxColWidth = leftTableWidth / colCount;
+        const realTableHeight = Math.min(390, Math.max(90, estimateTableRenderedHeight(tableData, approxColWidth)));
+
+        populateSlideTable(
+          newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop, realTableHeight, leftTableWidth
+        );
+
+        if (hasBottomText) {
+          const notesBox = newSlide.shapes.addTextBox(bottomContent, {
+            left: 510,
+            top: contentTop,
+            width: 400,
+            height: Math.min(390, 515 - contentTop)
+          });
+          notesBox.textFrame.wordWrap = true;
+          notesBox.textFrame.textRange.font.size = 13.5;
+          notesBox.textFrame.textRange.font.italic = hasTakeaway;
+          try {
+            if (hasTakeaway) {
+              notesBox.textFrame.textRange.getSubstring(0, 22).font.bold = true;
+            }
+          } catch (_) {}
+
+          // Bold lead-ins before colons in bullet points
+          try {
+            const paragraphs = notesBox.textFrame.textRange.paragraphs;
+            paragraphs.load("items/text");
+            await context.sync();
+            if (paragraphs.items) {
+              for (const p of paragraphs.items) {
+                const pText = p.text || "";
+                const colonIdx = pText.indexOf(":");
+                const dashIdx = pText.indexOf("—");
+                const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
+                if (sepIdx > 0 && sepIdx < 50 && typeof p.getSubstring === "function") {
+                  try {
+                    const leadIn = p.getSubstring(0, sepIdx + 1);
+                    leadIn.font.bold = true;
+                  } catch (_) {}
+                }
               }
             }
-          }
-        } catch (_) {}
+          } catch (_) {}
+        }
+      } else {
+        // --- STACKED OR TABLE + IMAGE LAYOUT ---
+        const tableWidth = hasImages ? 400 : 860;
+        const approxColWidth = tableWidth / colCount;
+        const realTableHeight = estimateTableRenderedHeight(tableData, approxColWidth);
+
+        const maxAllowedTableHeight = hasImages ? Math.min(390, 515 - contentTop) : Math.min(320, 515 - contentTop);
+        const effectiveTableHeight = Math.min(realTableHeight, maxAllowedTableHeight);
+
+        populateSlideTable(
+          newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop, effectiveTableHeight, tableWidth
+        );
+
+        // Only place bottom text if there is safe vertical space (>= 60pt) below the table
+        const notesTop = contentTop + realTableHeight + 16;
+        const availableSpace = 515 - notesTop;
+
+        if (hasBottomText && availableSpace >= 60 && (!hasImages || rowCount <= 4)) {
+          const notesHeight = Math.min(availableSpace, 200);
+          const notesBox = newSlide.shapes.addTextBox(bottomContent, {
+            left: 50,
+            top: notesTop,
+            width: tableWidth,
+            height: notesHeight
+          });
+          notesBox.textFrame.wordWrap = true;
+          notesBox.textFrame.textRange.font.size = hasImages ? 10.5 : 12;
+          notesBox.textFrame.textRange.font.italic = hasTakeaway;
+          try {
+            if (hasTakeaway) {
+              notesBox.textFrame.textRange.getSubstring(0, 22).font.bold = true;
+            }
+          } catch (_) {}
+
+          // Bold lead-ins before colons in bullet points
+          try {
+            const paragraphs = notesBox.textFrame.textRange.paragraphs;
+            paragraphs.load("items/text");
+            await context.sync();
+            if (paragraphs.items) {
+              for (const p of paragraphs.items) {
+                const pText = p.text || "";
+                const colonIdx = pText.indexOf(":");
+                const dashIdx = pText.indexOf("—");
+                const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
+                if (sepIdx > 0 && sepIdx < 50 && typeof p.getSubstring === "function") {
+                  try {
+                    const leadIn = p.getSubstring(0, sepIdx + 1);
+                    leadIn.font.bold = true;
+                  } catch (_) {}
+                }
+              }
+            }
+          } catch (_) {}
+        }
       }
     } else {
       // Non-table slide: Bullets + optional Takeaway card at the bottom

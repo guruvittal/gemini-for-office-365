@@ -340,6 +340,23 @@ export function parseSlides(htmlContent, rawText = "") {
       const sectionImgs = [];
       let sectionSubtitle = "";
       let sectionTableData = null;
+
+      // If this is the first slide, collect any chart images or illustrations that appear before the first header
+      if (i === 0) {
+        let prev = h.previousElementSibling;
+        while (prev) {
+          const prevImgs = Array.from(prev.querySelectorAll("img"))
+            .map(img => img.src || img.getAttribute("src") || "")
+            .filter(s => s && s.length > 50);
+          if (prev.tagName === "IMG") {
+            const pSrc = prev.src || prev.getAttribute("src") || "";
+            if (pSrc.length > 50) prevImgs.push(pSrc);
+          }
+          if (prevImgs.length > 0) sectionImgs.unshift(...prevImgs);
+          prev = prev.previousElementSibling;
+        }
+      }
+
       let curr = h.nextElementSibling;
 
       while (curr && !["H1", "H2", "H3"].includes(curr.tagName)) {
@@ -420,7 +437,7 @@ export function parseSlides(htmlContent, rawText = "") {
         body: parsedAll.body,
         additionalBody: (sectionTableData && parsedAdditional.body !== "• Executive slide content") ? parsedAdditional.body : "",
         tableData: sectionTableData,
-        base64Images: sectionImgs
+        base64Images: sectionImgs.length > 0 ? sectionImgs : (allImages.length > 0 && i === 0 ? allImages : [])
       });
     }
 

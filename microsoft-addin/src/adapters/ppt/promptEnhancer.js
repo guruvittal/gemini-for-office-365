@@ -71,8 +71,8 @@ IMPORTANT RULES FOR SLIDE GENERATION:
    - A short, punchy **Title** of **MAXIMUM 3 TO 4 WORDS (under 40 characters)** prefixed with a relevant **Emoji / Icon** (e.g., "📊 Financial Highlights", "🚀 Growth Strategy", "💰 Capital & Resources", "📈 Outlook & Guidance"). Put extra details (like dates or quarters) into the Subtitle.
    - A **Subtitle** (if applicable, clearly labeled).
    - **Main Content**:
-     * **MANDATORY MARKDOWN TABLES FOR DATA & METRICS**: Whenever presenting financial results (e.g., revenue, EPS, operating income, margins), key performance metrics, comparisons, or structured data, you MUST format the main content as a clean Markdown table (e.g. | Metric | Q1 2026 | YoY Change | Impact |). Tables are essential for executive financial and KPI slides.
-     * **BULLETS FOR STRATEGY & NARRATIVE**: For strategy, vision, narrative, or qualitative discussion, use crisp, high-impact bullet points with bold lead-ins.
+     * **STRUCTURED TABLES FOR QUANTITATIVE & COMPARATIVE DATA**: When presenting dense financial results, multi-attribute comparisons, or numeric metrics, format as a clean Markdown table (e.g. | Metric | Q1 2026 | YoY Change | Impact |).
+     * **EXECUTIVE BULLETS FOR STRATEGY & NARRATIVE**: For strategic vision, qualitative analysis, key initiatives, risks, and next steps, use 3 to 4 crisp, high-impact bullet points with bold lead-ins. Do NOT force a table when narrative bullets convey the insight better.
 5. Do NOT output internal design metadata, font sizes (like "Title Size: 44"), hex colors (like "Color: #..."), or raw "Visual Concept:" labels. Keep the output clean, executive-ready presentation content.
 6. Provide all slides in a single response, cleanly separated by headings.
 `;

@@ -198,7 +198,7 @@ export function renderChartToDataUrl(spec, options = {}) {
 
   const width = options.width || 800;
   const height = options.height || 500;
-  const scale = 2; // High-DPI 2x scale for crisp PowerPoint rendering
+  const scale = 3; // Ultra-crisp 3x Retina scale for razor-sharp PowerPoint rendering
 
   const canvas = document.createElement('canvas');
   canvas.width = width * scale;

@@ -642,13 +642,16 @@ async function extractDocumentText(att) {
   });
 
   if (!apiRes.ok) {
-    const errText = await apiRes.text();
+    let errText = await apiRes.text();
     
-    // Auto-recover if session ownership conflict occurs (e.g. stale session from another caller)
-    if (apiRes.status === 403 && errText.includes('Session is not owned') && requestBody.session) {
+    // 1. Auto-recover if session overflowed token limit (PROMPT_TOO_LARGE) or session ownership conflict occurs
+    if (requestBody.session && (
+      (apiRes.status === 400 && (errText.includes('PROMPT_TOO_LARGE') || errText.includes('INVALID_ARGUMENT'))) ||
+      (apiRes.status === 403 && errText.includes('Session is not owned'))
+    )) {
       console.warn(JSON.stringify({
         severity: 'WARNING',
-        message: `[SESSION_RECOVERY] Discovery Engine session '${requestBody.session}' is not owned by current identity. Retrying automatically with a fresh session...`,
+        message: `[SESSION_RECOVERY] Discovery Engine session '${requestBody.session}' failed (${errText.includes('PROMPT_TOO_LARGE') ? 'PROMPT_TOO_LARGE token overflow' : 'session error'}). Retrying automatically with a fresh clean session...`,
         user_id: activeUserId
       }));
       delete requestBody.session;
@@ -657,8 +660,13 @@ async function extractDocumentText(att) {
         headers: headers,
         body: JSON.stringify(requestBody)
       });
-    } else if (apiRes.status === 499 || (apiRes.status >= 400 && requestBody.toolsSpec)) {
-      // Auto-recover if toolsSpec (e.g. vertexAiSearchSpec) causes downstream timeout/cancellation
+      if (!apiRes.ok) {
+        errText = await apiRes.text();
+      }
+    }
+
+    // 2. Auto-recover if toolsSpec (e.g. vertexAiSearchSpec / imageGenerationSpec) causes downstream timeout/error
+    if (!apiRes.ok && (apiRes.status === 499 || (apiRes.status >= 400 && requestBody.toolsSpec))) {
       console.warn(JSON.stringify({
         severity: 'WARNING',
         message: `[TOOLS_SPEC_FALLBACK] StreamAssist failed with HTTP ${apiRes.status} (details: ${errText.substring(0, 100)}). Retrying with default assistant tools configuration...`,
@@ -670,25 +678,27 @@ async function extractDocumentText(att) {
         headers: headers,
         body: JSON.stringify(requestBody)
       });
+      if (!apiRes.ok) {
+        errText = await apiRes.text();
+      }
     }
 
     if (!apiRes.ok) {
-      const finalErrText = await apiRes.text();
       console.error(JSON.stringify({
         severity: 'ERROR',
         message: `StreamAssist API call failed with HTTP ${apiRes.status}`,
         status_code: apiRes.status,
         user_id: activeUserId,
-        error_detail: finalErrText
+        error_detail: errText
       }));
 
       if (apiRes.status === 403) {
-        const forbiddenErr = new Error(`Google Cloud Discovery Engine rejected the request (HTTP 403): User '${activeUserId}' does not have an active Gemini Enterprise license or IAM permission on engine '${ENTERPRISE_APP_ID}'. Details: ${finalErrText}`);
+        const forbiddenErr = new Error(`Google Cloud Discovery Engine rejected the request (HTTP 403): User '${activeUserId}' does not have an active Gemini Enterprise license or IAM permission on engine '${ENTERPRISE_APP_ID}'. Details: ${errText}`);
         forbiddenErr.statusCode = 403;
         throw forbiddenErr;
       }
 
-      const streamErr = new Error(`StreamAssist API returned HTTP ${apiRes.status}: ${finalErrText}`);
+      const streamErr = new Error(`StreamAssist API returned HTTP ${apiRes.status}: ${errText}`);
       streamErr.statusCode = apiRes.status;
       throw streamErr;
     }

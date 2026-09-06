@@ -861,8 +861,9 @@ PowerPoint Slide Deck Requirements:
 3. For each slide, structure with rich executive visual hierarchy:
    - "## Slide <N>: <Emoji> <Punchy Slide Title (3-4 words max)>"
    - "Subtitle: <Crisp Subtitle / Strategic Context>"
-   - VISUAL STRUCTURE & DATA TABLES: Provide a structured Markdown table (e.g. | Category / Pillar | Key Capabilities & Details | Strategic Implication |) or comparison matrix to give the slide strong visual organization and data density.
-   - 2 to 3 high-impact bullet points with bold lead-ins (• **Key Driver:** Description).
+   - Diversify slide visual formats across the deck to create an engaging executive presentation flow:
+     * Qualitative / Strategic Slides (Overview, Vision, Operational Pillars, Roadmap): Use 3 to 4 high-impact bullet points with bold lead-ins (• **Strategic Pillar:** Detailed description). Do NOT include tables on these slides.
+     * Quantitative / Comparative Slides (Financials, KPIs, Comparisons): When presenting dense metrics or side-by-side comparisons, use a clean Markdown table (| Metric / Dimension | Detail | Implication |). Limit tables to at most 1 or 2 slides in the entire deck.
    - Conclude with a clear strategic takeaway line: "Takeaway: <Executive takeaway sentence>"
 4. Do NOT output internal design metadata like "Visual Concept:", "Color:", or font sizes.`;
 
