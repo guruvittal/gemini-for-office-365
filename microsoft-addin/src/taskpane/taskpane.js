@@ -151,34 +151,15 @@ Office.onReady(async (info) => {
     };
   }
 
-  // Attach selection change handler for in-document detection & adaptive toolbar
-  // In PowerPoint, listening to DocumentSelectionChanged causes PowerPoint Online to capture pointer events
-  // during thumbnail navigation and canvas clicking, leading to unwanted slide drag-and-drop movement,
-  // grey marquee selection boxes, and triggering Chrome DLP popups.
-  // We strictly disable auto-selection in PowerPoint.
-  const isPowerPointHost = 
-    (hostAdapter && hostAdapter.name === "PowerPoint") ||
-    (info && (info.host === Office?.HostType?.PowerPoint || info.host === "PowerPoint")) ||
-    (typeof PowerPoint !== "undefined") ||
-    (typeof Office !== "undefined" && Office.context?.diagnostics?.host === "PowerPoint");
-
-  if (isPowerPointHost) {
-    try {
-      Office.context.document.removeHandlerAsync(
-        Office.EventType.DocumentSelectionChanged,
-        () => {}
-      );
-    } catch (_) {}
-  } else if (hostAdapter) {
-    try {
-      Office.context.document.addHandlerAsync(
-        Office.EventType.DocumentSelectionChanged,
-        () => handleSelectionChanged()
-      );
-    } catch (e) {
-      console.warn("Could not attach selection handler:", e);
+  // Disable all automatic document selection listeners unconditionally.
+  // Attaching DocumentSelectionChanged in Office Online (PowerPoint, Word, Excel) hooks pointer events
+  // across the iframe boundary, delaying mouseup and causing single clicks to act as drag gestures
+  // (dragging slide thumbnails, drawing marquee selection boxes) and triggering browser DLP popups.
+  try {
+    if (typeof Office !== 'undefined' && Office.context?.document?.removeHandlerAsync) {
+      Office.context.document.removeHandlerAsync(Office.EventType.DocumentSelectionChanged);
     }
-  }
+  } catch (_) {}
   // Wire interactive sign-in click on user profile badge
   const userAuthBadge = document.getElementById("userAuthBadge");
   const userStatusDot = document.getElementById("userStatusDot");
@@ -586,68 +567,10 @@ function setupSelectionChips() {
   }
 }
 
-let selectionDebounceTimer = null;
-
-// Handle Host Selection Changes Dynamically (Adapts Top Bar and Shows Attachment Pill)
+// Dynamic host selection polling is completely disabled to protect pointer event performance.
+// Document and slide selections are read strictly on-demand when user clicks an action chip or submits a prompt.
 function handleSelectionChanged() {
-  if (
-    !hostAdapter ||
-    hostAdapter.name === "PowerPoint" ||
-    typeof PowerPoint !== "undefined" ||
-    window.__isGeneratingSlides ||
-    isProcessingInDocCommand
-  ) {
-    return;
-  }
-
-  if (selectionDebounceTimer) {
-    clearTimeout(selectionDebounceTimer);
-  }
-
-  selectionDebounceTimer = setTimeout(async () => {
-    if (!hostAdapter || window.__isGeneratingSlides || isProcessingInDocCommand) return;
-
-    try {
-      const text = await hostAdapter.getSelectedText();
-      const newText = text ? text.trim() : "";
-
-      // If selection content changed, reset explicit dismissal flag
-      if (newText !== currentSelectedText) {
-        userClearedSelection = false;
-      }
-
-      if (userClearedSelection) {
-        return;
-      }
-
-      currentSelectedText = newText;
-
-      if (currentSelectedText.length > 5) {
-        const words = currentSelectedText.split(/\s+/).filter(w => w.length > 0).length;
-        let slideCount = 1;
-        let isTextSelection = false;
-        if (hostAdapter.name === "PowerPoint" && typeof hostAdapter.getSelectedSlidesText === "function") {
-          try {
-            const slides = await hostAdapter.getSelectedSlidesText();
-            if (slides && slides.length > 0) {
-              slideCount = slides.length;
-              if (slides.length === 1 && slides[0].isTextSelection) {
-                isTextSelection = true;
-              }
-            }
-          } catch (e) {}
-        }
-        renderAdaptiveActionChips(true, slideCount, words, isTextSelection);
-      } else {
-        renderAdaptiveActionChips(false);
-      }
-
-      // Check for in-document @gemini command
-      await checkForInDocumentCommands(false);
-    } catch (err) {
-      console.warn("Selection change handler error:", err);
-    }
-  }, 400);
+  return;
 }
 
 

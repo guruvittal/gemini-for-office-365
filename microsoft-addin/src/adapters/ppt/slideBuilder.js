@@ -631,23 +631,24 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
   // 1. Single atomic PowerPoint.run session to add slide and populate all elements
   await PowerPoint.run(async (context) => {
     let newSlide;
+    const slides = context.presentation.slides;
+
     if (targetSlideId) {
-      newSlide = context.presentation.slides.getItem(targetSlideId);
-      newSlide.shapes.load("items/name, items/type");
-      await context.sync();
-      if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
-        for (let i = newSlide.shapes.items.length - 1; i >= 0; i--) {
-          try {
-            newSlide.shapes.items[i].delete();
-          } catch (_) {}
-        }
+      try {
+        newSlide = slides.getItem(targetSlideId);
+        newSlide.shapes.load("items/name, items/type");
         await context.sync();
+      } catch (itemErr) {
+        console.warn("Could not retrieve targetSlideId, falling back to adding new slide:", itemErr);
+        newSlide = null;
       }
-    } else {
+    }
+
+    if (!newSlide) {
       let added = false;
       if (layoutOptions) {
         try {
-          newSlide = context.presentation.slides.add(layoutOptions);
+          slides.add(layoutOptions);
           added = true;
         } catch (layoutErr) {
           console.warn("Adding slide with blank layout failed, falling back to standard add:", layoutErr);
@@ -655,22 +656,24 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
       }
 
       if (!added) {
-        newSlide = context.presentation.slides.add();
+        slides.add();
       }
 
-      // If no blank layout was available, clean up default template placeholders ("Click to add title", etc.)
-      if (!layoutOptions) {
-        newSlide.shapes.load("items/name, items/type");
-        await context.sync();
-        if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
-          for (let i = newSlide.shapes.items.length - 1; i >= 0; i--) {
-            try {
-              newSlide.shapes.items[i].delete();
-            } catch (_) {}
-          }
-          await context.sync();
-        }
+      const countResult = slides.getCount();
+      await context.sync();
+      newSlide = slides.getItemAt(countResult.value - 1);
+      newSlide.shapes.load("items/name, items/type");
+      await context.sync();
+    }
+
+    // Clean up default template placeholders ("Click to add title", etc.)
+    if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
+      for (let i = newSlide.shapes.items.length - 1; i >= 0; i--) {
+        try {
+          newSlide.shapes.items[i].delete();
+        } catch (_) {}
       }
+      await context.sync();
     }
 
     const hasTakeaway = Boolean(takeaway && takeaway.trim().length > 0);
@@ -1007,37 +1010,29 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     logToPPTConsole(`Applying theme Blank layout to avoid template placeholders.`);
   }
 
-  // 3. Find target slide ID for first slide:
-  // - If in replace mode, use the currently selected slide
-  // - If in insert mode BUT presentation currently has only 1 slide, reuse that single slide for slide 1 so we don't leave an empty initial slide!
+  // 3. Find target slide ID for first slide ONLY IF in explicit replace mode:
   let activeSlideId = null;
   let shouldTargetFirstSlide = false;
-  try {
-    await PowerPoint.run(async (context) => {
-      const slides = context.presentation.slides;
-      const countResult = slides.getCount();
-      await context.sync();
-      if (countResult.value === 1) {
-        const onlySlide = slides.getItemAt(0);
-        onlySlide.load("id");
-        await context.sync();
-        activeSlideId = onlySlide.id;
-        shouldTargetFirstSlide = true;
-      } else if (isReplace && context.presentation.getSelectedSlides) {
-        const selected = context.presentation.getSelectedSlides();
-        selected.load("items/id");
-        await context.sync();
-        if (selected.items && selected.items.length > 0) {
-          activeSlideId = selected.items[0].id;
-          shouldTargetFirstSlide = true;
+  if (isReplace) {
+    try {
+      await PowerPoint.run(async (context) => {
+        if (context.presentation.getSelectedSlides) {
+          const selected = context.presentation.getSelectedSlides();
+          selected.load("items/id");
+          await context.sync();
+          if (selected.items && selected.items.length > 0) {
+            activeSlideId = selected.items[0].id;
+            shouldTargetFirstSlide = true;
+          }
         }
-      }
-    });
-  } catch (selErr) {
-    console.warn("Could not determine selected/initial slide:", selErr);
+      });
+    } catch (selErr) {
+      console.warn("Could not determine selected slide for replacement:", selErr);
+    }
   }
 
   // 4. Build each slide sequentially
+  let successfulSlides = 0;
   for (let i = 0; i < totalSlides; i++) {
     const slideData = slideStructures[i];
     const slideNum = i + 1;
@@ -1057,6 +1052,7 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
         setTimeout(() => reject(new Error("Timeout (45s) creating slide in PowerPoint")), 45000)
       );
       await Promise.race([slidePromise, timeoutPromise]);
+      successfulSlides++;
     } catch (slideErr) {
       logToPPTConsole(`Slide ${slideNum} Notice: ${slideErr.message}. Attempting resilient continuation...`, true);
       console.warn(`[PPTBuilder] Slide ${slideNum} issue:`, slideErr);
@@ -1076,8 +1072,9 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
         };
         await createSingleSlide(fallbackData, slideNum, blankLayoutOptions, targetSlideId);
         logToPPTConsole(`Slide ${slideNum}: Added basic text fallback slide.`);
+        successfulSlides++;
       } catch (fbErr) {
-        console.warn(`[PPTBuilder] Slide ${slideNum} fallback skipped:`, fbErr);
+        console.warn(`[PPTBuilder] Slide ${slideNum} fallback failed:`, fbErr);
       }
     }
 
@@ -1085,7 +1082,14 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     await new Promise(resolve => setTimeout(resolve, 400));
   }
 
-  logToPPTConsole(`🎉 All ${totalSlides} slide(s) ${isReplace ? 'replaced' : 'created'} successfully!`);
+  if (successfulSlides === 0) {
+    logToPPTConsole(`❌ Generation failed: 0 of ${totalSlides} slide(s) could be created.`, true);
+    throw new Error(`Failed to create slides in PowerPoint.`);
+  } else if (successfulSlides < totalSlides) {
+    logToPPTConsole(`⚠️ ${successfulSlides} of ${totalSlides} slide(s) created in PowerPoint.`);
+  } else {
+    logToPPTConsole(`🎉 All ${totalSlides} slide(s) ${isReplace ? 'replaced' : 'created'} successfully!`);
+  }
 }
 
 /**
