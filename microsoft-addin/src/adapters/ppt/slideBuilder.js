@@ -991,108 +991,12 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
             }
           }
 
-          let picInserted = false;
-          // Strategy 1: Standard PowerPoint Office.js shapes.addPicture(base64, options)
-          try {
-            if (typeof newSlide.shapes.addPicture === "function") {
-              const pic = newSlide.shapes.addPicture(clean, {
-                left: imgLeft,
-                top: imgTop,
-                width: imgWidth,
-                height: imgHeight
-              });
-              if (pic) {
-                if (pic.lineFormat) {
-                  try { pic.lineFormat.visible = false; } catch (_) {}
-                }
-                picInserted = true;
-                logToPPTConsole(`Slide ${slideNum}: Added chart picture via shapes.addPicture.`);
-              }
-            }
-          } catch (picErr) {
-            console.warn("shapes.addPicture clean failed, trying raw URI:", picErr);
-            try {
-              if (typeof newSlide.shapes.addPicture === "function") {
-                const pic2 = newSlide.shapes.addPicture(rawImg, {
-                  left: imgLeft,
-                  top: imgTop,
-                  width: imgWidth,
-                  height: imgHeight
-                });
-                if (pic2) {
-                  if (pic2.lineFormat) {
-                    try { pic2.lineFormat.visible = false; } catch (_) {}
-                  }
-                  picInserted = true;
-                  logToPPTConsole(`Slide ${slideNum}: Added chart picture via rawImg addPicture.`);
-                }
-              }
-            } catch (rawErr) {
-              console.warn("shapes.addPicture rawImg failed:", rawErr);
-            }
-          }
-
-          // Strategy 2: Geometric shape fill (PowerPointApi 1.8+)
-          if (!picInserted) {
-            try {
-              if (typeof newSlide.shapes.addGeometricShape === "function") {
-                const rect = newSlide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.rectangle, {
-                  left: imgLeft,
-                  top: imgTop,
-                  width: imgWidth,
-                  height: imgHeight
-                });
-                if (rect) {
-                  // Explicitly remove the default black shape border
-                  if (rect.lineFormat) {
-                    try {
-                      rect.lineFormat.visible = false;
-                      rect.lineFormat.weight = 0;
-                      rect.lineFormat.color = "#ffffff";
-                    } catch (_) {}
-                  }
-                  if (rect.line) {
-                    try {
-                      rect.line.visible = false;
-                    } catch (_) {}
-                  }
-                  if (rect.fill) {
-                    if (typeof rect.fill.setImage === "function") {
-                      rect.fill.setImage(clean);
-                      picInserted = true;
-                    } else if (typeof rect.fill.setPictureFromBase64 === "function") {
-                      rect.fill.setPictureFromBase64(clean);
-                      picInserted = true;
-                    }
-                  }
-                }
-                if (picInserted) {
-                  logToPPTConsole(`Slide ${slideNum}: Added chart picture via shape fill (border hidden, 16:10 aspect).`);
-                }
-              }
-            } catch (fillErr) {
-              console.warn("Geometric shape fill fallback failed:", fillErr);
-            }
-          }
-
-          // Strategy 3: shapes.addImage if present in custom Office.js host
-          if (!picInserted) {
-            try {
-              if (typeof newSlide.shapes.addImage === "function") {
-                const imgShape = newSlide.shapes.addImage(clean);
-                if (imgShape) {
-                  imgShape.left = imgLeft;
-                  imgShape.top = imgTop;
-                  imgShape.width = imgWidth;
-                  imgShape.height = imgHeight;
-                  picInserted = true;
-                  logToPPTConsole(`Slide ${slideNum}: Added chart picture via addImage.`);
-                }
-              }
-            } catch (addImgErr) {
-              console.warn("shapes.addImage fallback failed:", addImgErr);
-            }
-          }
+          insertPictureOnSlide(newSlide, rawImg, {
+            left: imgLeft,
+            top: imgTop,
+            width: imgWidth,
+            height: imgHeight
+          }, slideNum);
         }
       }
     }
@@ -1191,4 +1095,390 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
   }
 
   logToPPTConsole(`🎉 All ${totalSlides} slide(s) ${isReplace ? 'replaced' : 'created'} successfully!`);
+}
+
+/**
+ * Inserts a picture onto a PowerPoint slide using multi-tier fallback strategies
+ * (shapes.addPicture -> shapes.addGeometricShape fill -> shapes.addImage).
+ * 
+ * @param {Object} targetSlide - PowerPoint slide object
+ * @param {string} rawImg - Base64 or Data URI string
+ * @param {Object} bounds - { left, top, width, height }
+ * @param {number} slideNum - Slide index for logging
+ * @returns {boolean} Whether picture was inserted
+ */
+export function insertPictureOnSlide(targetSlide, rawImg, { left, top, width, height }, slideNum = 1) {
+  const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
+  if (clean.length <= 50) return false;
+
+  let picInserted = false;
+  // Strategy 1: Standard PowerPoint Office.js shapes.addPicture(base64, options)
+  try {
+    if (typeof targetSlide.shapes.addPicture === "function") {
+      const pic = targetSlide.shapes.addPicture(clean, {
+        left,
+        top,
+        width,
+        height
+      });
+      if (pic) {
+        if (pic.lineFormat) {
+          try { pic.lineFormat.visible = false; } catch (_) {}
+        }
+        picInserted = true;
+        logToPPTConsole(`Slide ${slideNum}: Added picture via shapes.addPicture.`);
+      }
+    }
+  } catch (picErr) {
+    console.warn("shapes.addPicture clean failed, trying raw URI:", picErr);
+    try {
+      if (typeof targetSlide.shapes.addPicture === "function") {
+        const pic2 = targetSlide.shapes.addPicture(rawImg, {
+          left,
+          top,
+          width,
+          height
+        });
+        if (pic2) {
+          if (pic2.lineFormat) {
+            try { pic2.lineFormat.visible = false; } catch (_) {}
+          }
+          picInserted = true;
+          logToPPTConsole(`Slide ${slideNum}: Added picture via rawImg addPicture.`);
+        }
+      }
+    } catch (rawErr) {
+      console.warn("shapes.addPicture rawImg failed:", rawErr);
+    }
+  }
+
+  // Strategy 2: Geometric shape fill (PowerPointApi 1.8+)
+  if (!picInserted) {
+    try {
+      if (typeof targetSlide.shapes.addGeometricShape === "function") {
+        const rect = targetSlide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.rectangle, {
+          left,
+          top,
+          width,
+          height
+        });
+        if (rect) {
+          if (rect.lineFormat) {
+            try {
+              rect.lineFormat.visible = false;
+              rect.lineFormat.weight = 0;
+              rect.lineFormat.color = "#ffffff";
+            } catch (_) {}
+          }
+          if (rect.line) {
+            try { rect.line.visible = false; } catch (_) {}
+          }
+          if (rect.fill) {
+            if (typeof rect.fill.setImage === "function") {
+              rect.fill.setImage(clean);
+              picInserted = true;
+            } else if (typeof rect.fill.setPictureFromBase64 === "function") {
+              rect.fill.setPictureFromBase64(clean);
+              picInserted = true;
+            }
+          }
+        }
+        if (picInserted) {
+          logToPPTConsole(`Slide ${slideNum}: Added picture via shape fill.`);
+        }
+      }
+    } catch (fillErr) {
+      console.warn("Geometric shape fill fallback failed:", fillErr);
+    }
+  }
+
+  // Strategy 3: shapes.addImage if present in custom Office.js host
+  if (!picInserted) {
+    try {
+      if (typeof targetSlide.shapes.addImage === "function") {
+        const imgShape = targetSlide.shapes.addImage(clean);
+        if (imgShape) {
+          imgShape.left = left;
+          imgShape.top = top;
+          imgShape.width = width;
+          imgShape.height = height;
+          picInserted = true;
+          logToPPTConsole(`Slide ${slideNum}: Added picture via addImage.`);
+        }
+      }
+    } catch (addImgErr) {
+      console.warn("shapes.addImage fallback failed:", addImgErr);
+    }
+  }
+
+  return picInserted;
+}
+
+/**
+ * Inserts generated AI content (images, tables, text bullets) directly onto the current active slide
+ * without deleting or modifying existing slide shapes or content.
+ * 
+ * @param {Array} slideStructures - Array of parsed slide objects
+ * @param {Object} options - Insertion options
+ */
+export async function insertOnCurrentSlide(slideStructures, options = {}) {
+  if (typeof PowerPoint === "undefined" || !PowerPoint.run) {
+    throw new Error("PowerPoint Office.js runtime is not available.");
+  }
+
+  if (!slideStructures || slideStructures.length === 0) {
+    throw new Error("No slide structures found to insert.");
+  }
+
+  logToPPTConsole(`=== Starting Insert on Current Slide ===`);
+
+  // 1. Pre-process and compress images
+  for (const slide of slideStructures) {
+    slide.compressedImages = [];
+    const rawImages = slide.base64Images || [];
+    for (const rawImg of rawImages) {
+      try {
+        const comp = await compressImageForPowerPoint(rawImg);
+        if (comp && comp.length > 50) {
+          slide.compressedImages.push(comp);
+        }
+      } catch (cErr) {
+        logToPPTConsole(`Image compression notice: ${cErr.message}`);
+      }
+    }
+  }
+
+  // 2. Identify active slide and analyze layout
+  await PowerPoint.run(async (context) => {
+    let activeSlide = null;
+    if (context.presentation.getSelectedSlides) {
+      const selected = context.presentation.getSelectedSlides();
+      selected.load("items/id");
+      await context.sync();
+      if (selected.items && selected.items.length > 0) {
+        activeSlide = selected.items[0];
+      }
+    }
+
+    if (!activeSlide) {
+      const slides = context.presentation.slides;
+      slides.load("items/id");
+      await context.sync();
+      if (slides.items && slides.items.length > 0) {
+        activeSlide = slides.items[0];
+      }
+    }
+
+    if (!activeSlide) {
+      throw new Error("No slide available in presentation to insert content onto.");
+    }
+
+    // Check if the user had a shape selected (e.g. selected text to create image from)
+    let selectedShapeBox = null;
+    try {
+      if (context.presentation.getSelectedShapes) {
+        const selShapes = context.presentation.getSelectedShapes();
+        selShapes.load("items/left, items/top, items/width, items/height");
+        await context.sync();
+        if (selShapes.items && selShapes.items.length > 0) {
+          const s = selShapes.items[0];
+          if (s.width > 20 && s.height > 20) {
+            selectedShapeBox = { left: s.left, top: s.top, width: s.width, height: s.height };
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Load existing shapes on the active slide to detect occupied space
+    activeSlide.shapes.load("items/left, items/top, items/width, items/height, items/type, items/name");
+    await context.sync();
+
+    const existingShapes = activeSlide.shapes.items || [];
+    let minLeft = 960, maxRight = 0, minTop = 540, maxBottom = 0;
+    let hasExistingContent = false;
+
+    for (const s of existingShapes) {
+      if (s.width > 20 && s.height > 20 && s.left >= 0 && s.top >= 0 && s.left < 960 && s.top < 540) {
+        hasExistingContent = true;
+        minLeft = Math.min(minLeft, s.left);
+        maxRight = Math.max(maxRight, s.left + s.width);
+        minTop = Math.min(minTop, s.top);
+        maxBottom = Math.max(maxBottom, s.top + s.height);
+      }
+    }
+
+    const slideData = slideStructures[0];
+    const imagesToInsert = (slideData.compressedImages && slideData.compressedImages.length > 0)
+      ? slideData.compressedImages
+      : (slideData.base64Images || []);
+    const hasImages = imagesToInsert.length > 0;
+    const hasTable = Boolean(slideData.tableData && slideData.tableData.rows && slideData.tableData.rows.length > 0);
+    const rawBody = (slideData.body || "").trim();
+    const isIntroOrEmpty = !rawBody || rawBody.toLowerCase().startsWith("here is the image") || rawBody === "• Executive slide content";
+    const hasBodyText = !isIntroOrEmpty;
+
+    logToPPTConsole(`Current slide has ${existingShapes.length} shapes. hasExistingContent=${hasExistingContent}, maxRight=${maxRight}, maxBottom=${maxBottom}`);
+
+    // Determine default layout positioning relative to user selection and existing slide content
+    let defaultSlot = "right"; // "right", "left", "center", "below"
+    if (selectedShapeBox) {
+      if (selectedShapeBox.left < 450) {
+        defaultSlot = "right";
+      } else if (selectedShapeBox.left >= 450) {
+        defaultSlot = "left";
+      } else if (selectedShapeBox.top < 150 && selectedShapeBox.width > 600) {
+        defaultSlot = "below";
+      }
+    } else if (!hasExistingContent) {
+      defaultSlot = "center";
+    } else if (maxRight <= 520) {
+      defaultSlot = "right";
+    } else if (minLeft >= 460) {
+      defaultSlot = "left";
+    } else if (maxBottom <= 160) {
+      defaultSlot = "below";
+    } else {
+      defaultSlot = "right";
+    }
+
+    // 1. Insert Images if present
+    if (hasImages) {
+      for (let imgIndex = 0; imgIndex < imagesToInsert.length; imgIndex++) {
+        const rawImg = imagesToInsert[imgIndex];
+        const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
+        if (clean.length <= 50) continue;
+
+        let aspect = 1.6;
+        try {
+          if (clean.length > 64 && typeof atob === "function") {
+            const binStr = atob(clean.slice(0, 64));
+            if (binStr.charCodeAt(0) === 0x89 && binStr.charCodeAt(1) === 0x50 && binStr.charCodeAt(2) === 0x4E && binStr.charCodeAt(3) === 0x47) {
+              const w = (binStr.charCodeAt(16) << 24) | (binStr.charCodeAt(17) << 16) | (binStr.charCodeAt(18) << 8) | binStr.charCodeAt(19);
+              const h = (binStr.charCodeAt(20) << 24) | (binStr.charCodeAt(21) << 16) | (binStr.charCodeAt(22) << 8) | binStr.charCodeAt(23);
+              if (w > 0 && h > 0) aspect = w / h;
+            }
+          }
+        } catch (_) {}
+
+        let imgLeft, imgTop, imgWidth, imgHeight;
+
+        if (defaultSlot === "center") {
+          imgWidth = 560;
+          imgHeight = Math.min(380, Math.round(imgWidth / aspect));
+          imgLeft = Math.round((960 - imgWidth) / 2);
+          imgTop = Math.round((540 - imgHeight) / 2);
+        } else if (defaultSlot === "left") {
+          imgLeft = 50;
+          imgWidth = 420;
+          imgHeight = Math.min(380, Math.round(imgWidth / aspect));
+          imgTop = Math.max(90, Math.min(130, minTop));
+        } else if (defaultSlot === "below") {
+          imgWidth = 520;
+          imgHeight = Math.min(340, Math.round(imgWidth / aspect));
+          imgLeft = Math.round((960 - imgWidth) / 2);
+          imgTop = Math.max(140, maxBottom + 15);
+        } else {
+          // "right"
+          imgLeft = 500;
+          imgWidth = 420;
+          imgHeight = Math.min(380, Math.round(imgWidth / aspect));
+          imgTop = Math.max(90, Math.min(130, minTop));
+        }
+
+        if (imagesToInsert.length > 1) {
+          const slotHeight = Math.floor(imgHeight / imagesToInsert.length);
+          imgTop = imgTop + imgIndex * (slotHeight + 10);
+          imgHeight = slotHeight;
+        }
+
+        insertPictureOnSlide(activeSlide, rawImg, {
+          left: imgLeft,
+          top: imgTop,
+          width: imgWidth,
+          height: imgHeight
+        });
+
+        logToPPTConsole(`Inserted picture ${imgIndex + 1} onto current slide at left:${imgLeft}, top:${imgTop}, width:${imgWidth}, height:${imgHeight}`);
+      }
+
+      // If there is also substantial narrative text accompanying the image, insert a companion text box
+      if (hasBodyText && (defaultSlot === "right" || defaultSlot === "center") && !hasExistingContent) {
+        const textLeft = 50;
+        const textTop = 120;
+        const { cleanText, parsedParagraphs } = parseMarkdownFormatting(slideData.body);
+        const textBox = activeSlide.shapes.addTextBox(cleanText, {
+          left: textLeft,
+          top: textTop,
+          width: 420,
+          height: 380
+        });
+        textBox.textFrame.wordWrap = true;
+        textBox.textFrame.textRange.font.size = 13;
+        await applyParagraphFormatting(textBox, parsedParagraphs, context);
+      }
+    }
+    // 2. Insert Native Table if present (and no image)
+    else if (hasTable) {
+      let tblLeft = 50;
+      let tblTop = 120;
+      let tblWidth = 860;
+
+      if (defaultSlot === "right") {
+        tblLeft = 500;
+        tblWidth = 420;
+        tblTop = Math.max(90, minTop);
+      } else if (defaultSlot === "left") {
+        tblLeft = 50;
+        tblWidth = 420;
+        tblTop = Math.max(90, minTop);
+      } else if (defaultSlot === "below") {
+        tblLeft = 50;
+        tblTop = Math.max(140, maxBottom + 15);
+        tblWidth = 860;
+      }
+
+      populateSlideTable(activeSlide, null, null, 20, 14, "#0078d4", slideData.tableData, 1, tblTop, null, tblWidth, tblLeft);
+      logToPPTConsole(`Inserted native table onto current slide at left:${tblLeft}, top:${tblTop}`);
+    }
+    // 3. Insert Text / Bullets
+    else if (hasBodyText) {
+      let textLeft = 50;
+      let textTop = 120;
+      let textWidth = 860;
+      let textHeight = 360;
+
+      if (defaultSlot === "right") {
+        textLeft = 500;
+        textWidth = 420;
+        textTop = Math.max(90, minTop);
+        textHeight = Math.min(380, 520 - textTop);
+      } else if (defaultSlot === "left") {
+        textLeft = 50;
+        textWidth = 420;
+        textTop = Math.max(90, minTop);
+        textHeight = Math.min(380, 520 - textTop);
+      } else if (defaultSlot === "below") {
+        textLeft = 50;
+        textTop = Math.max(140, maxBottom + 15);
+        textWidth = 860;
+        textHeight = Math.min(340, 520 - textTop);
+      }
+
+      const { cleanText, parsedParagraphs } = parseMarkdownFormatting(slideData.body);
+      const textBox = activeSlide.shapes.addTextBox(cleanText, {
+        left: textLeft,
+        top: textTop,
+        width: textWidth,
+        height: textHeight
+      });
+      textBox.textFrame.wordWrap = true;
+      textBox.textFrame.textRange.font.size = textWidth < 500 ? 13 : 14.5;
+      await applyParagraphFormatting(textBox, parsedParagraphs, context);
+      logToPPTConsole(`Inserted text box onto current slide at left:${textLeft}, top:${textTop}`);
+    }
+
+    await context.sync();
+  });
+
+  logToPPTConsole(`🎉 Successfully inserted content onto current slide!`);
 }

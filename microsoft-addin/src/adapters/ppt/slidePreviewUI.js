@@ -205,7 +205,7 @@ export function enhanceBubbleWithSlideDeck(bubbleEl, htmlContent, rawText, adapt
   if (actionsContainer) {
     const insertBtn = actionsContainer.querySelector(".insert-btn") || actionsContainer.querySelector(".action-btn.insert");
     if (insertBtn) {
-      insertBtn.innerHTML = slides.length === 1 ? `➕ Insert Slide` : `➕ Insert ${slides.length} Slides`;
+      insertBtn.innerHTML = slides.length === 1 ? `➕ Insert as New Slide` : `➕ Insert as ${slides.length} New Slides`;
     }
     const replaceBtn = actionsContainer.querySelector(".replace-btn") || actionsContainer.querySelector(".action-btn.replace");
     if (replaceBtn) {

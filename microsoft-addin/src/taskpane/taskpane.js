@@ -1148,16 +1148,28 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
     await performDocumentInsertion(textDiv.innerHTML, text, "replace_draft");
   };
 
-  // 2. Insert Button
+  // 2. Insert on Current Slide Button (PowerPoint: available for all outputs)
+  let insertCurrentBtn = null;
+  if (isPPT) {
+    insertCurrentBtn = document.createElement("button");
+    insertCurrentBtn.className = "action-btn insert-current";
+    insertCurrentBtn.innerHTML = `📌 Insert on Current Slide`;
+    insertCurrentBtn.title = "Insert generated content or image directly onto the current slide without clearing existing elements";
+    insertCurrentBtn.onclick = async () => {
+      await performDocumentInsertion(textDiv.innerHTML, text, "insert_current_slide");
+    };
+  }
+
+  // 3. Insert as New Slide Button
   const insertBtn = document.createElement("button");
   insertBtn.className = "action-btn insert";
-  insertBtn.innerHTML = isPPT ? (hasSelection ? `➕ Insert as New Slide` : `➕ Insert Slide`) : (isExcel ? `➕ Insert into Sheet` : `➕ Insert at Cursor`);
-  insertBtn.title = isPPT ? "Insert generated slide into presentation" : "Insert at current cursor location";
+  insertBtn.innerHTML = isPPT ? `➕ Insert as New Slide` : (isExcel ? `➕ Insert into Sheet` : `➕ Insert at Cursor`);
+  insertBtn.title = isPPT ? "Insert generated slide into presentation as a new slide" : "Insert at current cursor location";
   insertBtn.onclick = async () => {
     await performDocumentInsertion(textDiv.innerHTML, text, "insert_cursor");
   };
 
-  // 3. Copy Button
+  // 4. Copy Button
   const copyBtn = document.createElement("button");
   copyBtn.className = "action-btn copy";
   copyBtn.innerHTML = `📋 Copy`;
@@ -1173,6 +1185,9 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
   };
 
   primaryActions.appendChild(replaceBtn);
+  if (insertCurrentBtn) {
+    primaryActions.appendChild(insertCurrentBtn);
+  }
   primaryActions.appendChild(insertBtn);
   primaryActions.appendChild(copyBtn);
   actionsContainer.appendChild(primaryActions);
@@ -1222,21 +1237,36 @@ async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {
 
   if (runButton) runButton.disabled = true;
   if (loadingText) {
-    loadingText.innerText = hostAdapter?.name === 'PowerPoint' ? (mode === 'replace_draft' ? "⚡ Replacing slide content..." : "⚡ Creating PowerPoint slides...") : "⚡ Updating document...";
+    let msg = "⚡ Updating document...";
+    if (hostAdapter?.name === 'PowerPoint') {
+      if (mode === 'replace_draft') {
+        msg = "⚡ Replacing slide content...";
+      } else if (mode === 'insert_current_slide') {
+        msg = "⚡ Inserting onto current slide...";
+      } else {
+        msg = "⚡ Creating PowerPoint slides...";
+      }
+    }
+    loadingText.innerText = msg;
     loadingText.style.display = "block";
   }
 
   try {
     const isPPT = hostAdapter?.name === "PowerPoint";
     if (isPPT) {
-      await hostAdapter.insertContent(htmlContent, rawText, { mode: mode === "replace_draft" ? "replace" : "insert" });
+      await hostAdapter.insertContent(htmlContent, rawText, {
+        mode: mode === "replace_draft" ? "replace" : (mode === "insert_current_slide" ? "insert_current" : "insert")
+      });
     } else {
       await hostAdapter.insertContent(htmlContent, mode);
     }
     const debugStatus = document.getElementById("debugStatus");
     if (debugStatus) {
       const host = hostAdapter?.name || 'Office';
-      debugStatus.innerText = `Updated in ${host} (${mode === 'replace_draft' ? 'Replaced' : 'Inserted'})`;
+      let actionLabel = 'Inserted';
+      if (mode === 'replace_draft') actionLabel = 'Replaced';
+      if (mode === 'insert_current_slide') actionLabel = 'Inserted on Current Slide';
+      debugStatus.innerText = `Updated in ${host} (${actionLabel})`;
     }
   } catch (err) {
     console.error("Document insertion error:", err);
