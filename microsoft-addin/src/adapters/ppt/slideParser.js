@@ -284,6 +284,64 @@ export function parseMarkdownTable(text) {
 }
 
 /**
+ * Selects only the genuine slide boundary heading elements from a DOM fragment.
+ * Prevents H3/H4 subheadings, subtitles, or document titles from being mistakenly
+ * promoted to standalone slides.
+ */
+function getSlideHeaderElements(tempDiv) {
+  const allHeaders = Array.from(tempDiv.querySelectorAll("h1, h2, h3, h4"));
+  if (allHeaders.length === 0) return [];
+
+  // 1. Check if headers have explicit Slide numbering (e.g. "Slide 1", "Slide 2", "## Slide 1")
+  const slideNumHeaders = allHeaders.filter(h => {
+    const text = (h.innerText || h.textContent || "").trim();
+    return /^(?:Slide\s*\d+|#+\s*Slide\s*\d+)/i.test(text) || /\bSlide\s*\d+\b/i.test(text);
+  });
+
+  if (slideNumHeaders.length >= 2) {
+    return slideNumHeaders;
+  }
+
+  // 2. Check for H2 headers (standard markdown slide divider)
+  const h2s = Array.from(tempDiv.querySelectorAll("h2"));
+  if (h2s.length >= 2) {
+    const h1 = tempDiv.querySelector("h1");
+    if (h1) {
+      let hasBody = false;
+      let sib = h1.nextElementSibling;
+      while (sib && sib !== h2s[0]) {
+        const txt = (sib.innerText || sib.textContent || "").trim();
+        if (txt.length > 0) {
+          hasBody = true;
+          break;
+        }
+        sib = sib.nextElementSibling;
+      }
+      const firstH2Text = (h2s[0].innerText || h2s[0].textContent || "").trim();
+      const firstH2IsSlide1 = /^Slide\s*1\b/i.test(firstH2Text);
+      if (hasBody && !firstH2IsSlide1) {
+        return [h1, ...h2s];
+      }
+    }
+    return h2s;
+  }
+
+  // 3. Check for H1 headers
+  const h1s = Array.from(tempDiv.querySelectorAll("h1"));
+  if (h1s.length >= 2) {
+    return h1s;
+  }
+
+  // 4. Check for H3 headers (only if no H1 or H2 are defining slides)
+  const h3s = Array.from(tempDiv.querySelectorAll("h3"));
+  if (h3s.length >= 2) {
+    return h3s;
+  }
+
+  return allHeaders.slice(0, 1);
+}
+
+/**
  * Parses HTML or raw Markdown text into an array of slide objects:
  * [{ title: string, subtitle: string, body: string, color: string, titleSize: number, subtitleSize: number, base64Images: string[], slideNumber: number }]
  */
@@ -381,7 +439,7 @@ export function parseSlides(htmlContent, rawText = "") {
       formattedBody = `• 🔴 BEFORE: ${visualPayload.before?.title || 'Current State'}\n${beforeList}\n\n• 🟢 AFTER: ${visualPayload.after?.title || 'Target State'}\n${afterList}`;
     }
 
-    return [{
+    return finalizeSlides([{
       slideNumber: 1,
       title: visualPayload.title || "Executive Visual",
       subtitle: visualPayload.subtitle || "",
@@ -389,13 +447,13 @@ export function parseSlides(htmlContent, rawText = "") {
       visualData: visualPayload,
       body: formattedBody,
       base64Images: allImages
-    }];
+    }], allImages, rawText);
   }
 
   // -------------------------------------------------------------
-  // Strategy 1: Explicit Slide Headings (H1, H2, H3)
+  // Strategy 1: Explicit Slide Headings
   // -------------------------------------------------------------
-  const headerEls = Array.from(tempDiv.querySelectorAll("h1, h2, h3"));
+  const headerEls = getSlideHeaderElements(tempDiv);
   
   // Check if there is an explicit multi-slide outline table or list in the document
   const hasOutlineTable = Array.from(tempDiv.querySelectorAll("table")).some(t => {
@@ -417,6 +475,7 @@ export function parseSlides(htmlContent, rawText = "") {
     const slides = [];
     for (let i = 0; i < headerEls.length; i++) {
       const h = headerEls[i];
+      const nextHeader = headerEls[i + 1] || null;
       const rawTitle = (h.innerText || h.textContent || "").trim();
       const title = cleanSlideTitle(rawTitle, i + 1);
 
@@ -445,7 +504,7 @@ export function parseSlides(htmlContent, rawText = "") {
 
       let curr = h.nextElementSibling;
 
-      while (curr && !["H1", "H2", "H3"].includes(curr.tagName)) {
+      while (curr && curr !== nextHeader && !headerEls.includes(curr)) {
         const rawElText = (curr.innerText || curr.textContent || "").trim();
         if (rawElText) {
           sectionRawLines.push(rawElText);
@@ -462,14 +521,14 @@ export function parseSlides(htmlContent, rawText = "") {
         }
         if (currImgs.length > 0) sectionImgs.push(...currImgs);
 
-        // Skip verified source footers
-        if (curr.innerText && curr.innerText.includes("Verified Sources")) {
+        // Skip verified source footers or hr elements
+        if ((curr.innerText && curr.innerText.includes("Verified Sources")) || curr.tagName === "HR") {
           curr = curr.nextElementSibling;
           continue;
         }
 
-        // Process H4, H5, H6 immediately as Subtitle if not already assigned
-        if (["H4", "H5", "H6"].includes(curr.tagName)) {
+        // Process H3, H4, H5, H6 immediately as Subtitle or lead-in
+        if (["H3", "H4", "H5", "H6"].includes(curr.tagName)) {
           const subText = (curr.innerText || curr.textContent || "")
             .replace(/^#{1,6}\s*/, "")
             .replace(/^(?:Sub-?title|Subtitle\s*Text):\s*/i, "")
@@ -477,6 +536,11 @@ export function parseSlides(htmlContent, rawText = "") {
             .trim();
           if (subText && !sectionSubtitle) {
             sectionSubtitle = subText;
+            curr = curr.nextElementSibling;
+            continue;
+          } else if (subText) {
+            allBodyLines.push(`• **${subText}:**`);
+            additionalBodyLines.push(`• **${subText}:**`);
             curr = curr.nextElementSibling;
             continue;
           }
@@ -605,7 +669,7 @@ export function parseSlides(htmlContent, rawText = "") {
     }
 
     if (slides.length >= 1) {
-      return consolidateExecutiveSummarySlides(slides, allImages);
+      return finalizeSlides(slides, allImages, rawText);
     }
   }
 
@@ -714,7 +778,7 @@ export function parseSlides(htmlContent, rawText = "") {
     }
 
     if (tableSlides.length >= 2) {
-      return consolidateExecutiveSummarySlides(tableSlides, allImages);
+      return finalizeSlides(tableSlides, allImages, rawText);
     }
   }
 
@@ -776,7 +840,7 @@ export function parseSlides(htmlContent, rawText = "") {
   }
 
   if (outlineSlides.length >= 2) {
-    return consolidateExecutiveSummarySlides(outlineSlides, allImages);
+    return finalizeSlides(outlineSlides, allImages, rawText);
   }
 
   // -------------------------------------------------------------
@@ -847,7 +911,7 @@ export function parseSlides(htmlContent, rawText = "") {
         cleanAdditionalBody = filteredBullets.join("\n\n");
       }
 
-      return [{
+      return finalizeSlides([{
         slideNumber: 1,
         title: cleanTitle,
         subtitle: parsedExtra.subtitle || "",
@@ -859,7 +923,7 @@ export function parseSlides(htmlContent, rawText = "") {
         additionalBody: cleanAdditionalBody,
         tableData: tableData,
         base64Images: allImages
-      }];
+      }], allImages, rawText);
     }
   }
 
@@ -882,7 +946,7 @@ export function parseSlides(htmlContent, rawText = "") {
       const filteredBullets = filterDuplicateTableBullets(rawBullets, tableData);
       cleanAdditionalBody = filteredBullets.join("\n\n");
     }
-    return [{
+    return finalizeSlides([{
       slideNumber: 1,
       title: cleanTitle,
       subtitle: parsedExtra.subtitle || "",
@@ -894,14 +958,22 @@ export function parseSlides(htmlContent, rawText = "") {
       additionalBody: cleanAdditionalBody,
       tableData: tableData,
       base64Images: allImages
-    }];
+    }], allImages, rawText);
   }
 
   // -------------------------------------------------------------
   // Strategy 5: Raw Text Block Splitting
   // -------------------------------------------------------------
+  let splitRegex = /(?:^|\n)(?=(?:#{1,2}\s*Slide\s*\d+|Slide\s*\d+[:\-]|(?:\d+[\.\)]\s*(?:\*\*)?Slide\s*\d+)))/gi;
+  if (!/(?:Slide\s*\d+|#+\s*Slide\s*\d+)/i.test(textContent)) {
+    if ((textContent.match(/(?:^|\n)##\s+/g) || []).length >= 2) {
+      splitRegex = /(?:^|\n)(?=##\s+)/g;
+    } else {
+      splitRegex = /(?:^|\n)(?=(?:#{1,2}\s+|Slide\s*\d+[:\-]|(?:\d+\.\s+\*\*Slide)))/gi;
+    }
+  }
   const blocks = textContent
-    .split(/(?:^|\n)(?=(?:#{1,3}\s+|Slide\s*\d+[:\-]|(?:\d+\.\s+\*\*Slide)))/gi)
+    .split(splitRegex)
     .map(b => b.trim())
     .filter(b => {
       if (b.length < 5) return false;
@@ -1007,7 +1079,7 @@ export function parseSlides(htmlContent, rawText = "") {
       }
     });
 
-    if (textSlides.length >= 2) return consolidateExecutiveSummarySlides(textSlides, allImages);
+    if (textSlides.length >= 2) return finalizeSlides(textSlides, allImages, rawText);
   }
 
   // -------------------------------------------------------------
@@ -1036,7 +1108,7 @@ export function parseSlides(htmlContent, rawText = "") {
 
   const parsed = extractSlideMetadataAndBullets(contentLines);
 
-  return [{
+  return finalizeSlides([{
     slideNumber: 1,
     title: singleTitle,
     subtitle: parsed.subtitle,
@@ -1047,7 +1119,51 @@ export function parseSlides(htmlContent, rawText = "") {
     subtitleSize: parsed.subtitleSize,
     body: parsed.body,
     base64Images: allImages
-  }];
+  }], allImages, rawText);
+}
+
+/**
+ * Finalizes parsed slides:
+ * 1. Consolidates executive summary slides into a single slide if applicable.
+ * 2. Enforces explicit slide count capping if the user explicitly requested N slides (e.g. "create 5 slides").
+ * 3. Normalizes slide numbering.
+ */
+function finalizeSlides(slides, allImages = [], rawText = "") {
+  if (!slides || slides.length === 0) return [];
+
+  let finalSlides = consolidateExecutiveSummarySlides(slides, allImages);
+
+  const wordToNumber = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10
+  };
+  let requestedCount = null;
+
+  if (typeof window !== "undefined" && window.__lastUserPrompt) {
+    const match = window.__lastUserPrompt.match(/\b(?:create|generate|make|build|provide|give\s+me)?\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+slides?\b/i);
+    if (match && match[1]) {
+      const token = match[1].toLowerCase();
+      requestedCount = wordToNumber[token] || parseInt(token, 10);
+    }
+  }
+
+  if (!requestedCount && rawText) {
+    const match = rawText.match(/\b(?:create|generate|make|build|provide|give\s+me)?\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+slides?\b/i);
+    if (match && match[1]) {
+      const token = match[1].toLowerCase();
+      requestedCount = wordToNumber[token] || parseInt(token, 10);
+    }
+  }
+
+  if (requestedCount && requestedCount > 0 && finalSlides.length > requestedCount) {
+    finalSlides = finalSlides.slice(0, requestedCount);
+  }
+
+  finalSlides.forEach((s, idx) => {
+    s.slideNumber = idx + 1;
+  });
+
+  return finalSlides;
 }
 
 /**

@@ -808,6 +808,10 @@ async function callGeminiProxy(customPrompt = null) {
 
   if (promptInput) promptInput.value = "";
   
+  if (typeof window !== "undefined") {
+    window.__lastUserPrompt = userText || fullPrompt || "";
+  }
+
   if (hostAdapter.name === "PowerPoint") {
     const { enhancePromptForPowerPoint } = await import('../adapters/ppt/promptEnhancer.js');
     fullPrompt = enhancePromptForPowerPoint(fullPrompt);

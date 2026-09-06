@@ -205,6 +205,7 @@ export function enhanceBubbleWithSlideDeck(bubbleEl, htmlContent, rawText, adapt
         <span class="ppt-slide-num">Slide ${idx + 1}</span>
         <span>${escapeHtml(slide.title)}</span>
       </div>
+      ${slide.subtitle ? `<div style="font-size: 10.5px; font-weight: 600; color: #475569; margin: 2px 0 4px 0; padding-left: 2px;">${escapeHtml(slide.subtitle)}</div>` : ''}
       <div class="ppt-slide-preview-body">${previewContent}</div>
     `;
     slidesList.appendChild(card);

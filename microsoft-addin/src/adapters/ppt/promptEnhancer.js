@@ -76,14 +76,33 @@ CRITICAL INSTRUCTIONS FOR EXECUTIVE SUMMARY GENERATION:
 
   // Rule set for slide generation
   if (lowerPrompt.includes("slide") || lowerPrompt.includes("presentation") || lowerPrompt.includes("deck") || lowerPrompt.includes("table") || lowerPrompt.includes("pitch")) {
+    const wordToNumber = {
+      "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+      "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10
+    };
+    const countMatch = lowerPrompt.match(/\b(?:create|generate|make|build|provide|give\s+me)?\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+slides?\b/i);
+    let requestedCount = null;
+    if (countMatch && countMatch[1]) {
+      const token = countMatch[1].toLowerCase();
+      requestedCount = wordToNumber[token] || parseInt(token, 10);
+    }
+
+    let countConstraint = "";
+    if (requestedCount && requestedCount > 0) {
+      countConstraint = `
+CRITICAL CONSTRAINT - EXACT SLIDE COUNT:
+The user explicitly requested EXACTLY ${requestedCount} slides. You MUST generate EXACTLY ${requestedCount} slides (from ## Slide 1 to ## Slide ${requestedCount}). NEVER output fewer or more than ${requestedCount} slides under any circumstances.
+`;
+    }
+
     const rules = `
-IMPORTANT RULES FOR SLIDE GENERATION:
+IMPORTANT RULES FOR SLIDE GENERATION:${countConstraint}
 1. Provide EXACTLY ONE definitive presentation version. DO NOT output multiple alternatives or options.
 2. DO NOT output conversational preamble or filler (e.g. "Here is...", "Sure!"). Output the presentation content directly.
-3. Structure your response clearly using Markdown Headings (e.g. ## Slide 1: [Emoji] [Title]) for each slide.
+3. Structure your response clearly using Markdown Headings (e.g. ## Slide 1: [Emoji] [Title]) for each slide. Format subtitles as "### [Subtitle Text]" directly underneath each slide title.
 4. For each slide, provide:
    - A short, punchy **Title** of **MAXIMUM 3 TO 4 WORDS (under 40 characters)** prefixed with a relevant **Emoji / Icon** (e.g., "📊 Financial Highlights", "🚀 Growth Strategy", "💰 Capital & Resources", "📈 Outlook & Guidance"). Put extra details (like dates or quarters) into the Subtitle.
-   - A **Subtitle** (if applicable, clearly labeled).
+   - A **Subtitle** (if applicable, formatted as ### [Subtitle]).
    - **Main Content**:
      * **STRUCTURED TABLES FOR QUANTITATIVE & COMPARATIVE DATA**: When presenting dense financial results, multi-attribute comparisons, or numeric metrics, format as a clean Markdown table (e.g. | Metric | Q1 2026 | YoY Change | Impact |).
      * **EXECUTIVE BULLETS FOR STRATEGY & NARRATIVE**: For strategic vision, qualitative analysis, key initiatives, risks, and next steps, use 3 to 4 crisp, high-impact bullet points with bold lead-ins. Do NOT force a table when narrative bullets convey the insight better.
