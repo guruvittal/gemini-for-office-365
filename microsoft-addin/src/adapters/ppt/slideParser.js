@@ -249,10 +249,26 @@ export function parseSlides(htmlContent, rawText = "") {
   const tempDiv = document.createElement("div");
   tempDiv.innerHTML = htmlContent || rawText;
 
-  // Extract all base64 images upfront
+  // Extract all images upfront from HTML DOM, markdown images, and data URIs
   const allImages = Array.from(tempDiv.querySelectorAll("img"))
     .map(img => img.src || img.getAttribute("src") || "")
     .filter(s => s && s.length > 50);
+
+  const combinedSearch = ((htmlContent || '') + ' ' + (rawText || ''));
+  const mdImgMatches = combinedSearch.match(/!\[.*?\]\(\s*<?(data:image\/[^;]+;base64,[A-Za-z0-9+/=]+|https?:\/\/[^\s\)>]+)/gi) || [];
+  for (const m of mdImgMatches) {
+    const u = m.replace(/^!\[.*?\]\(\s*<?/i, '').replace(/>?\s*$/i, '').trim();
+    if (u && !allImages.includes(u)) {
+      allImages.push(u);
+    }
+  }
+
+  const rawDataMatches = combinedSearch.match(/data:image\/(?:png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]{100,}/gi) || [];
+  for (const d of rawDataMatches) {
+    if (!allImages.includes(d)) {
+      allImages.push(d);
+    }
+  }
 
   // Clean citation callouts, action toolbars, and preview containers from slide body text
   const noteCallouts = tempDiv.querySelectorAll("blockquote, .note, .ppt-deck-preview-container, .response-actions-container, [style*='background-color:#f0f6ff']");

@@ -37,11 +37,12 @@ CRITICAL INSTRUCTIONS FOR SLIDE EDITING:
     return `${userPrompt}\n\n${rules}`;
   }
 
-  // Rule set for chart generation (pie, bar, line, doughnut)
-  if (lowerPrompt.includes("chart") || lowerPrompt.includes("pie") || lowerPrompt.includes("bar") || lowerPrompt.includes("graph") || lowerPrompt.includes("visualization") || lowerPrompt.includes("visualize")) {
+  // Rule set for chart generation (pie, bar, line, doughnut, column, graph, breakdown)
+  if (lowerPrompt.includes("chart") || lowerPrompt.includes("pie") || lowerPrompt.includes("bar") || lowerPrompt.includes("graph") || lowerPrompt.includes("visualization") || lowerPrompt.includes("visualize") || lowerPrompt.includes("plot") || lowerPrompt.includes("breakdown") || lowerPrompt.includes("doughnut") || lowerPrompt.includes("column")) {
     const rules = `
 CRITICAL INSTRUCTIONS FOR CHART GENERATION:
-1. When generating a chart, output a structured JSON code block:
+1. Generate an image of the chart: Create a high-resolution, modern, clean corporate visual chart image (e.g. pie chart, donut chart, or bar chart) illustrating the quantitative breakdown and key data using your image generation tool.
+2. Also output a structured JSON code block with the exact data metrics:
 \`\`\`json
 {
   "chartType": "pie",
@@ -52,13 +53,12 @@ CRITICAL INSTRUCTIONS FOR CHART GENERATION:
 }
 \`\`\`
 Supported chartType values: "pie", "doughnut", "bar", "column", "line". Use exact numeric values (not strings).
-2. Also provide a clean Markdown Table with the data metrics (| Category | Metric | Share % |).
-3. Provide 2-3 executive bullet points with bold lead-ins highlighting strategic insights.
-4. DO NOT output conversational preamble or pleasantries.
+3. Also provide a clean Markdown Table with the data metrics (| Category | Metric | Share % |).
+4. Provide 2-3 executive bullet points with bold lead-ins highlighting strategic insights.
+5. DO NOT output conversational preamble or pleasantries.
 `;
     return `${userPrompt}\n\n${rules}`;
   }
-
 
   // Rule set for Executive Summary (strictly 1 slide only)
   if (lowerPrompt.includes("summarize") || lowerPrompt.includes("executive summary") || lowerPrompt.includes("slide summary") || lowerPrompt.includes("key takeaway")) {
@@ -66,10 +66,11 @@ Supported chartType values: "pie", "doughnut", "bar", "column", "line". Use exac
 CRITICAL INSTRUCTIONS FOR EXECUTIVE SUMMARY GENERATION:
 1. Provide EXACTLY ONE single slide. NEVER generate multiple slides or multiple '##' slide headings under any circumstances.
 2. Structure with exactly one slide title: "## 📊 Executive Slide Summary".
-3. Content layout:
+3. Visual Chart Image: If the summary contains quantitative breakdown, comparisons, or metrics, create an image of a professional corporate chart (e.g. pie chart, donut chart, or bar chart) illustrating the primary data using your image generation tool.
+4. Content layout:
    - Provide a clean Markdown Table (| Category | Metric | Share / Value |) summarizing quantitative data or metrics.
    - Followed by 2 to 3 concise, high-impact executive takeaway bullets with bold lead-in phrases.
-4. DO NOT output conversational preamble, pleasantries, or additional slides.
+5. DO NOT output conversational preamble, pleasantries, or additional slides.
 `;
     return `${userPrompt}\n\n${rules}`;
   }

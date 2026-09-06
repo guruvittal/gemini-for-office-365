@@ -641,9 +641,17 @@ async function checkForInDocumentCommands(forceRun = false) {
         if (Array.isArray(data.history)) chatHistoryState = data.history;
 
         const aiResultText = data.result || "No content returned.";
-        appendAssistantBubble(aiResultText);
+        appendAssistantBubble(aiResultText, data);
 
-        return parseMarkdown(aiResultText);
+        let fullAiText = aiResultText;
+        if (data && Array.isArray(data.images) && data.images.length > 0) {
+          for (const imgUrl of data.images) {
+            if (imgUrl && !fullAiText.includes(imgUrl)) {
+              fullAiText += `\n\n![Generated Image](${imgUrl})\n\n`;
+            }
+          }
+        }
+        return parseMarkdown(fullAiText);
       } catch (err) {
         console.error("In-document command execution error:", err);
         if (debugStatus) debugStatus.innerText = "Error: " + err.message;
@@ -1055,7 +1063,7 @@ async function executeGeminiWorkflow(fullPrompt, displayUserBubble, attachments 
     }
 
     const aiResponse = data.result || "No content returned.";
-    appendAssistantBubble(aiResponse);
+    appendAssistantBubble(aiResponse, data);
 
   } catch (error) {
     appendBubble("Error: " + error.message, "system");
@@ -1076,14 +1084,24 @@ function appendBubble(text, type) {
   historyDiv.scrollTop = historyDiv.scrollHeight;
 }
 
-function appendAssistantBubble(text) {
+function appendAssistantBubble(text, apiData = null) {
   const historyDiv = document.getElementById("chatHistory");
   if (!historyDiv) return;
   const bubble = document.createElement("div");
   bubble.className = "chat-bubble assistant";
 
+  // Ensure any images returned in apiData are included in the markdown text
+  let fullText = text;
+  if (apiData && Array.isArray(apiData.images) && apiData.images.length > 0) {
+    for (const imgUrl of apiData.images) {
+      if (imgUrl && !fullText.includes(imgUrl)) {
+        fullText += `\n\n![Generated Image](${imgUrl})\n\n`;
+      }
+    }
+  }
+
   // Parse markdown into executive HTML
-  const formattedHtml = parseMarkdown(text);
+  const formattedHtml = parseMarkdown(fullText);
 
   const textDiv = document.createElement("div");
   textDiv.innerHTML = formattedHtml;

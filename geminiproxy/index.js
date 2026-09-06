@@ -1037,6 +1037,7 @@ async function handleGeminiEnterpriseRequest(req, res) {
             sessionId: streamAssistResult.sessionId,
             sessionResource: streamAssistResult.sessionResource,
             citations: streamAssistResult.citations,
+            images: streamAssistResult.images || [],
             backendMode: 'streamassist'
           });
         } catch (streamAssistErr) {

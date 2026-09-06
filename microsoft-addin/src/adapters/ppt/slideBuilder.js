@@ -23,9 +23,34 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 1920, maxHeight
         resolved = true;
         resolve(base64Str ? base64Str.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim() : "");
       }
-    }, 1000);
+    }, 1500);
 
     try {
+      if (typeof base64Str === "string" && (base64Str.startsWith("http://") || base64Str.startsWith("https://"))) {
+        fetch(base64Str)
+          .then(res => res.blob())
+          .then(blob => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const b64 = (reader.result || "").replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
+              if (!resolved) {
+                resolved = true;
+                clearTimeout(timer);
+                resolve(b64);
+              }
+            };
+            reader.readAsDataURL(blob);
+          })
+          .catch(() => {
+            if (!resolved) {
+              resolved = true;
+              clearTimeout(timer);
+              resolve("");
+            }
+          });
+        return;
+      }
+
       const cleanRaw = base64Str.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
       if (!cleanRaw) {
         clearTimeout(timer);
