@@ -105,7 +105,7 @@ export function renderExecutiveVisualHtml(jsonString) {
   return null;
 }
 
-export function parseMarkdown(text) {
+export function parseMarkdown(text, options = {}) {
   if (!text) return "";
 
   // Strip internal slide/layout metadata for clean display
@@ -222,7 +222,7 @@ export function parseMarkdown(text) {
 
   // RULE: If high-resolution chart is rendered, suppress duplicate lower-res tool chart image attachments
   // UNLESS the user explicitly asked for distinct non-chart image content (e.g. photos, illustrations, logos)
-  if (hasRenderedHighResChart && !options.hasDistinctNonChartImageIntent) {
+  if (hasRenderedHighResChart && !options?.hasDistinctNonChartImageIntent) {
     for (let i = 0; i < visualTokens.length; i++) {
       if (visualTokens[i] && visualTokens[i].includes('class="office-visual-image-container"') && !visualTokens[i].includes('class="rendered-chart-container"')) {
         visualTokens[i] = ''; // Suppress duplicate lower-res tool chart
