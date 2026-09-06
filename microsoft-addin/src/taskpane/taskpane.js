@@ -1468,12 +1468,17 @@ async function updateDiagnosticsPanel() {
     const pptApiStatus = document.getElementById("diagPptApiStatus");
     if (pptApiStatus) {
       if (typeof Office !== "undefined" && Office.context?.requirements) {
+        const v110 = Office.context.requirements.isSetSupported("PowerPointApi", "1.10");
+        const v19 = Office.context.requirements.isSetSupported("PowerPointApi", "1.9");
+        const v18 = Office.context.requirements.isSetSupported("PowerPointApi", "1.8");
+        const v17 = Office.context.requirements.isSetSupported("PowerPointApi", "1.7");
+        const v16 = Office.context.requirements.isSetSupported("PowerPointApi", "1.6");
         const v15 = Office.context.requirements.isSetSupported("PowerPointApi", "1.5");
         const v14 = Office.context.requirements.isSetSupported("PowerPointApi", "1.4");
         const v13 = Office.context.requirements.isSetSupported("PowerPointApi", "1.3");
         const v12 = Office.context.requirements.isSetSupported("PowerPointApi", "1.2");
         const v11 = Office.context.requirements.isSetSupported("PowerPointApi", "1.1");
-        const highest = v15 ? "1.5" : v14 ? "1.4" : v13 ? "1.3" : v12 ? "1.2" : v11 ? "1.1" : "Base";
+        const highest = v110 ? "1.10" : v19 ? "1.9" : v18 ? "1.8" : v17 ? "1.7" : v16 ? "1.6" : v15 ? "1.5" : v14 ? "1.4" : v13 ? "1.3" : v12 ? "1.2" : v11 ? "1.1" : "Base";
         pptApiStatus.innerText = `PowerPointApi ${highest} Supported`;
         pptApiStatus.style.color = "#107c41";
       } else {
