@@ -32,7 +32,7 @@ let userClearedSelection = false;
 
 Office.onReady(async (info) => {
   // Detect active Microsoft Office host (Word, PowerPoint, Excel) dynamically
-  hostAdapter = HostAdapterFactory.getAdapter();
+  hostAdapter = HostAdapterFactory.getAdapter(info);
 
   // Pre-fetch dynamic backend configuration (Google OAuth Client ID)
   fetchAppConfig().catch(e => console.warn("Background config fetch failed:", e));
@@ -153,8 +153,23 @@ Office.onReady(async (info) => {
 
   // Attach selection change handler for in-document detection & adaptive toolbar
   // In PowerPoint, listening to DocumentSelectionChanged causes PowerPoint Online to capture pointer events
-  // during thumbnail navigation, leading to unwanted slide drag-and-drop behavior. Skip for PowerPoint.
-  if (hostAdapter && hostAdapter.name !== "PowerPoint") {
+  // during thumbnail navigation and canvas clicking, leading to unwanted slide drag-and-drop movement,
+  // grey marquee selection boxes, and triggering Chrome DLP popups.
+  // We strictly disable auto-selection in PowerPoint.
+  const isPowerPointHost = 
+    (hostAdapter && hostAdapter.name === "PowerPoint") ||
+    (info && (info.host === Office?.HostType?.PowerPoint || info.host === "PowerPoint")) ||
+    (typeof PowerPoint !== "undefined") ||
+    (typeof Office !== "undefined" && Office.context?.diagnostics?.host === "PowerPoint");
+
+  if (isPowerPointHost) {
+    try {
+      Office.context.document.removeHandlerAsync(
+        Office.EventType.DocumentSelectionChanged,
+        () => {}
+      );
+    } catch (_) {}
+  } else if (hostAdapter) {
     try {
       Office.context.document.addHandlerAsync(
         Office.EventType.DocumentSelectionChanged,
@@ -575,7 +590,15 @@ let selectionDebounceTimer = null;
 
 // Handle Host Selection Changes Dynamically (Adapts Top Bar and Shows Attachment Pill)
 function handleSelectionChanged() {
-  if (!hostAdapter || window.__isGeneratingSlides || isProcessingInDocCommand) return;
+  if (
+    !hostAdapter ||
+    hostAdapter.name === "PowerPoint" ||
+    typeof PowerPoint !== "undefined" ||
+    window.__isGeneratingSlides ||
+    isProcessingInDocCommand
+  ) {
+    return;
+  }
 
   if (selectionDebounceTimer) {
     clearTimeout(selectionDebounceTimer);
