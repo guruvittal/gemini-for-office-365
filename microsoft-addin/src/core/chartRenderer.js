@@ -198,11 +198,13 @@ export function renderChartToDataUrl(spec, options = {}) {
 
   const width = options.width || 800;
   const height = options.height || 500;
-  const scale = 4; // Ultra-crisp 4x Retina scale for 300+ DPI razor-sharp PowerPoint rendering
+  // 2.5x scale (2000x1250) perfectly matches PowerPoint's 440pt column at 324 DPI
+  // without the severe downscale blur of excessive scaling factors.
+  const scale = 2.5;
 
   const canvas = document.createElement('canvas');
-  canvas.width = width * scale;
-  canvas.height = height * scale;
+  canvas.width = Math.round(width * scale);
+  canvas.height = Math.round(height * scale);
 
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
@@ -210,6 +212,9 @@ export function renderChartToDataUrl(spec, options = {}) {
   ctx.scale(scale, scale);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
+  if ('textRendering' in ctx) {
+    ctx.textRendering = 'geometricPrecision';
+  }
 
   // Background
   ctx.fillStyle = '#ffffff';
@@ -217,14 +222,14 @@ export function renderChartToDataUrl(spec, options = {}) {
 
   // Header: Title & Subtitle
   ctx.fillStyle = '#0f172a';
-  ctx.font = 'bold 30px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
+  ctx.font = '800 28px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText(spec.title || 'Data Visualization', 40, 48);
+  ctx.fillText(spec.title || 'Data Visualization', 36, 44);
 
   if (spec.subtitle) {
-    ctx.fillStyle = '#64748b';
-    ctx.font = 'italic 17px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
-    ctx.fillText(spec.subtitle, 40, 78);
+    ctx.fillStyle = '#475569';
+    ctx.font = '600 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText(spec.subtitle, 36, 72);
   }
 
   // Draw chart according to type
@@ -243,17 +248,17 @@ export function renderChartToDataUrl(spec, options = {}) {
 }
 
 /**
- * Draws Pie or Doughnut Chart with legend and percentages
+ * Draws Pie or Doughnut Chart with clean non-overlapping legend and bold typography
  */
 function drawPieOrDoughnutChart(ctx, spec, width, height, isDoughnut) {
   const data = spec.data;
   const total = data.reduce((sum, d) => sum + (d.value > 0 ? d.value : 0), 0) || 1;
 
-  const startY = spec.subtitle ? 96 : 76;
-  const availableHeight = height - startY - 24;
-  const centerX = width * 0.33;
-  const centerY = startY + availableHeight / 2;
-  const radius = Math.min(centerX - 35, availableHeight / 2 - 10);
+  const startY = spec.subtitle ? 90 : 70;
+  const availableHeight = height - startY - 20;
+  const centerX = Math.round(width * 0.32);
+  const centerY = Math.round(startY + availableHeight / 2);
+  const radius = Math.min(centerX - 30, Math.round(availableHeight / 2) - 10);
 
   let startAngle = -Math.PI / 2;
 
@@ -271,7 +276,7 @@ function drawPieOrDoughnutChart(ctx, spec, width, height, isDoughnut) {
     ctx.fillStyle = color;
     ctx.fill();
 
-    // Slice separator
+    // Clean white slice separator
     ctx.lineWidth = 3;
     ctx.strokeStyle = '#ffffff';
     ctx.stroke();
@@ -282,90 +287,104 @@ function drawPieOrDoughnutChart(ctx, spec, width, height, isDoughnut) {
   // If Doughnut, cutout inner circle
   if (isDoughnut) {
     ctx.beginPath();
-    ctx.arc(centerX, centerY, radius * 0.54, 0, 2 * Math.PI);
+    ctx.arc(centerX, centerY, Math.round(radius * 0.54), 0, 2 * Math.PI);
     ctx.fillStyle = '#ffffff';
     ctx.fill();
 
     // Inner total label
     ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.font = '800 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('Total', centerX, centerY - 6);
-    ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.font = '700 18px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     ctx.fillStyle = '#64748b';
     ctx.fillText(formatValue(total), centerX, centerY + 20);
   }
 
-  // Draw Legend on Right Side
-  const legendX = width * 0.60;
-  const itemHeight = Math.min(56, Math.floor((availableHeight - 10) / Math.max(data.length, 1)));
-  const legendStartY = centerY - (data.length * itemHeight) / 2;
+  // Draw Clean Legend on Right Side (Auto single-line or 2-column to prevent vertical crowding)
+  const legendX = Math.round(width * 0.58);
+  const isMultiCol = data.length > 6;
+  const colCount = isMultiCol ? 2 : 1;
+  const colWidth = isMultiCol ? Math.round((width - legendX - 16) / 2) : (width - legendX - 16);
+  const rowsPerCol = Math.ceil(data.length / colCount);
+  const itemHeight = Math.min(46, Math.floor((availableHeight - 10) / rowsPerCol));
+  const legendStartY = Math.round(centerY - (rowsPerCol * itemHeight) / 2);
 
   ctx.textAlign = 'left';
 
   data.forEach((item, idx) => {
-    const y = legendStartY + idx * itemHeight + 14;
+    const colIdx = isMultiCol ? Math.floor(idx / rowsPerCol) : 0;
+    const rowIdx = isMultiCol ? (idx % rowsPerCol) : idx;
+    const x = Math.round(legendX + colIdx * colWidth);
+    const y = Math.round(legendStartY + rowIdx * itemHeight + itemHeight / 2);
     const color = item.color || PALETTE[idx % PALETTE.length];
     const pct = ((item.value / total) * 100).toFixed(1);
 
     // Color Swatch
     ctx.beginPath();
-    ctx.arc(legendX, y, 10, 0, 2 * Math.PI);
+    ctx.arc(x + 8, y, 7, 0, 2 * Math.PI);
     ctx.fillStyle = color;
     ctx.fill();
 
-    // Label
+    // Clean Single-Line Format with Bold High-Contrast Typography
     ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    const labelText = item.label.length > 28 ? item.label.substring(0, 26) + '…' : item.label;
-    ctx.fillText(labelText, legendX + 22, y + 2);
-
-    // Value & Pct
-    ctx.fillStyle = '#475569';
-    ctx.font = 'bold 17px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    ctx.fillText(`${formatValue(item.value)} (${pct}%)`, legendX + 22, y + 26);
+    const fontSize = isMultiCol ? 14 : 16;
+    ctx.font = `800 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
+    const maxChars = isMultiCol ? 14 : 22;
+    const labelText = item.label.length > maxChars ? item.label.substring(0, maxChars - 1) + '…' : item.label;
+    
+    if (isMultiCol) {
+      ctx.fillText(`${labelText} (${pct}%)`, x + 20, y + 5);
+    } else {
+      ctx.fillText(labelText, x + 22, y + 5);
+      ctx.fillStyle = '#334155';
+      ctx.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      ctx.fillText(`${formatValue(item.value)} (${pct}%)`, x + 22 + ctx.measureText(labelText + '  ').width, y + 5);
+    }
   });
 }
 
 /**
- * Draws Horizontal Bar Chart
+ * Draws Horizontal Bar Chart with high-contrast, razor-sharp typography
  */
 function drawBarChart(ctx, spec, width, height) {
   const data = spec.data;
   const maxVal = Math.max(...data.map(d => d.value), 1);
-  const startY = spec.subtitle ? 96 : 76;
-  const availableHeight = height - startY - 36;
-  const barHeight = Math.min(40, Math.floor((availableHeight - 10) / data.length) - 10);
-  const leftMargin = 190;
-  const maxBarWidth = width - leftMargin - 120;
+  const startY = spec.subtitle ? 92 : 72;
+  const availableHeight = height - startY - 24;
+  const itemGap = data.length > 8 ? 6 : 10;
+  const barHeight = Math.min(36, Math.max(16, Math.floor((availableHeight - (data.length - 1) * itemGap) / data.length)));
+  const leftMargin = 175;
+  const maxBarWidth = width - leftMargin - 110;
+  const fontSize = data.length > 8 ? 15 : 16;
 
   data.forEach((item, idx) => {
-    const y = startY + idx * (barHeight + 12);
-    const barWidth = Math.max(6, (item.value / maxVal) * maxBarWidth);
+    const y = Math.round(startY + idx * (barHeight + itemGap));
+    const barWidth = Math.max(8, Math.round((item.value / maxVal) * maxBarWidth));
     const color = item.color || PALETTE[idx % PALETTE.length];
 
-    // Label
+    // Label on Left
     ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 17px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.font = `800 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
     ctx.textAlign = 'right';
-    const labelText = item.label.length > 22 ? item.label.substring(0, 20) + '…' : item.label;
-    ctx.fillText(labelText, leftMargin - 16, y + barHeight / 2 + 6);
+    const labelText = item.label.length > 20 ? item.label.substring(0, 18) + '…' : item.label;
+    ctx.fillText(labelText, leftMargin - 14, Math.round(y + barHeight / 2 + 5));
 
     // Bar background track
     ctx.fillStyle = '#f1f5f9';
-    drawRoundedRect(ctx, leftMargin, y, maxBarWidth, barHeight, 6);
+    drawRoundedRect(ctx, leftMargin, y, maxBarWidth, barHeight, 5);
     ctx.fill();
 
     // Bar fill
     ctx.fillStyle = color;
-    drawRoundedRect(ctx, leftMargin, y, barWidth, barHeight, 6);
+    drawRoundedRect(ctx, leftMargin, y, barWidth, barHeight, 5);
     ctx.fill();
 
-    // Value label
+    // Value label on Right
     ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.font = `900 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
     ctx.textAlign = 'left';
-    ctx.fillText(formatValue(item.value), leftMargin + barWidth + 12, y + barHeight / 2 + 6);
+    ctx.fillText(formatValue(item.value), leftMargin + barWidth + 10, Math.round(y + barHeight / 2 + 5));
   });
 }
 
@@ -403,16 +422,16 @@ function drawColumnChart(ctx, spec, width, height) {
     ctx.fill();
 
     // Value above column
-    ctx.fillStyle = '#202124';
-    ctx.font = 'bold 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '800 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(formatValue(item.value), x + colWidth / 2, y - 8);
+    ctx.fillText(formatValue(item.value), Math.round(x + colWidth / 2), Math.round(y - 8));
 
     // Label below column
-    ctx.fillStyle = '#5f6368';
-    ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
     const labelText = item.label.length > 10 ? item.label.substring(0, 8) + '…' : item.label;
-    ctx.fillText(labelText, x + colWidth / 2, bottomY + 22);
+    ctx.fillText(labelText, Math.round(x + colWidth / 2), Math.round(bottomY + 22));
   });
 }
 
