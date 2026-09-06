@@ -890,17 +890,33 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
       const isIntroOrEmpty = !rawBody || rawBody.toLowerCase().startsWith("here is the image") || rawBody === "• Executive slide content";
 
       if (!isIntroOrEmpty || !hasImages) {
-        const bodyHeight = hasTakeaway ? 280 : 380;
-        const { cleanText, parsedParagraphs } = parseMarkdownFormatting(slideData.body || "• Executive slide content");
-        const bulletBox = newSlide.shapes.addTextBox(cleanText, {
+        // Strip any residual pseudo-visual marker lines
+        const filteredBody = (slideData.body || "• Executive slide content")
+          .split('\n')
+          .filter(l => {
+            const stripped = l.replace(/^[-•*]\s*/, '').trim();
+            return !/^(?:📊\s*Metric Grid|⚖️\s*Comparison|Metric Grid|Comparison Card|Visual Concept:|Visual:)/i.test(stripped);
+          })
+          .join('\n');
+
+        const { cleanText, parsedParagraphs } = parseMarkdownFormatting(filteredBody);
+
+        // Cap bullets when a takeaway box is present at top: 395 so text never collides
+        let finalParagraphs = parsedParagraphs;
+        if (hasTakeaway && parsedParagraphs.length > 4) {
+          finalParagraphs = parsedParagraphs.slice(0, 4);
+        }
+        const finalCleanText = finalParagraphs.map(p => p.text).join('\n\n');
+
+        const bulletBox = newSlide.shapes.addTextBox(finalCleanText, {
           left: 50,
           top: contentTop,
           width: hasImages ? 400 : 860,
-          height: bodyHeight
+          height: hasTakeaway ? 260 : 380
         });
         bulletBox.textFrame.wordWrap = true;
-        bulletBox.textFrame.textRange.font.size = hasImages ? 13.5 : 15;
-        await applyParagraphFormatting(bulletBox, parsedParagraphs, context);
+        bulletBox.textFrame.textRange.font.size = hasImages ? 13.5 : (hasTakeaway && finalParagraphs.length >= 4 ? 13.5 : 15);
+        await applyParagraphFormatting(bulletBox, finalParagraphs, context);
       }
 
       // Render dedicated Executive Takeaway Callout Box at bottom

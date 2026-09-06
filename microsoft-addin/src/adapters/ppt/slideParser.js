@@ -52,6 +52,29 @@ export function filterDuplicateTableBullets(bullets, tableData) {
   });
 }
 
+/**
+ * Extracts clean text from a DOM element, ensuring block elements and list items
+ * maintain separating whitespace/newlines instead of concatenating adjacent text.
+ */
+export function getElementCleanText(el) {
+  if (!el) return "";
+  if (el.innerText) return el.innerText;
+  try {
+    const clone = el.cloneNode(true);
+    const blockEls = clone.querySelectorAll("p, div, li, br, tr, td, th");
+    blockEls.forEach(b => {
+      if (b.tagName === "BR") {
+        b.replaceWith("\n");
+      } else {
+        b.insertAdjacentText("afterend", "\n");
+      }
+    });
+    return (clone.textContent || "").trim();
+  } catch (_) {
+    return (el.textContent || "").trim();
+  }
+}
+
 export function extractSlideMetadataAndBullets(rawLines) {
   let subtitle = "";
   let takeaway = "";
@@ -133,6 +156,12 @@ export function extractSlideMetadataAndBullets(rawLines) {
     }
 
     if (/^`+$/.test(line) || line.startsWith("```") || line.startsWith("{") || line.startsWith("}") || line.startsWith('"') || line.startsWith("|") || /^{.*}$/.test(line)) {
+      continue;
+    }
+
+    // Ignore raw visual markers leaked from pseudo-formatting
+    const strippedMarker = line.replace(/^[-•*]\s*/, '').trim();
+    if (/^(?:📊\s*Metric Grid|⚖️\s*Comparison|Metric Grid|Comparison Card)$/i.test(strippedMarker)) {
       continue;
     }
 
@@ -505,7 +534,7 @@ export function parseSlides(htmlContent, rawText = "") {
       let curr = h.nextElementSibling;
 
       while (curr && curr !== nextHeader && !headerEls.includes(curr)) {
-        const rawElText = (curr.innerText || curr.textContent || "").trim();
+        const rawElText = getElementCleanText(curr);
         if (rawElText) {
           sectionRawLines.push(rawElText);
         }
@@ -558,7 +587,7 @@ export function parseSlides(htmlContent, rawText = "") {
           }
         } else if (curr.tagName === "UL" || curr.tagName === "OL") {
           Array.from(curr.querySelectorAll("li")).forEach(li => {
-            const txt = (li.innerText || li.textContent || "").trim();
+            const txt = getElementCleanText(li);
             if (txt) {
               const b = `• ${txt.replace(/^[-•*]\s*/, "")}`;
               allBodyLines.push(b);
@@ -566,7 +595,7 @@ export function parseSlides(htmlContent, rawText = "") {
             }
           });
         } else {
-          const txt = (curr.innerText || curr.textContent || "").trim();
+          const txt = getElementCleanText(curr);
           if (txt) {
             allBodyLines.push(txt);
             if (!/^(?:Subtitle|Color|Visual|Title Size|Subtitle Size):/i.test(txt)) {
@@ -604,6 +633,47 @@ export function parseSlides(htmlContent, rawText = "") {
               sectionVisualData = parsed;
             }
           } catch (_) {}
+        }
+      }
+
+      // Fallback: Check for Markdown-style Before / After Comparison
+      if (!sectionVisualType && /BEFORE\s*:/i.test(sectionCombinedText) && /AFTER\s*:/i.test(sectionCombinedText)) {
+        try {
+          const beforeMatch = sectionCombinedText.match(/(?:🔴\s*)?BEFORE\s*:\s*([^\n]+)([\s\S]*?)(?:(?:🟢\s*)?AFTER\s*:\s*([^\n]+)([\s\S]*?))(?=(?:💡\s*Strategic Takeaway|Takeaway:|$))/i);
+          if (beforeMatch) {
+            const beforeTitle = beforeMatch[1].replace(/^[#*_`\s]+|[#*_`\s]+$/g, '').trim();
+            const beforeRaw = beforeMatch[2].trim();
+            const afterTitle = beforeMatch[3].replace(/^[#*_`\s]+|[#*_`\s]+$/g, '').trim();
+            const afterRaw = beforeMatch[4].trim();
+
+            const parseBullets = (raw) => {
+              return raw
+                .split(/\n+/)
+                .map(l => l.replace(/^[-•*]\s*/, '').trim())
+                .filter(l => l.length > 5 && !/^(?:Takeaway|💡|Verified)/i.test(l));
+            };
+
+            const beforeBullets = parseBullets(beforeRaw);
+            const afterBullets = parseBullets(afterRaw);
+
+            if (beforeBullets.length > 0 || afterBullets.length > 0) {
+              sectionVisualType = "before_after";
+              sectionVisualData = {
+                title: title,
+                subtitle: sectionSubtitle,
+                before: {
+                  title: beforeTitle || "Current State / Challenges",
+                  bullets: beforeBullets
+                },
+                after: {
+                  title: afterTitle || "Target State / Transformation",
+                  bullets: afterBullets
+                }
+              };
+            }
+          }
+        } catch (e) {
+          console.warn("Error parsing markdown before/after visual:", e);
         }
       }
 
@@ -1038,6 +1108,47 @@ export function parseSlides(htmlContent, rawText = "") {
                 blockVisualData = p;
               }
             } catch (_) {}
+          }
+        }
+
+        // Fallback: Check for Markdown-style Before / After Comparison
+        if (!blockVisualType && /BEFORE\s*:/i.test(block) && /AFTER\s*:/i.test(block)) {
+          try {
+            const beforeMatch = block.match(/(?:🔴\s*)?BEFORE\s*:\s*([^\n]+)([\s\S]*?)(?:(?:🟢\s*)?AFTER\s*:\s*([^\n]+)([\s\S]*?))(?=(?:💡\s*Strategic Takeaway|Takeaway:|$))/i);
+            if (beforeMatch) {
+              const beforeTitle = beforeMatch[1].replace(/^[#*_`\s]+|[#*_`\s]+$/g, '').trim();
+              const beforeRaw = beforeMatch[2].trim();
+              const afterTitle = beforeMatch[3].replace(/^[#*_`\s]+|[#*_`\s]+$/g, '').trim();
+              const afterRaw = beforeMatch[4].trim();
+
+              const parseBullets = (raw) => {
+                return raw
+                  .split(/\n+/)
+                  .map(l => l.replace(/^[-•*]\s*/, '').trim())
+                  .filter(l => l.length > 5 && !/^(?:Takeaway|💡|Verified)/i.test(l));
+              };
+
+              const beforeBullets = parseBullets(beforeRaw);
+              const afterBullets = parseBullets(afterRaw);
+
+              if (beforeBullets.length > 0 || afterBullets.length > 0) {
+                blockVisualType = "before_after";
+                blockVisualData = {
+                  title: title,
+                  subtitle: parsed.subtitle,
+                  before: {
+                    title: beforeTitle || "Current State / Challenges",
+                    bullets: beforeBullets
+                  },
+                  after: {
+                    title: afterTitle || "Target State / Transformation",
+                    bullets: afterBullets
+                  }
+                };
+              }
+            }
+          } catch (e) {
+            console.warn("Error parsing markdown before/after visual in Strategy 5:", e);
           }
         }
 
