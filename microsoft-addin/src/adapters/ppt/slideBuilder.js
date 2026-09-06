@@ -80,27 +80,37 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 1920, maxHeight
 
 /**
  * Accurately estimates rendered height of a native PowerPoint table based on word-wrapping.
- * Reflects PowerPoint's default 18pt font and cell padding.
+ * Reflects PowerPoint's default 18pt font, cell margins (7.2pt each side), and line height.
  */
 function estimateTableRenderedHeight(tableData, colWidth = 280) {
   if (!tableData) return 0;
   const headers = tableData.headers || [];
   const rows = tableData.rows || [];
   
-  // Character width at 18pt is ~10pt. Minimum cell padding is ~14pt.
-  const charsPerLine = Math.max(8, Math.floor(colWidth / 10));
+  // PowerPoint table cell horizontal padding is ~14.4pt (7.2pt each side).
+  // At 18pt font in Segoe UI / Calibri, average character width is ~11.5pt.
+  const usableColWidth = Math.max(40, colWidth - 18);
+  const charsPerLine = Math.max(5, Math.floor(usableColWidth / 11.5));
   
   let totalHeight = 0;
   if (headers.length > 0) {
-    const maxHeaderChars = Math.max(...headers.map(h => String(h || "").trim().length), 0);
-    const headerLines = Math.max(1, Math.ceil(maxHeaderChars / charsPerLine));
-    totalHeight += Math.max(38, headerLines * 22 + 16);
+    let maxHeaderLines = 1;
+    for (const h of headers) {
+      const hText = String(h || "").trim();
+      const lines = Math.max(1, Math.ceil(hText.length / charsPerLine));
+      if (lines > maxHeaderLines) maxHeaderLines = lines;
+    }
+    totalHeight += Math.max(44, maxHeaderLines * 26 + 18);
   }
 
   for (const row of rows) {
-    const maxChars = Math.max(...row.map(c => String(c !== undefined && c !== null ? c : "").trim().length), 0);
-    const approxLines = Math.max(1, Math.ceil(maxChars / charsPerLine));
-    const rowHeight = Math.max(34, approxLines * 22 + 14);
+    let maxLinesInRow = 1;
+    for (const cell of row) {
+      const cellText = String(cell !== undefined && cell !== null ? cell : "").trim();
+      const lines = Math.max(1, Math.ceil(cellText.length / charsPerLine));
+      if (lines > maxLinesInRow) maxLinesInRow = lines;
+    }
+    const rowHeight = Math.max(40, maxLinesInRow * 26 + 18);
     totalHeight += rowHeight;
   }
   return totalHeight;
@@ -682,24 +692,40 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
           newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop, effectiveTableHeight, tableWidth
         );
 
-        // Only place bottom text if there is safe vertical space (>= 60pt) below the table
+        // Only place bottom text if there is safe vertical space (>= 65pt) below the table
         const notesTop = contentTop + realTableHeight + 16;
         const availableSpace = 515 - notesTop;
 
-        if (hasBottomText && availableSpace >= 60 && (!hasImages || rowCount <= 4)) {
-          const notesHeight = Math.min(availableSpace, 200);
-          const notesBox = newSlide.shapes.addTextBox(bottomContent, {
+        if (hasBottomText && availableSpace >= 65 && (!hasImages || rowCount <= 4)) {
+          let textToRender = bottomContent;
+          if (hasImages) {
+            // When a chart image occupies the right half of the slide, the left column cannot fit both
+            // a multi-row table and multiple long paragraphs. Distill to a crisp executive callout card.
+            if (hasTakeaway) {
+              textToRender = `💡 Strategic Takeaway: ${takeaway}`;
+            } else {
+              const bullets = bottomContent.split(/\n+/).map(l => l.trim()).filter(Boolean);
+              const primaryBullet = bullets[0] ? bullets[0].replace(/^[-•*]\s*/, "") : bottomContent;
+              textToRender = `💡 Key Insight: ${primaryBullet}`;
+            }
+            if (textToRender.length > 220) {
+              textToRender = textToRender.substring(0, 215) + "…";
+            }
+          }
+
+          const notesHeight = Math.min(availableSpace - 8, hasImages ? 130 : 200);
+          const notesBox = newSlide.shapes.addTextBox(textToRender, {
             left: 50,
             top: notesTop,
             width: tableWidth,
             height: notesHeight
           });
           notesBox.textFrame.wordWrap = true;
-          notesBox.textFrame.textRange.font.size = hasImages ? 10.5 : 12;
-          notesBox.textFrame.textRange.font.italic = hasTakeaway;
+          notesBox.textFrame.textRange.font.size = hasImages ? 11 : 12;
+          notesBox.textFrame.textRange.font.italic = hasImages || hasTakeaway;
           try {
-            if (hasTakeaway) {
-              notesBox.textFrame.textRange.getSubstring(0, 22).font.bold = true;
+            if (hasTakeaway || (hasImages && textToRender.startsWith("💡"))) {
+              notesBox.textFrame.textRange.getSubstring(0, 16).font.bold = true;
             }
           } catch (_) {}
 
@@ -728,17 +754,18 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
     } else {
       // Non-table slide: Bullets + optional Takeaway card at the bottom
       const bodyHeight = hasTakeaway ? 280 : 380;
-      const bodyBox = newSlide.shapes.addTextBox(bodyTextContent, {
+      const bulletBox = newSlide.shapes.addTextBox(slideData.body || "• Executive slide content", {
         left: 50,
         top: contentTop,
         width: hasImages ? 400 : 860,
         height: bodyHeight
       });
-      bodyBox.textFrame.textRange.font.size = 16;
+      bulletBox.textFrame.wordWrap = true;
+      bulletBox.textFrame.textRange.font.size = hasImages ? 13.5 : 15;
 
-      // Format bullet points with bold lead-ins for key points before colons or dashes
+      // Format bold lead-ins for paragraphs
       try {
-        const paragraphs = bodyBox.textFrame.textRange.paragraphs;
+        const paragraphs = bulletBox.textFrame.textRange.paragraphs;
         paragraphs.load("items/text");
         await context.sync();
         if (paragraphs.items) {
@@ -755,9 +782,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
             }
           }
         }
-      } catch (boldErr) {
-        console.warn("Lead-in bolding notice:", boldErr);
-      }
+      } catch (_) {}
 
       // Render dedicated Executive Takeaway Callout Box at bottom
       if (hasTakeaway) {
@@ -780,9 +805,10 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
         if (clean.length > 50) {
           const imgLeft = 470;
-          const imgTop = contentTop;
           const imgWidth = 440;
-          const imgHeight = Math.min(380, 515 - contentTop);
+          // Maintain exact 16:10 aspect ratio of the 800x500 canvas to prevent vertical distortion and blurriness
+          const imgHeight = Math.min(320, Math.round(imgWidth * (500 / 800))); // ~275pt
+          const imgTop = contentTop + 10;
 
           let picInserted = false;
           // Strategy 1: Standard PowerPoint Office.js shapes.addPicture(base64, options)
@@ -795,6 +821,9 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
                 height: imgHeight
               });
               if (pic) {
+                if (pic.lineFormat) {
+                  try { pic.lineFormat.visible = false; } catch (_) {}
+                }
                 picInserted = true;
                 logToPPTConsole(`Slide ${slideNum}: Added chart picture via shapes.addPicture.`);
               }
@@ -810,6 +839,9 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
                   height: imgHeight
                 });
                 if (pic2) {
+                  if (pic2.lineFormat) {
+                    try { pic2.lineFormat.visible = false; } catch (_) {}
+                  }
                   picInserted = true;
                   logToPPTConsole(`Slide ${slideNum}: Added chart picture via rawImg addPicture.`);
                 }
@@ -829,22 +861,32 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
                   width: imgWidth,
                   height: imgHeight
                 });
-                if (rect && rect.fill) {
-                  if (typeof rect.fill.setImage === "function") {
-                    rect.fill.setImage(clean);
-                    picInserted = true;
-                  } else if (typeof rect.fill.setPictureFromBase64 === "function") {
-                    rect.fill.setPictureFromBase64(clean);
-                    picInserted = true;
+                if (rect) {
+                  // Explicitly remove the default black shape border
+                  if (rect.lineFormat) {
+                    try {
+                      rect.lineFormat.visible = false;
+                      rect.lineFormat.weight = 0;
+                      rect.lineFormat.color = "#ffffff";
+                    } catch (_) {}
+                  }
+                  if (rect.line) {
+                    try {
+                      rect.line.visible = false;
+                    } catch (_) {}
+                  }
+                  if (rect.fill) {
+                    if (typeof rect.fill.setImage === "function") {
+                      rect.fill.setImage(clean);
+                      picInserted = true;
+                    } else if (typeof rect.fill.setPictureFromBase64 === "function") {
+                      rect.fill.setPictureFromBase64(clean);
+                      picInserted = true;
+                    }
                   }
                 }
-                if (rect && rect.line) {
-                  try {
-                    rect.line.visible = false;
-                  } catch (_) {}
-                }
                 if (picInserted) {
-                  logToPPTConsole(`Slide ${slideNum}: Added chart picture via shape fill.`);
+                  logToPPTConsole(`Slide ${slideNum}: Added chart picture via shape fill (border hidden, 16:10 aspect).`);
                 }
               }
             } catch (fillErr) {
