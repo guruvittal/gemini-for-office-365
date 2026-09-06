@@ -650,6 +650,16 @@ export function parseSlides(htmlContent, rawText = "") {
         cleanAdditionalBody = filteredBullets.join("\n\n");
       }
 
+      // A slide with a table must never have images
+      let slideImgs = [];
+      if (!sectionTableData) {
+        if (sectionImgs.length > 0) {
+          slideImgs = sectionImgs;
+        } else if (allImages.length > 0 && headerEls.length === 1) {
+          slideImgs = allImages;
+        }
+      }
+
       slides.push({
         slideNumber: i + 1,
         title: title,
@@ -664,7 +674,7 @@ export function parseSlides(htmlContent, rawText = "") {
         body: parsedAll.body,
         additionalBody: cleanAdditionalBody,
         tableData: sectionTableData,
-        base64Images: sectionImgs.length > 0 ? sectionImgs : (allImages.length > 0 && i === 0 ? allImages : [])
+        base64Images: slideImgs
       });
     }
 
@@ -1159,8 +1169,29 @@ function finalizeSlides(slides, allImages = [], rawText = "") {
     finalSlides = finalSlides.slice(0, requestedCount);
   }
 
+  const seenImageSignatures = new Set();
   finalSlides.forEach((s, idx) => {
     s.slideNumber = idx + 1;
+
+    // Rule 1: Table slides must NEVER have an image or chart (Executive Table standard)
+    if (s.tableData && s.tableData.rows && s.tableData.rows.length > 0) {
+      s.base64Images = [];
+      return;
+    }
+
+    // Rule 2: Deduplicate images across all slides in the deck
+    if (s.base64Images && s.base64Images.length > 0) {
+      const uniqueImgs = [];
+      for (const img of s.base64Images) {
+        if (!img || typeof img !== "string" || img.length < 50) continue;
+        const sig = `${img.length}_${img.substring(0, 60)}_${img.substring(Math.max(0, img.length - 60))}`;
+        if (!seenImageSignatures.has(sig)) {
+          seenImageSignatures.add(sig);
+          uniqueImgs.push(img);
+        }
+      }
+      s.base64Images = uniqueImgs;
+    }
   });
 
   return finalSlides;

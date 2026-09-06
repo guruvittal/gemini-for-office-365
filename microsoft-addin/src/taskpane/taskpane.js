@@ -152,13 +152,17 @@ Office.onReady(async (info) => {
   }
 
   // Attach selection change handler for in-document detection & adaptive toolbar
-  try {
-    Office.context.document.addHandlerAsync(
-      Office.EventType.DocumentSelectionChanged,
-      () => handleSelectionChanged()
-    );
-  } catch (e) {
-    console.warn("Could not attach selection handler:", e);
+  // In PowerPoint, listening to DocumentSelectionChanged causes PowerPoint Online to capture pointer events
+  // during thumbnail navigation, leading to unwanted slide drag-and-drop behavior. Skip for PowerPoint.
+  if (hostAdapter && hostAdapter.name !== "PowerPoint") {
+    try {
+      Office.context.document.addHandlerAsync(
+        Office.EventType.DocumentSelectionChanged,
+        () => handleSelectionChanged()
+      );
+    } catch (e) {
+      console.warn("Could not attach selection handler:", e);
+    }
   }
   // Wire interactive sign-in click on user profile badge
   const userAuthBadge = document.getElementById("userAuthBadge");

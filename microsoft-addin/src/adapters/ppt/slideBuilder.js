@@ -615,9 +615,13 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
   const additionalBody = slideData.additionalBody || "";
   const tableData = slideData.tableData || null;
 
-  const imagesToInsert = (slideData.compressedImages && slideData.compressedImages.length > 0)
-    ? slideData.compressedImages
-    : (slideData.base64Images || []);
+  // Table slides MUST NEVER have images or charts. Table is the primary focal visual (Executive Table format).
+  const hasTableData = Boolean(tableData && tableData.rows && tableData.rows.length > 0);
+  const imagesToInsert = hasTableData ? [] : (
+    (slideData.compressedImages && slideData.compressedImages.length > 0)
+      ? slideData.compressedImages
+      : (slideData.base64Images || [])
+  );
   const hasImages = imagesToInsert.length > 0;
 
   logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."${targetSlideId ? ' (in-place replacement)' : ''}`);
@@ -1034,30 +1038,41 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     logToPPTConsole(`Applying theme Blank layout to avoid template placeholders.`);
   }
 
-  // 3. If in replace mode, find currently selected slide ID so first slide replaces in-place
+  // 3. Find target slide ID for first slide:
+  // - If in replace mode, use the currently selected slide
+  // - If in insert mode BUT presentation currently has only 1 slide, reuse that single slide for slide 1 so we don't leave an empty initial slide!
   let activeSlideId = null;
-  if (isReplace) {
-    try {
-      await PowerPoint.run(async (context) => {
-        if (context.presentation.getSelectedSlides) {
-          const selected = context.presentation.getSelectedSlides();
-          selected.load("items/id");
-          await context.sync();
-          if (selected.items && selected.items.length > 0) {
-            activeSlideId = selected.items[0].id;
-          }
+  let shouldTargetFirstSlide = false;
+  try {
+    await PowerPoint.run(async (context) => {
+      const slides = context.presentation.slides;
+      const countResult = slides.getCount();
+      await context.sync();
+      if (countResult.value === 1) {
+        const onlySlide = slides.getItemAt(0);
+        onlySlide.load("id");
+        await context.sync();
+        activeSlideId = onlySlide.id;
+        shouldTargetFirstSlide = true;
+      } else if (isReplace && context.presentation.getSelectedSlides) {
+        const selected = context.presentation.getSelectedSlides();
+        selected.load("items/id");
+        await context.sync();
+        if (selected.items && selected.items.length > 0) {
+          activeSlideId = selected.items[0].id;
+          shouldTargetFirstSlide = true;
         }
-      });
-    } catch (selErr) {
-      console.warn("Could not determine selected slide for replace mode:", selErr);
-    }
+      }
+    });
+  } catch (selErr) {
+    console.warn("Could not determine selected/initial slide:", selErr);
   }
 
   // 4. Build each slide sequentially
   for (let i = 0; i < totalSlides; i++) {
     const slideData = slideStructures[i];
     const slideNum = i + 1;
-    const targetSlideId = (isReplace && i === 0 && activeSlideId) ? activeSlideId : null;
+    const targetSlideId = (shouldTargetFirstSlide && i === 0 && activeSlideId) ? activeSlideId : null;
 
     if (typeof onProgress === "function") {
       onProgress({

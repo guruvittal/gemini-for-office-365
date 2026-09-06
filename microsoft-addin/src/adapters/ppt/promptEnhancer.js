@@ -104,14 +104,18 @@ CRITICAL STRUCTURE CONTRACT FOR SLIDE GENERATION:${countConstraint}
 ## Slide {N}: [Relevant Emoji] [Title: MAX 3 TO 4 WORDS]
 ### [Contextual Subtitle / One-sentence Takeaway]
 
-[CONTENT AREA - Choose the single best format for the slide topic]:
-- For quantitative data / financial metrics: A clean, light Markdown Table (| Indicator | Metric | Impact |)
-- For data breakdowns / distributions: A structured JSON code block (\`\`\`json { "chartType": "doughnut|bar|pie", "title": "...", "data": [...] } \`\`\`)
-- For strategy, vision, narrative, or risks: 3 to 4 crisp executive bullet points with bold lead-ins (• **Theme**: Impactful description)
-- For side-by-side or KPI comparisons: A structured visual JSON code block with "visualType": "metric_grid_3col" or "before_after"
+[CONTENT AREA - CHOOSE EXACTLY ONE VISUAL OR CONTENT FORMAT PER SLIDE]:
+- For narrative, strategy, vision, or background: 3 to 4 crisp executive bullet points with bold lead-ins (• **Key Theme**: Impactful description).
+- For quantitative data / financial metrics: An Executive Markdown Table with 3 to 4 columns (| Dimension | Metric | Strategic Impact |) followed by 2 concise takeaway bullets. (NEVER put a chart on a table slide!).
+- For distribution / breakdown / share metrics: A structured JSON code block (\`\`\`json { "chartType": "doughnut|bar|pie", "title": "...", "data": [...] } \`\`\`) accompanied by 2-3 narrative bullet points. (NEVER put a table on a chart slide!).
+- For side-by-side or KPI comparisons: A structured visual JSON code block with "visualType": "metric_grid_3col" or "before_after".
 
-3. Do NOT output internal design metadata, font sizes (like "Title Size: 44"), hex colors (like "Color: #..."), or raw "Visual Concept:" labels. Keep the output clean, executive-ready presentation content.
-4. Separate every slide cleanly with a horizontal rule "---".
+3. CRITICAL VISUAL RULES:
+- EACH CHART MUST BE 100% UNIQUE: NEVER repeat or duplicate the same chart, metrics, or title across multiple slides. If a deck has 10 slides, at most 2 or 3 should contain a data chart, and each MUST cover a completely different topic and metric.
+- NEVER COMBINE A CHART AND A TABLE ON THE SAME SLIDE: A slide must feature EITHER a table OR a chart, NEVER both.
+- SLIDE 1 MUST BE AN INTRODUCTION SLIDE: Slide 1 should contain a clean title, subtitle, and 3 introductory narrative bullet points. Do NOT put charts or tables on Slide 1.
+4. Do NOT output internal design metadata, font sizes (like "Title Size: 44"), hex colors (like "Color: #..."), or raw "Visual Concept:" labels. Keep the output clean, executive-ready presentation content.
+5. Separate every slide cleanly with a horizontal rule "---".
 `;
     return `${userPrompt}\n\n${rules}`;
   }
