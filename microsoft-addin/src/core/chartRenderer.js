@@ -198,7 +198,7 @@ export function renderChartToDataUrl(spec, options = {}) {
 
   const width = options.width || 800;
   const height = options.height || 500;
-  const scale = 3; // Ultra-crisp 3x Retina scale for razor-sharp PowerPoint rendering
+  const scale = 4; // Ultra-crisp 4x Retina scale for 300+ DPI razor-sharp PowerPoint rendering
 
   const canvas = document.createElement('canvas');
   canvas.width = width * scale;
@@ -208,21 +208,23 @@ export function renderChartToDataUrl(spec, options = {}) {
   if (!ctx) return null;
 
   ctx.scale(scale, scale);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
   // Background
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, width, height);
 
   // Header: Title & Subtitle
-  ctx.fillStyle = '#1f1f1f';
-  ctx.font = 'bold 26px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
+  ctx.fillStyle = '#0f172a';
+  ctx.font = 'bold 30px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText(spec.title || 'Data Visualization', 40, 44);
+  ctx.fillText(spec.title || 'Data Visualization', 40, 48);
 
   if (spec.subtitle) {
-    ctx.fillStyle = '#5f6368';
-    ctx.font = 'italic 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
-    ctx.fillText(spec.subtitle, 40, 72);
+    ctx.fillStyle = '#64748b';
+    ctx.font = 'italic 17px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
+    ctx.fillText(spec.subtitle, 40, 78);
   }
 
   // Draw chart according to type
@@ -247,11 +249,11 @@ function drawPieOrDoughnutChart(ctx, spec, width, height, isDoughnut) {
   const data = spec.data;
   const total = data.reduce((sum, d) => sum + (d.value > 0 ? d.value : 0), 0) || 1;
 
-  const startY = spec.subtitle ? 90 : 70;
-  const availableHeight = height - startY - 30;
-  const centerX = width * 0.38;
+  const startY = spec.subtitle ? 96 : 76;
+  const availableHeight = height - startY - 24;
+  const centerX = width * 0.33;
   const centerY = startY + availableHeight / 2;
-  const radius = Math.min(centerX - 50, availableHeight / 2 - 16);
+  const radius = Math.min(centerX - 35, availableHeight / 2 - 10);
 
   let startAngle = -Math.PI / 2;
 
@@ -285,43 +287,43 @@ function drawPieOrDoughnutChart(ctx, spec, width, height, isDoughnut) {
     ctx.fill();
 
     // Inner total label
-    ctx.fillStyle = '#202124';
-    ctx.font = 'bold 22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('Total', centerX, centerY - 6);
-    ctx.font = 'bold 18px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    ctx.fillStyle = '#5f6368';
-    ctx.fillText(formatValue(total), centerX, centerY + 18);
+    ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#64748b';
+    ctx.fillText(formatValue(total), centerX, centerY + 20);
   }
 
   // Draw Legend on Right Side
-  const legendX = width * 0.66;
-  const itemHeight = Math.min(42, Math.floor((availableHeight - 10) / Math.max(data.length, 1)));
+  const legendX = width * 0.60;
+  const itemHeight = Math.min(56, Math.floor((availableHeight - 10) / Math.max(data.length, 1)));
   const legendStartY = centerY - (data.length * itemHeight) / 2;
 
   ctx.textAlign = 'left';
 
   data.forEach((item, idx) => {
-    const y = legendStartY + idx * itemHeight + 12;
+    const y = legendStartY + idx * itemHeight + 14;
     const color = item.color || PALETTE[idx % PALETTE.length];
     const pct = ((item.value / total) * 100).toFixed(1);
 
     // Color Swatch
     ctx.beginPath();
-    ctx.arc(legendX, y, 8, 0, 2 * Math.PI);
+    ctx.arc(legendX, y, 10, 0, 2 * Math.PI);
     ctx.fillStyle = color;
     ctx.fill();
 
     // Label
-    ctx.fillStyle = '#202124';
-    ctx.font = 'bold 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    const labelText = item.label.length > 20 ? item.label.substring(0, 18) + '…' : item.label;
-    ctx.fillText(labelText, legendX + 18, y + 4);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const labelText = item.label.length > 28 ? item.label.substring(0, 26) + '…' : item.label;
+    ctx.fillText(labelText, legendX + 22, y + 2);
 
     // Value & Pct
-    ctx.fillStyle = '#5f6368';
-    ctx.font = '14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    ctx.fillText(`${formatValue(item.value)} (${pct}%)`, legendX + 18, y + 22);
+    ctx.fillStyle = '#475569';
+    ctx.font = 'bold 17px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText(`${formatValue(item.value)} (${pct}%)`, legendX + 22, y + 26);
   });
 }
 
@@ -331,10 +333,10 @@ function drawPieOrDoughnutChart(ctx, spec, width, height, isDoughnut) {
 function drawBarChart(ctx, spec, width, height) {
   const data = spec.data;
   const maxVal = Math.max(...data.map(d => d.value), 1);
-  const startY = spec.subtitle ? 90 : 70;
-  const availableHeight = height - startY - 40;
-  const barHeight = Math.min(34, Math.floor((availableHeight - 10) / data.length) - 10);
-  const leftMargin = 180;
+  const startY = spec.subtitle ? 96 : 76;
+  const availableHeight = height - startY - 36;
+  const barHeight = Math.min(40, Math.floor((availableHeight - 10) / data.length) - 10);
+  const leftMargin = 190;
   const maxBarWidth = width - leftMargin - 120;
 
   data.forEach((item, idx) => {
@@ -343,27 +345,27 @@ function drawBarChart(ctx, spec, width, height) {
     const color = item.color || PALETTE[idx % PALETTE.length];
 
     // Label
-    ctx.fillStyle = '#202124';
-    ctx.font = 'bold 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 17px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     ctx.textAlign = 'right';
     const labelText = item.label.length > 22 ? item.label.substring(0, 20) + '…' : item.label;
-    ctx.fillText(labelText, leftMargin - 14, y + barHeight / 2 + 5);
+    ctx.fillText(labelText, leftMargin - 16, y + barHeight / 2 + 6);
 
     // Bar background track
-    ctx.fillStyle = '#f1f3f4';
-    drawRoundedRect(ctx, leftMargin, y, maxBarWidth, barHeight, 4);
+    ctx.fillStyle = '#f1f5f9';
+    drawRoundedRect(ctx, leftMargin, y, maxBarWidth, barHeight, 6);
     ctx.fill();
 
     // Bar fill
     ctx.fillStyle = color;
-    drawRoundedRect(ctx, leftMargin, y, barWidth, barHeight, 4);
+    drawRoundedRect(ctx, leftMargin, y, barWidth, barHeight, 6);
     ctx.fill();
 
     // Value label
-    ctx.fillStyle = '#202124';
-    ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(formatValue(item.value), leftMargin + barWidth + 10, y + barHeight / 2 + 5);
+    ctx.fillText(formatValue(item.value), leftMargin + barWidth + 12, y + barHeight / 2 + 6);
   });
 }
 

@@ -441,7 +441,14 @@ export function parseSlides(htmlContent, rawText = "") {
       });
     }
 
-    if (slides.length >= 1) return slides;
+    if (slides.length >= 1) {
+      // If the first slide is an Executive Summary, strictly enforce 1 single slide
+      const firstTitle = (slides[0].title || "").toLowerCase();
+      if (slides.length > 1 && (firstTitle.includes("executive slide summary") || (firstTitle.includes("executive") && firstTitle.includes("summary")))) {
+        return [slides[0]];
+      }
+      return slides;
+    }
   }
 
   // -------------------------------------------------------------

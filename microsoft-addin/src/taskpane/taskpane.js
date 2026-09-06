@@ -742,7 +742,9 @@ async function runPowerPointSlideAction(actionType) {
       break;
     case "summarize":
     case "takeaways":
-      taskInstruction = `Based on the context from the ${slideLabel} provided below, create an executive summary slide. Create content for a new PowerPoint slide titled "📊 Executive Slide Summary" highlighting high-impact findings, core metrics, and strategic implications.`;
+      taskInstruction = `Based on the context from the ${slideLabel} provided below, create EXACTLY ONE executive summary slide.
+CRITICAL CONSTRAINT: You must output ONLY ONE SINGLE SLIDE. Do NOT generate multiple slides.
+Create content for a new PowerPoint slide titled "📊 Executive Slide Summary" highlighting high-impact findings, core metrics, and strategic implications.`;
       displayBubble = `📊 [Summarize Slides] Generating executive summary slide from ${slideLabel}...`;
       break;
     case "action_items":

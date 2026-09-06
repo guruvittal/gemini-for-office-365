@@ -266,18 +266,22 @@ function extractImagesFromObject(obj, targetList) {
 
   // 1. Blob object with base64 data
   if (obj.blob && (obj.blob.data || obj.blob.bytesBase64Encoded)) {
-    const mime = obj.blob.mimeType || 'image/png';
-    const b64 = obj.blob.data || obj.blob.bytesBase64Encoded;
-    const uri = `data:${mime};base64,${b64}`;
-    if (!targetList.includes(uri)) targetList.push(uri);
+    const mime = obj.blob.mimeType || '';
+    if (mime.startsWith('image/')) {
+      const b64 = obj.blob.data || obj.blob.bytesBase64Encoded;
+      const uri = `data:${mime};base64,${b64}`;
+      if (!targetList.includes(uri)) targetList.push(uri);
+    }
   }
 
   // 2. inlineData with base64 data
   if (obj.inlineData && (obj.inlineData.data || obj.inlineData.bytesBase64Encoded)) {
-    const mime = obj.inlineData.mimeType || 'image/png';
-    const b64 = obj.inlineData.data || obj.inlineData.bytesBase64Encoded;
-    const uri = `data:${mime};base64,${b64}`;
-    if (!targetList.includes(uri)) targetList.push(uri);
+    const mime = obj.inlineData.mimeType || '';
+    if (mime.startsWith('image/')) {
+      const b64 = obj.inlineData.data || obj.inlineData.bytesBase64Encoded;
+      const uri = `data:${mime};base64,${b64}`;
+      if (!targetList.includes(uri)) targetList.push(uri);
+    }
   }
 
   // 3. Object with image mimeType and data
