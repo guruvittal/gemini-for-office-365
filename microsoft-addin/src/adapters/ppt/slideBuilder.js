@@ -645,6 +645,24 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
     }
 
     if (!newSlide) {
+      // 1. Snapshot all existing slide IDs so we can accurately locate the exact newly added slide
+      slides.load("items/id");
+      await context.sync();
+      const existingIds = new Set((slides.items || []).map(s => s.id));
+      const preCount = slides.items ? slides.items.length : 0;
+
+      // 2. If slides already exist, set selection to the last slide so PowerPoint inserts AFTER it
+      if (preCount > 0) {
+        const lastExistingSlide = slides.items[preCount - 1];
+        try {
+          if (typeof context.presentation.setSelectedSlides === "function") {
+            context.presentation.setSelectedSlides([lastExistingSlide.id]);
+            await context.sync();
+          }
+        } catch (_) {}
+      }
+
+      // 3. Add the new slide
       let added = false;
       if (layoutOptions) {
         try {
@@ -659,9 +677,38 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         slides.add();
       }
 
-      const countResult = slides.getCount();
+      // 4. Reload slide IDs to locate the exact newly added slide
+      slides.load("items/id");
       await context.sync();
-      newSlide = slides.getItemAt(countResult.value - 1);
+
+      let newlyAddedSlide = (slides.items || []).find(s => !existingIds.has(s.id));
+      if (!newlyAddedSlide) {
+        newlyAddedSlide = slides.getItemAt(slides.items.length - 1);
+      }
+      newSlide = newlyAddedSlide;
+
+      // 5. Ensure the new slide is moved to the end of the presentation if PowerPoint placed it elsewhere
+      const totalCount = slides.items ? slides.items.length : 0;
+      const currentIndex = (slides.items || []).indexOf(newSlide);
+      if (currentIndex !== -1 && currentIndex < totalCount - 1) {
+        if (typeof newSlide.moveTo === "function") {
+          try {
+            newSlide.moveTo(totalCount - 1);
+            await context.sync();
+          } catch (mErr) {
+            console.warn("moveTo end notice:", mErr);
+          }
+        }
+      }
+
+      // 6. Set selection to the new slide so any subsequent slide insertion naturally appends after it
+      try {
+        if (typeof context.presentation.setSelectedSlides === "function") {
+          context.presentation.setSelectedSlides([newSlide.id]);
+          await context.sync();
+        }
+      } catch (_) {}
+
       newSlide.shapes.load("items/name, items/type");
       await context.sync();
     }
@@ -844,6 +891,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
       // Non-table slide: Bullets + optional Takeaway card at the bottom
       const rawBody = (slideData.body || "").trim();
       const isIntroOrEmpty = !rawBody || rawBody.toLowerCase().startsWith("here is the image") || rawBody === "• Executive slide content";
+      const isNarrativeSlide = !hasTable && !hasImages && slideData.visualType !== "metric_grid_3col" && slideData.visualType !== "before_after";
 
       if (!isIntroOrEmpty || !hasImages) {
         // Strip any residual pseudo-visual marker lines
@@ -855,38 +903,85 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
           })
           .join('\n');
 
-        const { cleanText, parsedParagraphs } = parseMarkdownFormatting(filteredBody);
+        const { parsedParagraphs } = parseMarkdownFormatting(filteredBody);
 
-        // Cap bullets when a takeaway box is present at top: 395 so text never collides
-        let finalParagraphs = parsedParagraphs;
-        if (hasTakeaway && parsedParagraphs.length > 4) {
-          finalParagraphs = parsedParagraphs.slice(0, 4);
+        // Filter out empty lines to prevent excessive vertical spacing and premature slicing
+        const meaningfulParagraphs = parsedParagraphs.filter(p => (p.cleanText || "").trim().length > 0);
+        let finalParagraphs = meaningfulParagraphs;
+        if (hasTakeaway && finalParagraphs.length > 4) {
+          finalParagraphs = finalParagraphs.slice(0, 4);
+        } else if (!hasTakeaway && finalParagraphs.length > 5) {
+          finalParagraphs = finalParagraphs.slice(0, 5);
         }
-        const finalCleanText = finalParagraphs.map(p => p.cleanText || p.text || "").join('\n\n');
 
-        const bulletBox = newSlide.shapes.addTextBox(finalCleanText, {
-          left: 50,
-          top: contentTop,
-          width: hasImages ? 400 : 860,
-          height: hasTakeaway ? 260 : 380
+        const finalCleanText = finalParagraphs.map(p => p.cleanText.trim()).join('\n\n');
+        const { cleanText: reClean, parsedParagraphs: cleanParagraphs } = parseMarkdownFormatting(finalCleanText);
+
+        // Render soft executive container card behind narrative bullets
+        if (isNarrativeSlide) {
+          try {
+            if (typeof newSlide.shapes.addGeometricShape === "function" && PowerPoint.GeometricShapeType) {
+              const cardBg = newSlide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.roundRectangle, {
+                left: 48,
+                top: contentTop,
+                width: 864,
+                height: hasTakeaway ? 270 : 365
+              });
+              if (cardBg.fill && typeof cardBg.fill.setSolidColor === "function") {
+                cardBg.fill.setSolidColor("#F8FAFC");
+              }
+              if (cardBg.line) {
+                cardBg.line.color = "#E2E8F0";
+                cardBg.line.weight = 1;
+              }
+            }
+          } catch (_) {}
+        }
+
+        const bulletBox = newSlide.shapes.addTextBox(reClean, {
+          left: isNarrativeSlide ? 68 : 50,
+          top: isNarrativeSlide ? (contentTop + 14) : contentTop,
+          width: isNarrativeSlide ? 824 : (hasImages ? 400 : 860),
+          height: isNarrativeSlide ? (hasTakeaway ? 242 : 337) : (hasTakeaway ? 260 : 380)
         });
         bulletBox.textFrame.wordWrap = true;
-        bulletBox.textFrame.textRange.font.size = hasImages ? 13.5 : (hasTakeaway && finalParagraphs.length >= 4 ? 13.5 : 15);
-        await applyParagraphFormatting(bulletBox, finalParagraphs, context);
+        bulletBox.textFrame.textRange.font.size = hasImages ? 13.5 : (hasTakeaway && cleanParagraphs.length >= 4 ? 13.5 : 14.5);
+        bulletBox.textFrame.textRange.font.color = "#1E293B";
+        await applyParagraphFormatting(bulletBox, cleanParagraphs, context);
       }
 
       // Render dedicated Executive Takeaway Callout Box at bottom
       if (hasTakeaway) {
+        try {
+          if (typeof newSlide.shapes.addGeometricShape === "function" && PowerPoint.GeometricShapeType) {
+            const takeawayBg = newSlide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.roundRectangle, {
+              left: 48,
+              top: 395,
+              width: 864,
+              height: 75
+            });
+            if (takeawayBg.fill && typeof takeawayBg.fill.setSolidColor === "function") {
+              takeawayBg.fill.setSolidColor("#EFF6FF");
+            }
+            if (takeawayBg.line) {
+              takeawayBg.line.color = "#BFDBFE";
+              takeawayBg.line.weight = 1;
+            }
+          }
+        } catch (_) {}
+
         const rawTakeaway = `💡 Strategic Takeaway: ${takeaway}`;
         const { cleanText, parsedParagraphs } = parseMarkdownFormatting(rawTakeaway);
         const takeawayBox = newSlide.shapes.addTextBox(cleanText, {
-          left: 50,
-          top: 395,
-          width: hasImages ? 400 : 860,
-          height: 75
+          left: 64,
+          top: 403,
+          width: 832,
+          height: 60
         });
-        takeawayBox.textFrame.textRange.font.size = 14;
+        takeawayBox.textFrame.wordWrap = true;
+        takeawayBox.textFrame.textRange.font.size = 13.5;
         takeawayBox.textFrame.textRange.font.italic = true;
+        takeawayBox.textFrame.textRange.font.color = "#1E40AF";
         await applyParagraphFormatting(takeawayBox, parsedParagraphs, context);
       }
     }

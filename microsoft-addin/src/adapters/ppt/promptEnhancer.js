@@ -111,9 +111,14 @@ CRITICAL STRUCTURE CONTRACT FOR SLIDE GENERATION:${countConstraint}
 - For side-by-side or KPI comparisons: A structured visual JSON code block with "visualType": "metric_grid_3col" or "before_after".
 
 3. CRITICAL VISUAL RULES:
-- EACH CHART MUST BE 100% UNIQUE: NEVER repeat or duplicate the same chart, metrics, or title across multiple slides. If a deck has 10 slides, at most 2 or 3 should contain a data chart, and each MUST cover a completely different topic and metric.
+- PRESENTATION DIVERSITY (Decks with 3+ slides): NEVER make every slide a plain bullet slide! A high-performing executive presentation MUST use varied layouts across slides:
+  * Slide 1: Executive introduction or strategic overview (clean title, subtitle, and 3 to 4 structured narrative bullets with bold lead-ins).
+  * Data & Metrics Slide: At least 1 slide MUST feature an Executive Markdown Table (3-4 columns) showing core metrics, dimensions, and strategic impacts.
+  * Quantitative or Comparative Slide: At least 1 slide SHOULD feature a structured Metric Grid ("visualType": "metric_grid_3col") or a Data Chart.
+  * Remaining Slides: Strategic pillars, roadmap, or before/after comparisons.
+- EACH CHART MUST BE 100% UNIQUE: NEVER repeat or duplicate the same chart, metrics, or title across multiple slides. If a deck has 5 to 10 slides, at most 2 should contain a data chart, and each MUST cover a completely different topic and metric.
 - NEVER COMBINE A CHART AND A TABLE ON THE SAME SLIDE: A slide must feature EITHER a table OR a chart, NEVER both.
-- SLIDE 1 MUST BE AN INTRODUCTION SLIDE: Slide 1 should contain a clean title, subtitle, and 3 introductory narrative bullet points. Do NOT put charts or tables on Slide 1.
+- SLIDE 1 MUST BE AN INTRODUCTION SLIDE: Slide 1 should contain a clean title, subtitle, and 3 to 4 introductory narrative bullet points. Do NOT put charts or tables on Slide 1.
 4. Do NOT output internal design metadata, font sizes (like "Title Size: 44"), hex colors (like "Color: #..."), or raw "Visual Concept:" labels. Keep the output clean, executive-ready presentation content.
 5. Separate every slide cleanly with a horizontal rule "---".
 `;
