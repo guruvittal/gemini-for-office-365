@@ -145,30 +145,59 @@ export function enhanceBubbleWithSlideDeck(bubbleEl, htmlContent, rawText, adapt
     card.className = "ppt-slide-card";
 
     let previewContent = "";
-    if (slide.tableData && slide.tableData.rows && slide.tableData.rows.length > 0) {
-      const headersHtml = (slide.tableData.headers || []).map(h => `<th style="padding: 4px 6px; background: #0078d4; color: #ffffff; font-weight: 600; text-align: left; font-size: 10.5px; border: 1px solid #c8c6c4;">${escapeHtml(h)}</th>`).join("");
+    if (slide.visualType === "metric_grid_3col" && slide.visualData && slide.visualData.cards) {
+      const cardsHtml = slide.visualData.cards.map(c => `
+        <div style="flex: 1; min-width: 70px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px; text-align: center;">
+          <div style="font-size: 16px; font-weight: 700; color: #0078d4;">${escapeHtml(c.metric || "")}</div>
+          <div style="font-size: 10px; font-weight: 700; color: #0f172a; margin-top: 2px;">${escapeHtml(c.title || "")}</div>
+        </div>
+      `).join("");
+      previewContent = `<div style="display: flex; gap: 6px; margin: 4px 0;">${cardsHtml}</div>`;
+      if (slide.body) {
+        previewContent += `<div style="white-space: pre-wrap; font-size: 10.5px; color: #475569; margin-top: 4px;">${escapeHtml(slide.body.trim())}</div>`;
+      }
+    } else if (slide.visualType === "before_after" && slide.visualData) {
+      previewContent = `
+        <div style="display: flex; gap: 6px; margin: 4px 0;">
+          <div style="flex: 1; background: #fff5f5; border: 1px solid #fed7d7; border-radius: 4px; padding: 6px;">
+            <div style="font-size: 10.5px; font-weight: 700; color: #c53030;">🔴 ${escapeHtml(slide.visualData.before?.title || "Before")}</div>
+          </div>
+          <div style="flex: 1; background: #f0fff4; border: 1px solid #c6f6d5; border-radius: 4px; padding: 6px;">
+            <div style="font-size: 10.5px; font-weight: 700; color: #276749;">🟢 ${escapeHtml(slide.visualData.after?.title || "After")}</div>
+          </div>
+        </div>
+      `;
+      if (slide.body) {
+        previewContent += `<div style="white-space: pre-wrap; font-size: 10.5px; color: #475569; margin-top: 4px;">${escapeHtml(slide.body.trim())}</div>`;
+      }
+    } else if (slide.tableData && slide.tableData.rows && slide.tableData.rows.length > 0) {
+      const headersHtml = (slide.tableData.headers || []).map(h => `<th style="padding: 4px 6px; background: #ffffff; color: #000000; font-weight: 700; text-align: left; font-size: 10px; border: 1px solid #165b7d; border-bottom: 2px solid #165b7d;">${escapeHtml(h)}</th>`).join("");
       const rowsHtml = slide.tableData.rows.map((r, rIdx) => {
-        const bg = rIdx % 2 === 1 ? '#f3f2f1' : '#ffffff';
-        const cells = r.map((c, cIdx) => `<td style="padding: 4px 6px; font-size: 10.5px; border: 1px solid #edebe9; ${cIdx === 0 ? 'font-weight: 600;' : ''}">${escapeHtml(c)}</td>`).join("");
+        const bg = rIdx % 2 === 0 ? '#e1edf5' : '#ffffff';
+        const cells = r.map((c, cIdx) => `<td style="padding: 4px 6px; font-size: 10px; border: 1px solid #165b7d; color: #000000; ${cIdx === 0 ? 'font-weight: 600;' : ''}">${escapeHtml(c)}</td>`).join("");
         return `<tr style="background: ${bg};">${cells}</tr>`;
       }).join("");
 
       previewContent = `
         <div style="overflow-x: auto; margin: 4px 0;">
-          <table style="width: 100%; border-collapse: collapse; border: 1px solid #c8c6c4; font-size: 10.5px; line-height: 1.3;">
+          <table style="width: 100%; border-collapse: collapse; border: 1px solid #165b7d; font-size: 10px; line-height: 1.3; background: #ffffff;">
             ${headersHtml ? `<thead><tr>${headersHtml}</tr></thead>` : ''}
             <tbody>${rowsHtml}</tbody>
           </table>
         </div>
       `;
       if (slide.additionalBody) {
-        previewContent += `<div style="white-space: pre-wrap; margin-top: 6px; font-size: 11px; color: #323130;">${escapeHtml(slide.additionalBody.trim())}</div>`;
+        previewContent += `<div style="white-space: pre-wrap; margin-top: 6px; font-size: 10.5px; color: #323130;">${escapeHtml(slide.additionalBody.trim())}</div>`;
       }
     } else {
       const previewBody = slide.body
         ? slide.body.trim()
         : "Full slide content & visual layout prepared.";
       previewContent = `<div style="white-space: pre-wrap;">${escapeHtml(previewBody)}</div>`;
+    }
+
+    if (slide.base64Images && slide.base64Images.length > 0 && !previewContent.includes("<img")) {
+      previewContent += `<div style="margin-top: 4px; text-align: center;"><img src="${slide.base64Images[0]}" style="max-height: 70px; border-radius: 4px; border: 1px solid #cbd5e1;" /></div>`;
     }
 
     card.innerHTML = `

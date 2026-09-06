@@ -170,31 +170,36 @@ export function parseMarkdownFormatting(rawContent) {
     while ((match = mdRegex.exec(rawLine)) !== null) {
       if (match[2] !== undefined) {
         // **bold**
-        const boldText = match[2];
+        const boldText = match[2].replace(/\*\*/g, "").replace(/__/g, "");
         const start = cleanText.length;
         cleanText += boldText;
         boldRanges.push({ start, length: boldText.length });
       } else if (match[3] !== undefined) {
         // __bold__
-        const boldText = match[3];
+        const boldText = match[3].replace(/\*\*/g, "").replace(/__/g, "");
         const start = cleanText.length;
         cleanText += boldText;
         boldRanges.push({ start, length: boldText.length });
       } else if (match[4] !== undefined) {
         // *italic*
-        const italicText = match[4];
+        const italicText = match[4].replace(/\*/g, "").replace(/_/g, "");
         const start = cleanText.length;
         cleanText += italicText;
         italicRanges.push({ start, length: italicText.length });
       } else if (match[5] !== undefined) {
         // _italic_
-        const italicText = match[5];
+        const italicText = match[5].replace(/\*/g, "").replace(/_/g, "");
         const start = cleanText.length;
         cleanText += italicText;
         italicRanges.push({ start, length: italicText.length });
       } else if (match[6] !== undefined) {
         cleanText += match[6];
       }
+    }
+
+    // Safety strip: eliminate any residual unparsed ** or __ from cleanText
+    if (cleanText.includes("**") || cleanText.includes("__")) {
+      cleanText = cleanText.replace(/\*\*/g, "").replace(/__/g, "");
     }
 
     // Expand bold range to include trailing colon or dash (e.g. "**Renewable Energy**:" or "**Key** —")
@@ -218,7 +223,7 @@ export function parseMarkdownFormatting(rawContent) {
     parsedParagraphs.push({ cleanText, boldRanges, italicRanges });
   }
 
-  const finalCleanText = cleanLines.join("\n");
+  const finalCleanText = cleanLines.join("\n").replace(/\*\*/g, "").replace(/__/g, "");
   return { cleanText: finalCleanText, parsedParagraphs };
 }
 
@@ -238,25 +243,27 @@ export async function applyParagraphFormatting(textBox, parsedParagraphs, contex
       let pIdx = 0;
       for (let i = 0; i < parsedParagraphs.length && pIdx < paragraphs.items.length; i++) {
         const parsed = parsedParagraphs[i];
-        if (!parsed.cleanText) {
+        if (!parsed.cleanText.trim()) {
           pIdx++;
           continue;
         }
 
         const p = paragraphs.items[pIdx];
         if (p && typeof p.getSubstring === "function") {
-          const pLen = (p.text || "").length;
+          // Apply bold ranges
           for (const b of parsed.boldRanges) {
             try {
-              if (b.start >= 0 && b.length > 0 && (b.start + b.length) <= pLen) {
+              if (b.length > 0 && b.start + b.length <= parsed.cleanText.length) {
                 const sub = p.getSubstring(b.start, b.length);
                 sub.font.bold = true;
               }
             } catch (_) {}
           }
+
+          // Apply italic ranges
           for (const it of parsed.italicRanges) {
             try {
-              if (it.start >= 0 && it.length > 0 && (it.start + it.length) <= pLen) {
+              if (it.length > 0 && it.start + it.length <= parsed.cleanText.length) {
                 const sub = p.getSubstring(it.start, it.length);
                 sub.font.italic = true;
               }
@@ -265,6 +272,7 @@ export async function applyParagraphFormatting(textBox, parsedParagraphs, contex
         }
         pIdx++;
       }
+      await context.sync();
     }
   } catch (err) {
     console.warn("Could not apply paragraph text formatting in PowerPoint:", err);
@@ -273,6 +281,7 @@ export async function applyParagraphFormatting(textBox, parsedParagraphs, contex
 
 /**
  * Populates a native Microsoft PowerPoint table using PowerPoint.js shapes.addTable().
+ * Configures an executive light theme (white header, crisp black text, soft ice-blue alternating rows, and clean borders).
  */
 function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, tableTop = 90, customHeight = null, customWidth = null, customLeft = 50) {
   const headers = tableData.headers || [];
@@ -301,6 +310,37 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
   const estimatedHeight = estimateTableRenderedHeight(tableData, approxColWidth);
   const tableHeight = customHeight || Math.min(380, Math.max(80, estimatedHeight));
 
+  // Executive Light Theme Properties (White header, bold black text, alternating soft ice-blue rows, and #165B7D borders)
+  const specificCellProperties = Array.from({ length: rowCount }, (_, r) =>
+    Array.from({ length: colCount }, (_, c) => {
+      const isHeader = r === 0 && headers.length > 0;
+      if (isHeader) {
+        return {
+          fill: { color: "#FFFFFF" },
+          font: { color: "#000000", bold: true, size: 11 },
+          borders: {
+            bottom: { color: "#165B7D", weight: 1.5 },
+            top: { color: "#165B7D", weight: 1 },
+            left: { color: "#165B7D", weight: 1 },
+            right: { color: "#165B7D", weight: 1 }
+          }
+        };
+      } else {
+        const isOddDataRow = (headers.length > 0 ? r : r + 1) % 2 === 1;
+        return {
+          fill: { color: isOddDataRow ? "#E1EDF5" : "#FFFFFF" },
+          font: { color: "#000000", bold: false, size: 10 },
+          borders: {
+            bottom: { color: "#165B7D", weight: 1 },
+            top: { color: "#165B7D", weight: 1 },
+            left: { color: "#165B7D", weight: 1 },
+            right: { color: "#165B7D", weight: 1 }
+          }
+        };
+      }
+    })
+  );
+
   let addedShape = null;
   try {
     if (typeof newSlide.shapes.addTable === "function") {
@@ -309,12 +349,23 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
         top: tableTop,
         width: tableWidth,
         height: tableHeight,
-        values: tableValues
+        values: tableValues,
+        uniformCellProperties: {
+          fill: { color: "#FFFFFF" },
+          font: { color: "#000000", size: 10 },
+          borders: {
+            bottom: { color: "#165B7D", weight: 1 },
+            top: { color: "#165B7D", weight: 1 },
+            left: { color: "#165B7D", weight: 1 },
+            right: { color: "#165B7D", weight: 1 }
+          }
+        },
+        specificCellProperties: specificCellProperties
       });
-      logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table (${rowCount} rows x ${colCount} cols, rendered height ~${estimatedHeight}pt).`);
+      logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table with light theme (${rowCount} rows x ${colCount} cols).`);
     }
   } catch (err) {
-    console.warn("shapes.addTable with options failed, trying basic addTable:", err);
+    console.warn("shapes.addTable with light theme options failed, trying basic addTable:", err);
   }
 
   if (!addedShape) {
@@ -349,22 +400,30 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
     }
   }
 
-  // Format table font size to 10-11pt so cells fit cleanly without extreme wrapping
+  // Format table font and background to ensure light executive theme across both Web and Desktop PowerPoint
   if (addedShape) {
     try {
       const table = addedShape.table || (typeof addedShape.getTable === "function" ? addedShape.getTable() : null);
       if (table) {
         for (let r = 0; r < tableValues.length; r++) {
+          const isHeader = r === 0 && headers.length > 0;
+          const isOddDataRow = (headers.length > 0 ? r : r + 1) % 2 === 1;
+          const rowBgColor = isHeader ? "#FFFFFF" : (isOddDataRow ? "#E1EDF5" : "#FFFFFF");
+
           for (let c = 0; c < colCount; c++) {
             try {
               const cell = (typeof table.getCell === "function")
                 ? table.getCell(r, c)
                 : (typeof table.getCellOrNullObject === "function" ? table.getCellOrNullObject(r, c) : null);
               if (cell) {
+                if (cell.fill && typeof cell.fill.setSolidColor === "function") {
+                  cell.fill.setSolidColor(rowBgColor);
+                }
                 const tr = cell.textRange || (cell.textFrame && cell.textFrame.textRange);
                 if (tr && tr.font) {
-                  tr.font.size = r === 0 ? 11 : 10;
-                  if (r === 0) tr.font.bold = true;
+                  tr.font.size = isHeader ? 11 : 10;
+                  tr.font.bold = isHeader;
+                  tr.font.color = "#000000";
                 }
               }
             } catch (_) {}

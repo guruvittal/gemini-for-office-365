@@ -11,6 +11,46 @@
  * 
  * @author Sathya AG, Principal Architect, Google
  */
+ import { parseChartSpec, renderChartToDataUrl } from '../../core/chartRenderer.js';
+
+/**
+ * Filters out duplicate bullet points that merely repeat rows or headers from an adjacent native table.
+ */
+export function filterDuplicateTableBullets(bullets, tableData) {
+  if (!tableData || !tableData.rows || tableData.rows.length === 0 || !bullets || bullets.length === 0) {
+    return bullets;
+  }
+
+  const tableKeywords = new Set();
+  (tableData.headers || []).forEach(h => {
+    const norm = String(h).toLowerCase().trim();
+    if (norm.length > 2) tableKeywords.add(norm);
+  });
+  tableData.rows.forEach(row => {
+    row.forEach(cell => {
+      const norm = String(cell).toLowerCase().trim();
+      if (norm.length > 2) tableKeywords.add(norm);
+    });
+  });
+
+  return bullets.filter(b => {
+    const raw = String(b).trim();
+    if (!raw) return false;
+    // Remove if it has pipe separators (markdown table remnants or synthetic bullets)
+    if (raw.includes(" | ") || raw.includes("|")) return false;
+    // Remove if it has table field labels
+    if (/\b(?:Share\s*%|Status|Metric|Detail|Implication)\s*:/i.test(raw)) return false;
+
+    // Remove if the bullet's core text heavily mirrors a table cell
+    const cleanNorm = raw.toLowerCase().replace(/[*_`•\-–—]/g, "").trim();
+    for (const kw of tableKeywords) {
+      if (cleanNorm === kw || (kw.length > 8 && cleanNorm.includes(kw) && /\d+%|\d+\b/.test(cleanNorm))) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
 
 export function extractSlideMetadataAndBullets(rawLines) {
   let subtitle = "";
@@ -38,12 +78,11 @@ export function extractSlideMetadataAndBullets(rawLines) {
     }
 
     // Check for Takeaway / Key Takeaway:
-    // Matches "_Takeaway: text_", "**Takeaway:** text", "Takeaway: text", "Key Takeaway: text"
-    const takeawayMatch = line.match(/^[-•*]*\s*[_*`\s]*(?:Key\s*)?Takeaway[_*`\s]*:\s*(.*)$/i);
-    if (takeawayMatch && !takeaway) {
-      const cleanTakeaway = takeawayMatch[1].replace(/^[#*_`\s]+|[#*_`\s]+$/g, "").trim();
-      if (cleanTakeaway) {
-        takeaway = cleanTakeaway;
+    const takeMatch = line.match(/^(?:(?:Key\s*)?Takeaway|Takeaway\s*Text):\s*(.*)$/i);
+    if (takeMatch && !takeaway) {
+      const cleanTake = takeMatch[1].replace(/^[#*_`\s]+|[#*_`\s]+$/g, "").trim();
+      if (cleanTake) {
+        takeaway = cleanTake;
         continue;
       }
     }
@@ -93,7 +132,9 @@ export function extractSlideMetadataAndBullets(rawLines) {
       continue;
     }
 
-    if (/^`+$/.test(line)) continue;
+    if (/^`+$/.test(line) || line.startsWith("```") || line.startsWith("{") || line.startsWith("}") || line.startsWith('"') || line.startsWith("|") || /^{.*}$/.test(line)) {
+      continue;
+    }
 
     // Clean bullet text:
     let cleanBullet = line
@@ -122,6 +163,9 @@ export function extractSlideMetadataAndBullets(rawLines) {
         (cleanBullet.startsWith("*") && cleanBullet.endsWith("*") && cleanBullet.length > 2)) {
       cleanBullet = cleanBullet.slice(1, -1).trim();
     }
+
+    // Strip any lingering unparsed markdown formatting markers
+    cleanBullet = cleanBullet.replace(/\*\*/g, "").replace(/__/g, "").trim();
 
     if (cleanBullet) {
       contentBullets.push(`•  ${cleanBullet}`);
@@ -322,7 +366,11 @@ export function parseSlides(htmlContent, rawText = "") {
     }
   }
 
-  if (visualPayload && (visualPayload.visualType === "metric_grid_3col" || visualPayload.visualType === "before_after")) {
+  // Only trigger single-slide Strategy 0 if this is NOT a multi-slide document
+  const isMultiSlideDoc = (tempDiv.querySelectorAll("h1, h2, h3").length >= 2) ||
+    ((rawText || "").match(/(?:^|\n)##\s+/g) || []).length >= 2;
+
+  if (!isMultiSlideDoc && visualPayload && (visualPayload.visualType === "metric_grid_3col" || visualPayload.visualType === "before_after")) {
     const isMetric = visualPayload.visualType === "metric_grid_3col";
     let formattedBody = "";
     if (isMetric) {
@@ -375,6 +423,7 @@ export function parseSlides(htmlContent, rawText = "") {
       const allBodyLines = [];
       const additionalBodyLines = [];
       const sectionImgs = [];
+      const sectionRawLines = [];
       let sectionSubtitle = "";
       let sectionTableData = null;
 
@@ -397,6 +446,11 @@ export function parseSlides(htmlContent, rawText = "") {
       let curr = h.nextElementSibling;
 
       while (curr && !["H1", "H2", "H3"].includes(curr.tagName)) {
+        const rawElText = (curr.innerText || curr.textContent || "").trim();
+        if (rawElText) {
+          sectionRawLines.push(rawElText);
+        }
+
         // Collect images inside this section
         const currImgs = Array.from(curr.querySelectorAll("img"))
           .map(img => img.src || img.getAttribute("src") || "")
@@ -459,8 +513,78 @@ export function parseSlides(htmlContent, rawText = "") {
         curr = curr.nextElementSibling;
       }
 
+      const sectionCombinedText = sectionRawLines.join("\n");
+      let sectionVisualType = null;
+      let sectionVisualData = null;
+
+      // Check for metric_grid_3col or before_after JSON
+      const sJsonBlocks = sectionCombinedText.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/gi) || [];
+      for (const block of sJsonBlocks) {
+        try {
+          const cleanBlock = block.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+          const parsed = JSON.parse(cleanBlock);
+          if (parsed && (parsed.visualType === "metric_grid_3col" || parsed.visualType === "before_after")) {
+            sectionVisualType = parsed.visualType;
+            sectionVisualData = parsed;
+            break;
+          }
+        } catch (_) {}
+      }
+      if (!sectionVisualType) {
+        const rawMatch = sectionCombinedText.match(/\{[\s\S]*?"visualType"\s*:\s*"(?:metric_grid_3col|before_after)"[\s\S]*?\}/);
+        if (rawMatch) {
+          try {
+            const parsed = JSON.parse(rawMatch[0]);
+            if (parsed && (parsed.visualType === "metric_grid_3col" || parsed.visualType === "before_after")) {
+              sectionVisualType = parsed.visualType;
+              sectionVisualData = parsed;
+            }
+          } catch (_) {}
+        }
+      }
+
+      // Check for chart spec in section text
+      const chartSpec = parseChartSpec(sectionCombinedText);
+      if (chartSpec) {
+        try {
+          const chartDataUri = renderChartToDataUrl(chartSpec);
+          if (chartDataUri && !sectionImgs.includes(chartDataUri)) {
+            sectionImgs.unshift(chartDataUri);
+          }
+        } catch (cErr) {
+          console.warn("Chart rendering warning in slide parser:", cErr);
+        }
+      }
+
+      // Check for markdown table in section text if not already found in DOM
+      if (!sectionTableData) {
+        const sMdTable = parseMarkdownTable(sectionCombinedText);
+        if (sMdTable && sMdTable.dataRows.length > 0) {
+          sectionTableData = {
+            headers: sMdTable.headers,
+            rows: sMdTable.dataRows
+          };
+        }
+      }
+
       const parsedAll = extractSlideMetadataAndBullets(allBodyLines);
       const parsedAdditional = extractSlideMetadataAndBullets(additionalBodyLines);
+
+      if (sectionVisualType === "metric_grid_3col" && sectionVisualData) {
+        parsedAll.body = (sectionVisualData.cards || []).map(c => `• ${c.metric || ''} ${c.title || ''}: ${(c.bullets || []).join('; ')}`).join('\n');
+      } else if (sectionVisualType === "before_after" && sectionVisualData) {
+        const beforeList = (sectionVisualData.before?.bullets || []).map(b => `  - ${b}`).join('\n');
+        const afterList = (sectionVisualData.after?.bullets || []).map(b => `  - ${b}`).join('\n');
+        parsedAll.body = `• 🔴 BEFORE: ${sectionVisualData.before?.title || 'Current State'}\n${beforeList}\n\n• 🟢 AFTER: ${sectionVisualData.after?.title || 'Target State'}\n${afterList}`;
+      }
+
+      // Deduplicate narrative bullets against native table if present
+      let cleanAdditionalBody = "";
+      if (sectionTableData && parsedAdditional.body !== "• Executive slide content") {
+        const rawBullets = parsedAdditional.body.split(/\n\n+/).filter(b => b.trim() && b.trim() !== "• Executive slide content");
+        const filteredBullets = filterDuplicateTableBullets(rawBullets, sectionTableData);
+        cleanAdditionalBody = filteredBullets.join("\n\n");
+      }
 
       slides.push({
         slideNumber: i + 1,
@@ -468,11 +592,13 @@ export function parseSlides(htmlContent, rawText = "") {
         subtitle: sectionSubtitle || parsedAll.subtitle,
         takeaway: parsedAll.takeaway,
         visualConcept: parsedAll.visualConcept,
+        visualType: sectionVisualType,
+        visualData: sectionVisualData,
         color: parsedAll.color,
         titleSize: parsedAll.titleSize,
         subtitleSize: parsedAll.subtitleSize,
         body: parsedAll.body,
-        additionalBody: (sectionTableData && parsedAdditional.body !== "• Executive slide content") ? parsedAdditional.body : "",
+        additionalBody: cleanAdditionalBody,
         tableData: sectionTableData,
         base64Images: sectionImgs.length > 0 ? sectionImgs : (allImages.length > 0 && i === 0 ? allImages : [])
       });
@@ -710,6 +836,16 @@ export function parseSlides(htmlContent, rawText = "") {
         }
       });
       const parsedExtra = extractSlideMetadataAndBullets(extraLines);
+      const tableData = {
+        headers: tbl.headers,
+        rows: tbl.dataRows
+      };
+      let cleanAdditionalBody = "";
+      if (parsedExtra.body !== "• Executive slide content") {
+        const rawBullets = parsedExtra.body.split(/\n\n+/).filter(b => b.trim() && b.trim() !== "• Executive slide content");
+        const filteredBullets = filterDuplicateTableBullets(rawBullets, tableData);
+        cleanAdditionalBody = filteredBullets.join("\n\n");
+      }
 
       return [{
         slideNumber: 1,
@@ -720,11 +856,8 @@ export function parseSlides(htmlContent, rawText = "") {
         titleSize: 36,
         subtitleSize: 20,
         body: tbl.bulletText,
-        additionalBody: parsedExtra.body !== "• Executive slide content" ? parsedExtra.body : "",
-        tableData: {
-          headers: tbl.headers,
-          rows: tbl.dataRows
-        },
+        additionalBody: cleanAdditionalBody,
+        tableData: tableData,
         base64Images: allImages
       }];
     }
@@ -739,6 +872,16 @@ export function parseSlides(htmlContent, rawText = "") {
     const cleanTitle = cleanSlideTitle(firstLine || "Comparison Table", 1);
     const nonTableLines = textLines.slice(1).filter(l => !l.startsWith("|") && !l.endsWith("|") && l !== firstLine);
     const parsedExtra = extractSlideMetadataAndBullets(nonTableLines);
+    const tableData = {
+      headers: mdTable.headers,
+      rows: mdTable.dataRows
+    };
+    let cleanAdditionalBody = "";
+    if (parsedExtra.body !== "• Executive slide content") {
+      const rawBullets = parsedExtra.body.split(/\n\n+/).filter(b => b.trim() && b.trim() !== "• Executive slide content");
+      const filteredBullets = filterDuplicateTableBullets(rawBullets, tableData);
+      cleanAdditionalBody = filteredBullets.join("\n\n");
+    }
     return [{
       slideNumber: 1,
       title: cleanTitle,
@@ -748,11 +891,8 @@ export function parseSlides(htmlContent, rawText = "") {
       titleSize: 36,
       subtitleSize: 20,
       body: mdTable.bulletText,
-      additionalBody: parsedExtra.body !== "• Executive slide content" ? parsedExtra.body : "",
-      tableData: {
-        headers: mdTable.headers,
-        rows: mdTable.dataRows
-      },
+      additionalBody: cleanAdditionalBody,
+      tableData: tableData,
       base64Images: allImages
     }];
   }
@@ -789,19 +929,80 @@ export function parseSlides(htmlContent, rawText = "") {
         const parsed = extractSlideMetadataAndBullets(lines.slice(1));
         const parsedNonTable = extractSlideMetadataAndBullets(nonTableLines);
 
+        let blockVisualType = null;
+        let blockVisualData = null;
+        const blockImgs = allImages[idx] ? [allImages[idx]] : [];
+
+        // Check for visual JSON in block
+        const bJsonBlocks = block.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/gi) || [];
+        for (const b of bJsonBlocks) {
+          try {
+            const clean = b.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+            const p = JSON.parse(clean);
+            if (p && (p.visualType === "metric_grid_3col" || p.visualType === "before_after")) {
+              blockVisualType = p.visualType;
+              blockVisualData = p;
+              break;
+            }
+          } catch (_) {}
+        }
+        if (!blockVisualType) {
+          const rawMatch = block.match(/\{[\s\S]*?"visualType"\s*:\s*"(?:metric_grid_3col|before_after)"[\s\S]*?\}/);
+          if (rawMatch) {
+            try {
+              const p = JSON.parse(rawMatch[0]);
+              if (p && (p.visualType === "metric_grid_3col" || p.visualType === "before_after")) {
+                blockVisualType = p.visualType;
+                blockVisualData = p;
+              }
+            } catch (_) {}
+          }
+        }
+
+        // Check for chart spec in block
+        const chartSpec = parseChartSpec(block);
+        if (chartSpec) {
+          try {
+            const chartDataUri = renderChartToDataUrl(chartSpec);
+            if (chartDataUri && !blockImgs.includes(chartDataUri)) {
+              blockImgs.unshift(chartDataUri);
+            }
+          } catch (cErr) {
+            console.warn("Chart rendering warning in Strategy 5:", cErr);
+          }
+        }
+
+        if (blockVisualType === "metric_grid_3col" && blockVisualData) {
+          parsed.body = (blockVisualData.cards || []).map(c => `• ${c.metric || ''} ${c.title || ''}: ${(c.bullets || []).join('; ')}`).join('\n');
+        } else if (blockVisualType === "before_after" && blockVisualData) {
+          const beforeList = (blockVisualData.before?.bullets || []).map(b => `  - ${b}`).join('\n');
+          const afterList = (blockVisualData.after?.bullets || []).map(b => `  - ${b}`).join('\n');
+          parsed.body = `• 🔴 BEFORE: ${blockVisualData.before?.title || 'Current State'}\n${beforeList}\n\n• 🟢 AFTER: ${blockVisualData.after?.title || 'Target State'}\n${afterList}`;
+        }
+
+        let cleanAdditionalBody = "";
+        const tableData = blockMdTable ? { headers: blockMdTable.headers, rows: blockMdTable.dataRows } : null;
+        if (tableData && parsedNonTable.body !== "• Executive slide content") {
+          const rawBullets = parsedNonTable.body.split(/\n\n+/).filter(b => b.trim() && b.trim() !== "• Executive slide content");
+          const filtered = filterDuplicateTableBullets(rawBullets, tableData);
+          cleanAdditionalBody = filtered.join("\n\n");
+        }
+
         textSlides.push({
           slideNumber: idx + 1,
           title: title,
           subtitle: parsed.subtitle,
           takeaway: parsed.takeaway,
           visualConcept: parsed.visualConcept,
+          visualType: blockVisualType,
+          visualData: blockVisualData,
           color: parsed.color,
           titleSize: parsed.titleSize,
           subtitleSize: parsed.subtitleSize,
           body: blockMdTable ? blockMdTable.bulletText : parsed.body,
-          additionalBody: (blockMdTable && parsedNonTable.body !== "• Executive slide content") ? parsedNonTable.body : "",
-          tableData: blockMdTable ? { headers: blockMdTable.headers, rows: blockMdTable.dataRows } : null,
-          base64Images: allImages[idx] ? [allImages[idx]] : []
+          additionalBody: cleanAdditionalBody,
+          tableData: tableData,
+          base64Images: blockImgs
         });
       }
     });
@@ -935,13 +1136,10 @@ function consolidateExecutiveSummarySlides(slides, allImages = []) {
 
   // If a native PowerPoint table is present, exclude bullets that are merely converted table rows
   if (merged.tableData && merged.tableData.rows && merged.tableData.rows.length > 0) {
-    const hasNarrativeBullets = uniqueBullets.some(b => !b.includes(" | ") && !/Metric:\s*/i.test(b));
-    if (hasNarrativeBullets) {
-      const filtered = uniqueBullets.filter(b => !b.includes(" | ") && !/Metric:\s*/i.test(b));
-      if (filtered.length > 0) {
-        uniqueBullets.length = 0;
-        uniqueBullets.push(...filtered);
-      }
+    const filtered = filterDuplicateTableBullets(uniqueBullets, merged.tableData);
+    if (filtered.length > 0) {
+      uniqueBullets.length = 0;
+      uniqueBullets.push(...filtered);
     }
   }
 

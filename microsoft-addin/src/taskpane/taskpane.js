@@ -877,9 +877,48 @@ PowerPoint Slide Deck Requirements:
 3. For each slide, structure with rich executive visual hierarchy:
    - "## Slide <N>: <Emoji> <Punchy Slide Title (3-4 words max)>"
    - "Subtitle: <Crisp Subtitle / Strategic Context>"
-   - Diversify slide visual formats across the deck to create an engaging executive presentation flow:
-     * Qualitative / Strategic Slides (Overview, Vision, Operational Pillars, Roadmap): Use 3 to 4 high-impact bullet points with bold lead-ins (• **Strategic Pillar:** Detailed description). Do NOT include tables on these slides.
-     * Quantitative / Comparative Slides (Financials, KPIs, Comparisons): When presenting dense metrics or side-by-side comparisons, use a clean Markdown table (| Metric / Dimension | Detail | Implication |). Limit tables to at most 1 or 2 slides in the entire deck.
+   - AUTOMATICALLY DIVERSIFY SLIDE FORMATS across the deck to create a rich, varied executive presentation:
+     * METRIC GRID SLIDE (For core KPIs, growth numbers, or financial targets):
+       Embed a 3-column metric grid code block:
+\`\`\`json
+{
+  "visualType": "metric_grid_3col",
+  "title": "<Slide Title>",
+  "subtitle": "<Subtitle>",
+  "cards": [
+    { "metric": "+45%", "title": "<Metric Title>", "subtitle": "<Context>", "bullets": ["<Driver 1>", "<Driver 2>"] },
+    { "metric": "$12.4M", "title": "<Metric Title>", "subtitle": "<Context>", "bullets": ["<Driver 1>", "<Driver 2>"] },
+    { "metric": "99.8%", "title": "<Metric Title>", "subtitle": "<Context>", "bullets": ["<Driver 1>", "<Driver 2>"] }
+  ]
+}
+\`\`\`
+     * BEFORE / AFTER COMPARISON SLIDE (For operational shifts, modernization, or legacy vs target state):
+       Embed a Before/After comparison code block:
+\`\`\`json
+{
+  "visualType": "before_after",
+  "title": "<Slide Title>",
+  "subtitle": "<Subtitle>",
+  "before": { "title": "Current State / Challenges", "bullets": ["<Challenge 1>", "<Challenge 2>"] },
+  "after": { "title": "Target State / Modernization", "bullets": ["<Advantage 1>", "<Advantage 2>"] }
+}
+\`\`\`
+     * DATA BREAKDOWN / DISTRIBUTION SLIDE (For market share, mix percentages, or volume breakdowns):
+       Embed a high-DPI chart JSON block:
+\`\`\`json
+{
+  "chartType": "doughnut",
+  "title": "<Chart Title>",
+  "data": [
+    { "label": "<Category A>", "value": 60 },
+    { "label": "<Category B>", "value": 40 }
+  ]
+}
+\`\`\`
+     * STRUCTURED TABULAR SLIDE (For multi-attribute comparisons, specifications, or dimensional breakdowns):
+       Use a clean Markdown table (| Metric / Dimension | Detail | Implication |).
+     * NARRATIVE STRATEGY SLIDE (For executive summary, strategic pillars, or forward-looking roadmap):
+       Use 3 to 4 crisp narrative bullet points with bold lead-ins (• **Strategic Pillar:** Detailed description).
    - Conclude with a clear strategic takeaway line: "Takeaway: <Executive takeaway sentence>"
 4. Do NOT output internal design metadata like "Visual Concept:", "Color:", or font sizes.`;
 
