@@ -313,13 +313,50 @@ function extractImagesFromObject(obj, targetList) {
   }
 }
 
-function processStreamAssistChunks(parsedChunks, originalSessionId, sessionResetOccurred = false) {
+function extractReplies(chunk) {
+  if (chunk.answer?.reply) {
+    return [chunk.answer.reply];
+  }
+  if (Array.isArray(chunk.answer?.replies)) {
+    return chunk.answer.replies;
+  }
+  if (Array.isArray(chunk.replies)) {
+    return chunk.replies;
+  }
+  if (chunk.reply && typeof chunk.reply === 'object') {
+    return [chunk.reply];
+  }
+  return [];
+}
+
+function findPendingFiles(obj, targetList, currentSession) {
+  if (!obj || typeof obj !== 'object') return;
+  if (obj.file && (obj.file.fileId || obj.file.id)) {
+    const fId = obj.file.fileId || obj.file.id;
+    const mime = obj.file.mimeType || 'image/png';
+    if (!targetList.some(item => item.fileId === fId)) {
+      targetList.push({ fileId: fId, mimeType: mime, session: currentSession });
+    }
+  }
+  if (Array.isArray(obj)) {
+    for (const item of obj) findPendingFiles(item, targetList, currentSession);
+  } else {
+    for (const key of Object.keys(obj)) {
+      if (typeof obj[key] === 'object' && obj[key] !== null) {
+        findPendingFiles(obj[key], targetList, currentSession);
+      }
+    }
+  }
+}
+
+async function processStreamAssistChunks(parsedChunks, originalSessionId, sessionResetOccurred = false, headers = null) {
   let aggregatedText = '';
   let returnedSessionResource = null;
   const citations = [];
   const seenCitations = new Set();
   const extractedImages = [];
   const thoughtParts = [];
+  const pendingFiles = [];
 
   for (const chunk of parsedChunks) {
     if (chunk.sessionInfo?.session) {
@@ -332,53 +369,85 @@ function processStreamAssistChunks(parsedChunks, originalSessionId, sessionReset
       console.log('[STREAM_ASSIST] Image generation tool invoked by Gemini Enterprise');
     }
 
-    // Comprehensive recursive image extraction from the entire chunk
+    // Comprehensive recursive image and file extraction from the entire chunk
     extractImagesFromObject(chunk, extractedImages);
+    findPendingFiles(chunk, pendingFiles, chunk.sessionInfo?.session || returnedSessionResource || originalSessionId);
 
-    // Support both singular 'reply' object and 'replies' array in StreamAssist
-    const replyCandidate = chunk.answer?.reply || chunk.reply;
-    let replies = [];
-    if (Array.isArray(chunk.answer?.replies)) {
-      replies = chunk.answer.replies;
-    } else if (Array.isArray(chunk.replies)) {
-      replies = chunk.replies;
-    } else if (replyCandidate && typeof replyCandidate === 'object') {
-      replies = [replyCandidate];
-    }
+    // Defensive reply normalization (supports both singular reply and plural replies)
+    const replies = extractReplies(chunk);
 
     for (const reply of replies) {
-      // 1. Check content parts (support both grounded and ungrounded parts)
-      const parts = reply.groundedContent?.content?.parts 
-        || reply.content?.parts 
-        || reply.parts 
-        || [];
+      const contentObj = reply.groundedContent?.content || reply.content;
 
-      if (parts.length > 0) {
-        for (const part of parts) {
-          if (part.text && !part.thought) {
-            aggregatedText += part.text;
-          } else if (part.thought && part.text) {
-            thoughtParts.push(part.text);
-          } else if (part.inlineData?.data) {
-            const mime = part.inlineData.mimeType || 'image/png';
-            const uri = `data:${mime};base64,${part.inlineData.data}`;
-            if (!extractedImages.includes(uri)) extractedImages.push(uri);
-            console.log(`[STREAM_ASSIST] Found inlineData image artifact (${part.inlineData.data.length} bytes)`);
-          } else if (part.fileData?.fileUri) {
-            if (!extractedImages.includes(part.fileData.fileUri)) extractedImages.push(part.fileData.fileUri);
-            console.log(`[STREAM_ASSIST] Found fileData image artifact (${part.fileData.fileUri})`);
-          } else if (part.image?.uri || part.image?.url) {
-            const uri = part.image.uri || part.image.url;
-            if (!extractedImages.includes(uri)) extractedImages.push(uri);
+      if (contentObj) {
+        // Direct text fragment
+        if (contentObj.text && !contentObj.thought) {
+          aggregatedText += contentObj.text;
+        } else if (contentObj.thought && contentObj.text) {
+          thoughtParts.push(contentObj.text);
+        }
+
+        // Direct blob (Base64 image/media bytes)
+        if (contentObj.blob && (contentObj.blob.data || contentObj.blob.bytesBase64Encoded)) {
+          const mime = contentObj.blob.mimeType || 'image/png';
+          if (mime.startsWith('image/')) {
+            const b64 = contentObj.blob.data || contentObj.blob.bytesBase64Encoded;
+            const uri = `data:${mime};base64,${b64}`;
+            if (!extractedImages.includes(uri)) {
+              extractedImages.push(uri);
+              console.log(`[STREAM_ASSIST] Found content.blob image artifact (${b64.length} bytes)`);
+            }
+          }
+        }
+
+        // Direct file reference (fileId)
+        if (contentObj.file && (contentObj.file.fileId || contentObj.file.id)) {
+          const fId = contentObj.file.fileId || contentObj.file.id;
+          const mime = contentObj.file.mimeType || 'image/png';
+          if (!pendingFiles.some(f => f.fileId === fId)) {
+            pendingFiles.push({ fileId: fId, mimeType: mime, session: chunk.sessionInfo?.session || returnedSessionResource || originalSessionId });
+          }
+        }
+
+        // Content parts (if structured as parts array)
+        if (Array.isArray(contentObj.parts) && contentObj.parts.length > 0) {
+          for (const part of contentObj.parts) {
+            if (part.text && !part.thought) {
+              aggregatedText += part.text;
+            } else if (part.thought && part.text) {
+              thoughtParts.push(part.text);
+            } else if (part.inlineData?.data) {
+              const mime = part.inlineData.mimeType || 'image/png';
+              if (mime.startsWith('image/')) {
+                const uri = `data:${mime};base64,${part.inlineData.data}`;
+                if (!extractedImages.includes(uri)) extractedImages.push(uri);
+                console.log(`[STREAM_ASSIST] Found inlineData image artifact (${part.inlineData.data.length} bytes)`);
+              }
+            } else if (part.blob && (part.blob.data || part.blob.bytesBase64Encoded)) {
+              const mime = part.blob.mimeType || 'image/png';
+              if (mime.startsWith('image/')) {
+                const b64 = part.blob.data || part.blob.bytesBase64Encoded;
+                const uri = `data:${mime};base64,${b64}`;
+                if (!extractedImages.includes(uri)) extractedImages.push(uri);
+                console.log(`[STREAM_ASSIST] Found part.blob image artifact (${b64.length} bytes)`);
+              }
+            } else if (part.file && (part.file.fileId || part.file.id)) {
+              const fId = part.file.fileId || part.file.id;
+              const mime = part.file.mimeType || 'image/png';
+              if (!pendingFiles.some(f => f.fileId === fId)) {
+                pendingFiles.push({ fileId: fId, mimeType: mime, session: chunk.sessionInfo?.session || returnedSessionResource || originalSessionId });
+              }
+            } else if (part.fileData?.fileUri) {
+              if (!extractedImages.includes(part.fileData.fileUri)) extractedImages.push(part.fileData.fileUri);
+            } else if (part.image?.uri || part.image?.url) {
+              const uri = part.image.uri || part.image.url;
+              if (!extractedImages.includes(uri)) extractedImages.push(uri);
+            }
           }
         }
       } else {
-        const contentObj = reply.groundedContent?.content || reply.content;
-        if (contentObj && contentObj.text && !contentObj.thought) {
-          aggregatedText += contentObj.text;
-        } else if (contentObj && contentObj.thought && contentObj.text) {
-          thoughtParts.push(contentObj.text);
-        } else if (reply.text) {
+        // Fallback to top-level reply text properties
+        if (reply.text) {
           aggregatedText += reply.text;
         } else if (reply.replyText) {
           aggregatedText += reply.replyText;
@@ -430,7 +499,53 @@ function processStreamAssistChunks(parsedChunks, originalSessionId, sessionReset
     }
   }
 
-  // Append extracted images as Markdown images if not already embedded
+  // 4. Download any pending fileId resources emitted by Gemini Enterprise
+  if (pendingFiles.length > 0 && headers) {
+    for (const file of pendingFiles) {
+      const sessionPath = file.session || returnedSessionResource || originalSessionId;
+      if (!sessionPath) continue;
+      const regionalHost = `${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com`;
+      const downloadUrl = `https://${regionalHost}/v1alpha/${sessionPath}:downloadFile?fileId=${encodeURIComponent(file.fileId)}`;
+      try {
+        console.log(`[STREAM_ASSIST] Fetching generated file '${file.fileId}' from ${downloadUrl}...`);
+        const fileRes = await fetch(downloadUrl, {
+          method: 'GET',
+          headers: headers
+        });
+        if (fileRes.ok) {
+          const contentType = fileRes.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const fileJson = await fileRes.json();
+            const mime = fileJson.mimeType || file.mimeType || 'image/png';
+            const b64 = fileJson.data || fileJson.bytesBase64Encoded || fileJson.fileContents || fileJson.content;
+            if (b64) {
+              const uri = b64.startsWith('data:') ? b64 : `data:${mime};base64,${b64}`;
+              if (!extractedImages.includes(uri)) {
+                extractedImages.push(uri);
+                console.log(`[STREAM_ASSIST] Successfully fetched generated file '${file.fileId}' (${b64.length} base64 chars)`);
+              }
+            }
+          } else {
+            const arrayBuffer = await fileRes.arrayBuffer();
+            const b64 = Buffer.from(arrayBuffer).toString('base64');
+            const mime = contentType || file.mimeType || 'image/png';
+            const uri = `data:${mime};base64,${b64}`;
+            if (!extractedImages.includes(uri)) {
+              extractedImages.push(uri);
+              console.log(`[STREAM_ASSIST] Successfully fetched binary file '${file.fileId}' (${b64.length} base64 chars)`);
+            }
+          }
+        } else {
+          const errText = await fileRes.text();
+          console.warn(`[STREAM_ASSIST] Could not download file '${file.fileId}' (HTTP ${fileRes.status}):`, errText.slice(0, 300));
+        }
+      } catch (dlErr) {
+        console.warn(`[STREAM_ASSIST] Exception downloading file '${file.fileId}':`, dlErr.message);
+      }
+    }
+  }
+
+  // 5. Append extracted images as Markdown images if not already embedded
   if (extractedImages.length > 0) {
     if (!aggregatedText.trim()) {
       aggregatedText = "Here is the image generated based on your request:\n\n";
@@ -787,7 +902,7 @@ async function extractDocumentText(att) {
     }
   }
 
-  return processStreamAssistChunks(parsedChunks, sessionId, sessionResetOccurred);
+  return await processStreamAssistChunks(parsedChunks, sessionId, sessionResetOccurred, headers);
 }
 
 async function handleGeminiEnterpriseRequest(req, res) {
