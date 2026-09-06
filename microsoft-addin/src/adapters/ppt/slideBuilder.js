@@ -319,10 +319,12 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
       addedShape = newSlide.shapes.addTable(rowCount, colCount, {
         left: customLeft,
         top: tableTop,
-        width: tableWidth,
         height: tableHeight,
         values: tableValues
       });
+      if (addedShape && customWidth) {
+        try { addedShape.width = customWidth; } catch (_) {}
+      }
       logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table (${rowCount} rows x ${colCount} cols, rendered height ~${estimatedHeight}pt).`);
     }
   } catch (err) {
@@ -626,98 +628,49 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
 
   logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."${targetSlideId ? ' (in-place replacement)' : ''}`);
 
-  // 1. If not replacing an existing slide, add slide using Theme Blank layout if available
-  if (!targetSlideId) {
-    let added = false;
-    if (layoutOptions) {
-      try {
-        await PowerPoint.run(async (context) => {
-          context.presentation.slides.add(layoutOptions);
-          await context.sync();
-          added = true;
-        });
-      } catch (layoutErr) {
-        console.warn("Adding slide with blank layout failed, falling back to standard add:", layoutErr);
-      }
-    }
-
-    if (!added) {
-      await PowerPoint.run(async (context) => {
-        context.presentation.slides.add();
-        await context.sync();
-      });
-    }
-  }
-
-  // 2. Eliminate template placeholders ("Click to add title", "Click to add subtitle") or previous shapes
-  try {
-    await PowerPoint.run(async (context) => {
-      let targetSlide;
-      if (targetSlideId) {
-        targetSlide = context.presentation.slides.getItem(targetSlideId);
-      } else {
-        const slides = context.presentation.slides;
-        const countResult = slides.getCount();
-        await context.sync();
-        targetSlide = slides.getItemAt(countResult.value - 1);
-      }
-
-      targetSlide.shapes.load("items/name, items/type");
-      await context.sync();
-
-      if (targetSlide.shapes.items && targetSlide.shapes.items.length > 0) {
-        for (let i = targetSlide.shapes.items.length - 1; i >= 0; i--) {
-          const s = targetSlide.shapes.items[i];
-          try {
-            s.delete();
-          } catch (_) {}
-        }
-        await context.sync();
-      }
-    });
-  } catch (cleanErr) {
-    // Fallback: If shape deletion is blocked by PowerPoint host, neutralize by moving off-canvas and clearing text
-    try {
-      await PowerPoint.run(async (context) => {
-        let targetSlide;
-        if (targetSlideId) {
-          targetSlide = context.presentation.slides.getItem(targetSlideId);
-        } else {
-          const slides = context.presentation.slides;
-          const countResult = slides.getCount();
-          await context.sync();
-          targetSlide = slides.getItemAt(countResult.value - 1);
-        }
-
-        targetSlide.shapes.load("items/name, items/type");
-        await context.sync();
-
-        if (targetSlide.shapes.items) {
-          for (const s of targetSlide.shapes.items) {
-            try {
-              s.textFrame.textRange.text = " ";
-            } catch (_) {}
-            try {
-              s.left = -5000;
-              s.top = -5000;
-            } catch (_) {}
-          }
-          await context.sync();
-        }
-      });
-    } catch (_) {}
-  }
-
-  // 3. Populate slide content in a fresh, uncorrupted PowerPoint.run
+  // 1. Single atomic PowerPoint.run session to add slide and populate all elements
   await PowerPoint.run(async (context) => {
     let newSlide;
     if (targetSlideId) {
       newSlide = context.presentation.slides.getItem(targetSlideId);
-    } else {
-      const slides = context.presentation.slides;
-      const countResult = slides.getCount();
+      newSlide.shapes.load("items/name, items/type");
       await context.sync();
-      newSlide = slides.getItemAt(countResult.value - 1);
+      if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
+        for (let i = newSlide.shapes.items.length - 1; i >= 0; i--) {
+          try {
+            newSlide.shapes.items[i].delete();
+          } catch (_) {}
+        }
+        await context.sync();
+      }
+    } else {
+      let added = false;
+      if (layoutOptions) {
+        try {
+          newSlide = context.presentation.slides.add(layoutOptions);
+          added = true;
+        } catch (layoutErr) {
+          console.warn("Adding slide with blank layout failed, falling back to standard add:", layoutErr);
+        }
+      }
+
+      if (!added) {
+        newSlide = context.presentation.slides.add();
+      }
+
+      // If no blank layout was available, clean up default template placeholders ("Click to add title", etc.)
+      if (!layoutOptions) {
+        newSlide.shapes.load("items/name, items/type");
+        await context.sync();
+        if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
+          for (let i = newSlide.shapes.items.length - 1; i >= 0; i--) {
+            try {
+              newSlide.shapes.items[i].delete();
+            } catch (_) {}
+          }
+          await context.sync();
+        }
+      }
     }
 
     const hasTakeaway = Boolean(takeaway && takeaway.trim().length > 0);
@@ -827,9 +780,9 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
           notesBox.textFrame.textRange.font.size = 11.5;
           await applyParagraphFormatting(notesBox, parsedParagraphs, context);
         }
-      } else if (!hasImages && (rowCount > 4 || (!hasTakeaway && hasBottomText && rowCount > 3))) {
-        // --- TWO-COLUMN LAYOUT: Table on Left, Bullets / Analysis on Right ---
-        // Eliminates vertical overlap completely for dense tables!
+      } else if (!hasImages && (hasBottomText || rowCount > 4)) {
+        // --- TWO-COLUMN LAYOUT: Table on Left, Bullets / Analysis / Takeaway on Right ---
+        // Eliminates vertical overlap completely for tables with narrative or takeaways!
         const leftTableWidth = 440;
         const approxColWidth = leftTableWidth / colCount;
         const realTableHeight = Math.min(390, Math.max(90, estimateTableRenderedHeight(tableData, approxColWidth)));
@@ -852,19 +805,19 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
           await applyParagraphFormatting(notesBox, parsedParagraphs, context);
         }
       } else {
-        // --- STACKED OR TABLE + IMAGE (NO BULLETS) LAYOUT ---
+        // --- STANDALONE FULL-WIDTH TABLE LAYOUT (Optional Takeaway at bottom) ---
         const tableWidth = hasImages ? 420 : 860;
         const approxColWidth = tableWidth / colCount;
         const realTableHeight = estimateTableRenderedHeight(tableData, approxColWidth);
 
-        const maxAllowedTableHeight = hasImages ? Math.min(390, 515 - contentTop) : Math.min(320, 515 - contentTop);
+        const maxAllowedTableHeight = hasImages ? Math.min(390, 515 - contentTop) : Math.min(330, 515 - contentTop);
         const effectiveTableHeight = Math.min(realTableHeight, maxAllowedTableHeight);
 
         populateSlideTable(
           newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop, effectiveTableHeight, tableWidth, 50
         );
 
-        // Only place bottom text if there is safe vertical space (>= 65pt) below the table
+        // If there is a takeaway or bottom text on standalone table, render safely below
         const notesTop = contentTop + realTableHeight + 16;
         const availableSpace = 515 - notesTop;
 
@@ -906,7 +859,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         if (hasTakeaway && parsedParagraphs.length > 4) {
           finalParagraphs = parsedParagraphs.slice(0, 4);
         }
-        const finalCleanText = finalParagraphs.map(p => p.text).join('\n\n');
+        const finalCleanText = finalParagraphs.map(p => p.cleanText || p.text || "").join('\n\n');
 
         const bulletBox = newSlide.shapes.addTextBox(finalCleanText, {
           left: 50,
@@ -1101,18 +1054,25 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     try {
       const slidePromise = createSingleSlide(slideData, slideNum, blankLayoutOptions, targetSlideId);
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout (20s) creating slide in PowerPoint")), 20000)
+        setTimeout(() => reject(new Error("Timeout (45s) creating slide in PowerPoint")), 45000)
       );
       await Promise.race([slidePromise, timeoutPromise]);
     } catch (slideErr) {
       logToPPTConsole(`Slide ${slideNum} Notice: ${slideErr.message}. Attempting resilient continuation...`, true);
       console.warn(`[PPTBuilder] Slide ${slideNum} issue:`, slideErr);
       try {
+        const fallbackBody = (slideData.body && slideData.body.trim() !== "• Executive slide content")
+          ? slideData.body
+          : (slideData.tableData && slideData.tableData.rows && slideData.tableData.rows.length > 0
+              ? slideData.tableData.rows.map(r => `• ${r.join(" | ")}`).join("\n\n")
+              : "• Executive slide content");
+
         const fallbackData = {
           ...slideData,
           base64Images: [],
           tableData: null,
-          visualType: null
+          visualType: null,
+          body: fallbackBody
         };
         await createSingleSlide(fallbackData, slideNum, blankLayoutOptions, targetSlideId);
         logToPPTConsole(`Slide ${slideNum}: Added basic text fallback slide.`);
