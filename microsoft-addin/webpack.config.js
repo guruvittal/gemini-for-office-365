@@ -115,6 +115,7 @@ module.exports = async (env, options) => {
     },
     output: {
       clean: true,
+      filename: dev ? "[name].js" : "[name].[contenthash:8].js",
     },
     resolve: {
       extensions: [".html", ".js"],
