@@ -479,12 +479,7 @@ export function parseSlides(htmlContent, rawText = "") {
     }
 
     if (slides.length >= 1) {
-      // If the first slide is an Executive Summary, strictly enforce 1 single slide
-      const firstTitle = (slides[0].title || "").toLowerCase();
-      if (slides.length > 1 && (firstTitle.includes("executive slide summary") || (firstTitle.includes("executive") && firstTitle.includes("summary")))) {
-        return [slides[0]];
-      }
-      return slides;
+      return consolidateExecutiveSummarySlides(slides, allImages);
     }
   }
 
@@ -593,7 +588,7 @@ export function parseSlides(htmlContent, rawText = "") {
     }
 
     if (tableSlides.length >= 2) {
-      return tableSlides;
+      return consolidateExecutiveSummarySlides(tableSlides, allImages);
     }
   }
 
@@ -655,7 +650,7 @@ export function parseSlides(htmlContent, rawText = "") {
   }
 
   if (outlineSlides.length >= 2) {
-    return outlineSlides;
+    return consolidateExecutiveSummarySlides(outlineSlides, allImages);
   }
 
   // -------------------------------------------------------------
@@ -811,7 +806,7 @@ export function parseSlides(htmlContent, rawText = "") {
       }
     });
 
-    if (textSlides.length >= 2) return textSlides;
+    if (textSlides.length >= 2) return consolidateExecutiveSummarySlides(textSlides, allImages);
   }
 
   // -------------------------------------------------------------
@@ -852,6 +847,94 @@ export function parseSlides(htmlContent, rawText = "") {
     body: parsed.body,
     base64Images: allImages
   }];
+}
+
+/**
+ * Consolidates multi-section executive summary slides into a single executive slide,
+ * preserving all subtitles, bullets, tables, takeaways, and generated images.
+ */
+function consolidateExecutiveSummarySlides(slides, allImages = []) {
+  if (!slides || slides.length === 0) return slides;
+  const firstTitle = (slides[0].title || "").toLowerCase();
+  const isExecutiveSummary = slides.length > 1 && (
+    firstTitle.includes("executive slide summary") ||
+    firstTitle.includes("executive summary") ||
+    firstTitle.includes("slide summary") ||
+    (firstTitle.includes("executive") && firstTitle.includes("summary")) ||
+    (firstTitle.includes("summary") && !firstTitle.includes("slide 1") && !firstTitle.includes("slide #"))
+  );
+
+  if (!isExecutiveSummary) return slides;
+
+  const merged = { ...slides[0] };
+  const allBullets = [];
+
+  if (merged.body && merged.body !== "• Executive slide content") {
+    allBullets.push(merged.body);
+  }
+  if (merged.additionalBody && merged.additionalBody !== "• Executive slide content") {
+    allBullets.push(merged.additionalBody);
+  }
+
+  for (let s = 1; s < slides.length; s++) {
+    const sub = slides[s];
+    if (!merged.subtitle && sub.title && !sub.title.toLowerCase().startsWith("slide")) {
+      merged.subtitle = sub.title;
+    }
+    if (sub.body && sub.body !== "• Executive slide content") {
+      allBullets.push(sub.body);
+    }
+    if (sub.additionalBody && sub.additionalBody !== "• Executive slide content") {
+      allBullets.push(sub.additionalBody);
+    }
+    if (!merged.tableData && sub.tableData) {
+      merged.tableData = sub.tableData;
+    }
+    if (sub.base64Images && sub.base64Images.length > 0) {
+      if (!merged.base64Images) merged.base64Images = [];
+      for (const img of sub.base64Images) {
+        if (!merged.base64Images.includes(img)) {
+          merged.base64Images.push(img);
+        }
+      }
+    }
+    if (!merged.takeaway && sub.takeaway) {
+      merged.takeaway = sub.takeaway;
+    }
+  }
+
+  if (allImages && allImages.length > 0) {
+    if (!merged.base64Images) merged.base64Images = [];
+    for (const img of allImages) {
+      if (!merged.base64Images.includes(img)) {
+        merged.base64Images.push(img);
+      }
+    }
+  }
+
+  // Deduplicate and structure bullets
+  const uniqueBullets = [];
+  const seen = new Set();
+  for (const bBlock of allBullets) {
+    const lines = bBlock.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    for (const line of lines) {
+      const cleanLine = line.replace(/^[-•*]\s*/, "").trim();
+      if (cleanLine.startsWith("|") || cleanLine.startsWith("---") || /^(?:Subtitle|Color|Visual):/i.test(cleanLine)) {
+        continue;
+      }
+      if (cleanLine.toLowerCase().startsWith("the chart and table below") || cleanLine.toLowerCase().startsWith("here is the")) {
+        continue;
+      }
+      if (cleanLine.length > 5 && !seen.has(cleanLine.toLowerCase())) {
+        seen.add(cleanLine.toLowerCase());
+        uniqueBullets.push(line.startsWith("•") ? line : `• ${cleanLine}`);
+      }
+    }
+  }
+
+  merged.body = uniqueBullets.join("\n\n").trim() || "• Executive slide content";
+  merged.additionalBody = merged.body;
+  return [merged];
 }
 
 export function sanitizeAiResponse(text) {

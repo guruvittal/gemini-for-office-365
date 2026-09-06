@@ -144,7 +144,7 @@ function estimateTableRenderedHeight(tableData, colWidth = 280) {
 /**
  * Populates a native Microsoft PowerPoint table using PowerPoint.js shapes.addTable().
  */
-function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, tableTop = 90, customHeight = null, customWidth = null) {
+function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, tableTop = 90, customHeight = null, customWidth = null, customLeft = 50) {
   const headers = tableData.headers || [];
   const rows = tableData.rows || [];
   const colCount = Math.max(headers.length, ...rows.map(r => r.length), 1);
@@ -175,7 +175,7 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
   try {
     if (typeof newSlide.shapes.addTable === "function") {
       addedShape = newSlide.shapes.addTable(rowCount, colCount, {
-        left: 50,
+        left: customLeft,
         top: tableTop,
         width: tableWidth,
         height: tableHeight,
@@ -191,7 +191,7 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
     try {
       addedShape = newSlide.shapes.addTable(rowCount, colCount);
       if (addedShape) {
-        addedShape.left = 50;
+        addedShape.left = customLeft;
         addedShape.top = tableTop;
         addedShape.width = tableWidth;
         addedShape.height = tableHeight;
@@ -652,11 +652,82 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         1
       );
       const rowCount = tableData.rows.length;
-      const bottomContent = hasTakeaway ? `💡 Strategic Takeaway: ${takeaway}` : additionalBody;
+      const rawCandidateText = (additionalBody && additionalBody.trim().length > 0)
+        ? additionalBody
+        : (slideData.body && slideData.body.trim() !== "• Executive slide content" ? slideData.body : "");
+      const bottomContent = hasTakeaway
+        ? (rawCandidateText ? `${rawCandidateText}\n\n💡 Strategic Takeaway: ${takeaway}` : `💡 Strategic Takeaway: ${takeaway}`)
+        : rawCandidateText;
       const hasBottomText = Boolean(bottomContent && bottomContent.trim().length > 0);
 
       // --- DYNAMIC COLLISION-PROOF LAYOUT ---
-      if (!hasImages && (rowCount > 4 || (!hasTakeaway && hasBottomText && rowCount > 3))) {
+      if (hasImages && hasBottomText) {
+        // --- 3-WAY HYBRID LAYOUT: BULLETS + CHART + TABLE ---
+        if (rowCount <= 4) {
+          // Layout A (compact table): Bullets on Left Column, Chart on Right-Top, Table on Right-Bottom
+          const notesBox = newSlide.shapes.addTextBox(bottomContent, {
+            left: 50,
+            top: contentTop,
+            width: 440,
+            height: Math.min(410, 515 - contentTop)
+          });
+          notesBox.textFrame.wordWrap = true;
+          notesBox.textFrame.textRange.font.size = 13.5;
+          notesBox.textFrame.textRange.font.italic = hasTakeaway;
+          try {
+            if (hasTakeaway) {
+              notesBox.textFrame.textRange.getSubstring(0, 22).font.bold = true;
+            }
+          } catch (_) {}
+
+          // Bold lead-ins before colons in bullet points
+          try {
+            const paragraphs = notesBox.textFrame.textRange.paragraphs;
+            paragraphs.load("items/text");
+            await context.sync();
+            if (paragraphs.items) {
+              for (const p of paragraphs.items) {
+                const pText = p.text || "";
+                const colonIdx = pText.indexOf(":");
+                const dashIdx = pText.indexOf("—");
+                const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
+                if (sepIdx > 0 && sepIdx < 50 && typeof p.getSubstring === "function") {
+                  try {
+                    const leadIn = p.getSubstring(0, sepIdx + 1);
+                    leadIn.font.bold = true;
+                  } catch (_) {}
+                }
+              }
+            }
+          } catch (_) {}
+
+          const tableTop = contentTop + 215;
+          const tableWidth = 400;
+          const tableHeight = Math.min(185, 515 - tableTop);
+          populateSlideTable(
+            newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, tableTop, tableHeight, tableWidth, 510
+          );
+        } else {
+          // Layout B (tall table): Table on Left, Chart on Right-Top, Bullets on Right-Bottom
+          const leftTableWidth = 440;
+          const approxColWidth = leftTableWidth / colCount;
+          const realTableHeight = Math.min(390, Math.max(90, estimateTableRenderedHeight(tableData, approxColWidth)));
+
+          populateSlideTable(
+            newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop, realTableHeight, leftTableWidth, 50
+          );
+
+          const notesTop = contentTop + 215;
+          const notesBox = newSlide.shapes.addTextBox(bottomContent, {
+            left: 510,
+            top: notesTop,
+            width: 400,
+            height: Math.min(185, 515 - notesTop)
+          });
+          notesBox.textFrame.wordWrap = true;
+          notesBox.textFrame.textRange.font.size = 11.5;
+        }
+      } else if (!hasImages && (rowCount > 4 || (!hasTakeaway && hasBottomText && rowCount > 3))) {
         // --- TWO-COLUMN LAYOUT: Table on Left, Bullets / Analysis on Right ---
         // Eliminates vertical overlap completely for dense tables!
         const leftTableWidth = 440;
@@ -664,7 +735,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         const realTableHeight = Math.min(390, Math.max(90, estimateTableRenderedHeight(tableData, approxColWidth)));
 
         populateSlideTable(
-          newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop, realTableHeight, leftTableWidth
+          newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop, realTableHeight, leftTableWidth, 50
         );
 
         if (hasBottomText) {
@@ -705,8 +776,8 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
           } catch (_) {}
         }
       } else {
-        // --- STACKED OR TABLE + IMAGE LAYOUT ---
-        const tableWidth = hasImages ? 400 : 860;
+        // --- STACKED OR TABLE + IMAGE (NO BULLETS) LAYOUT ---
+        const tableWidth = hasImages ? 420 : 860;
         const approxColWidth = tableWidth / colCount;
         const realTableHeight = estimateTableRenderedHeight(tableData, approxColWidth);
 
@@ -714,7 +785,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
         const effectiveTableHeight = Math.min(realTableHeight, maxAllowedTableHeight);
 
         populateSlideTable(
-          newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop, effectiveTableHeight, tableWidth
+          newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop, effectiveTableHeight, tableWidth, 50
         );
 
         // Only place bottom text if there is safe vertical space (>= 65pt) below the table
@@ -723,21 +794,6 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
 
         if (hasBottomText && availableSpace >= 65 && (!hasImages || rowCount <= 4)) {
           let textToRender = bottomContent;
-          if (hasImages) {
-            // When a chart image occupies the right half of the slide, the left column cannot fit both
-            // a multi-row table and multiple long paragraphs. Distill to a crisp executive callout card.
-            if (hasTakeaway) {
-              textToRender = `💡 Strategic Takeaway: ${takeaway}`;
-            } else {
-              const bullets = bottomContent.split(/\n+/).map(l => l.trim()).filter(Boolean);
-              const primaryBullet = bullets[0] ? bullets[0].replace(/^[-•*]\s*/, "") : bottomContent;
-              textToRender = `💡 Key Insight: ${primaryBullet}`;
-            }
-            if (textToRender.length > 220) {
-              textToRender = textToRender.substring(0, 215) + "…";
-            }
-          }
-
           const notesHeight = Math.min(availableSpace - 8, hasImages ? 130 : 200);
           const notesBox = newSlide.shapes.addTextBox(textToRender, {
             left: 50,
@@ -831,16 +887,17 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
     }
 
     if (hasImages) {
-      const rawBody = (slideData.body || "").trim();
-      const isIntroOrEmpty = !rawBody || rawBody.toLowerCase().startsWith("here is the image") || rawBody === "• Executive slide content";
+      const rawCandidateText = (additionalBody && additionalBody.trim().length > 0)
+        ? additionalBody
+        : (slideData.body && slideData.body.trim() !== "• Executive slide content" ? slideData.body : "");
+      const hasBottomText = Boolean(rawCandidateText || hasTakeaway);
+      const isIntroOrEmpty = !rawCandidateText || rawCandidateText.toLowerCase().startsWith("here is the image");
       const isImageOnlySlide = !hasTable && isIntroOrEmpty;
 
       for (let imgIndex = 0; imgIndex < imagesToInsert.length; imgIndex++) {
         const rawImg = imagesToInsert[imgIndex];
         const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
         if (clean.length > 50) {
-          const imgLeft = isImageOnlySlide ? 200 : 470;
-          const imgWidth = isImageOnlySlide ? 560 : 440;
           // Calculate natural aspect ratio from image to prevent distortion and blurriness
           let aspect = 1.6;
           try {
@@ -854,15 +911,40 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
             }
           } catch (_) {}
 
-          let imgHeight, imgTop;
-          if (imagesToInsert.length === 1) {
+          let imgLeft = 470;
+          let imgWidth = 440;
+          let imgHeight;
+          let imgTop = contentTop + 10;
+
+          if (hasTable && hasBottomText) {
+            // 3-way hybrid layout (Bullets on Left, Chart on Right-Top, Table on Right-Bottom)
+            imgLeft = 510;
+            imgWidth = 400;
+            imgHeight = Math.min(205, Math.round(imgWidth / aspect));
+            imgTop = contentTop + 5;
+          } else if (hasTable) {
+            // Side-by-side Table on Left, Chart on Right
+            imgLeft = 490;
+            imgWidth = 420;
+            imgHeight = Math.min(360, Math.round(imgWidth / aspect));
+            imgTop = contentTop + 10;
+          } else if (isImageOnlySlide) {
+            imgLeft = 200;
+            imgWidth = 560;
             imgHeight = Math.min(360, Math.round(imgWidth / aspect));
             imgTop = contentTop + 10;
           } else {
-            // Stack multiple images vertically without overlapping
-            const maxSlotHeight = Math.floor(340 / imagesToInsert.length);
-            imgHeight = Math.min(maxSlotHeight, Math.round(imgWidth / aspect));
-            imgTop = contentTop + 10 + imgIndex * (maxSlotHeight + 12);
+            // Bullets on Left, Chart on Right
+            imgLeft = 470;
+            imgWidth = 440;
+            if (imagesToInsert.length === 1) {
+              imgHeight = Math.min(360, Math.round(imgWidth / aspect));
+              imgTop = contentTop + 10;
+            } else {
+              const maxSlotHeight = Math.floor(340 / imagesToInsert.length);
+              imgHeight = Math.min(maxSlotHeight, Math.round(imgWidth / aspect));
+              imgTop = contentTop + 10 + imgIndex * (maxSlotHeight + 12);
+            }
           }
 
           let picInserted = false;
