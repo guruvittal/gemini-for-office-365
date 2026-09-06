@@ -753,36 +753,41 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
       }
     } else {
       // Non-table slide: Bullets + optional Takeaway card at the bottom
-      const bodyHeight = hasTakeaway ? 280 : 380;
-      const bulletBox = newSlide.shapes.addTextBox(slideData.body || "• Executive slide content", {
-        left: 50,
-        top: contentTop,
-        width: hasImages ? 400 : 860,
-        height: bodyHeight
-      });
-      bulletBox.textFrame.wordWrap = true;
-      bulletBox.textFrame.textRange.font.size = hasImages ? 13.5 : 15;
+      const rawBody = (slideData.body || "").trim();
+      const isIntroOrEmpty = !rawBody || rawBody.toLowerCase().startsWith("here is the image") || rawBody === "• Executive slide content";
 
-      // Format bold lead-ins for paragraphs
-      try {
-        const paragraphs = bulletBox.textFrame.textRange.paragraphs;
-        paragraphs.load("items/text");
-        await context.sync();
-        if (paragraphs.items) {
-          for (const p of paragraphs.items) {
-            const pText = p.text || "";
-            const colonIdx = pText.indexOf(":");
-            const dashIdx = pText.indexOf("—");
-            const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
-            if (sepIdx > 0 && sepIdx < 50 && typeof p.getSubstring === "function") {
-              try {
-                const leadIn = p.getSubstring(0, sepIdx + 1);
-                leadIn.font.bold = true;
-              } catch (_) {}
+      if (!isIntroOrEmpty || !hasImages) {
+        const bodyHeight = hasTakeaway ? 280 : 380;
+        const bulletBox = newSlide.shapes.addTextBox(slideData.body || "• Executive slide content", {
+          left: 50,
+          top: contentTop,
+          width: hasImages ? 400 : 860,
+          height: bodyHeight
+        });
+        bulletBox.textFrame.wordWrap = true;
+        bulletBox.textFrame.textRange.font.size = hasImages ? 13.5 : 15;
+
+        // Format bold lead-ins for paragraphs
+        try {
+          const paragraphs = bulletBox.textFrame.textRange.paragraphs;
+          paragraphs.load("items/text");
+          await context.sync();
+          if (paragraphs.items) {
+            for (const p of paragraphs.items) {
+              const pText = p.text || "";
+              const colonIdx = pText.indexOf(":");
+              const dashIdx = pText.indexOf("—");
+              const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
+              if (sepIdx > 0 && sepIdx < 50 && typeof p.getSubstring === "function") {
+                try {
+                  const leadIn = p.getSubstring(0, sepIdx + 1);
+                  leadIn.font.bold = true;
+                } catch (_) {}
+              }
             }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
 
       // Render dedicated Executive Takeaway Callout Box at bottom
       if (hasTakeaway) {
@@ -801,13 +806,17 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
     }
 
     if (hasImages) {
+      const rawBody = (slideData.body || "").trim();
+      const isIntroOrEmpty = !rawBody || rawBody.toLowerCase().startsWith("here is the image") || rawBody === "• Executive slide content";
+      const isImageOnlySlide = !hasTable && isIntroOrEmpty;
+
       for (const rawImg of imagesToInsert) {
         const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
         if (clean.length > 50) {
-          const imgLeft = 470;
-          const imgWidth = 440;
+          const imgLeft = isImageOnlySlide ? 200 : 470;
+          const imgWidth = isImageOnlySlide ? 560 : 440;
           // Maintain exact 16:10 aspect ratio of the 800x500 canvas to prevent vertical distortion and blurriness
-          const imgHeight = Math.min(320, Math.round(imgWidth * (500 / 800))); // ~275pt
+          const imgHeight = Math.min(360, Math.round(imgWidth * (500 / 800))); // ~350pt if centered, ~275pt if split
           const imgTop = contentTop + 10;
 
           let picInserted = false;

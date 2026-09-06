@@ -261,7 +261,55 @@ async function handleGeminiRequest(req, res) {
   return handleGeminiEnterpriseRequest(req, res);
 }
 
-function processStreamAssistChunks(parsedChunks, originalSessionId) {
+function extractImagesFromObject(obj, targetList) {
+  if (!obj || typeof obj !== 'object') return;
+
+  // 1. Blob object with base64 data
+  if (obj.blob && (obj.blob.data || obj.blob.bytesBase64Encoded)) {
+    const mime = obj.blob.mimeType || 'image/png';
+    const b64 = obj.blob.data || obj.blob.bytesBase64Encoded;
+    const uri = `data:${mime};base64,${b64}`;
+    if (!targetList.includes(uri)) targetList.push(uri);
+  }
+
+  // 2. inlineData with base64 data
+  if (obj.inlineData && (obj.inlineData.data || obj.inlineData.bytesBase64Encoded)) {
+    const mime = obj.inlineData.mimeType || 'image/png';
+    const b64 = obj.inlineData.data || obj.inlineData.bytesBase64Encoded;
+    const uri = `data:${mime};base64,${b64}`;
+    if (!targetList.includes(uri)) targetList.push(uri);
+  }
+
+  // 3. Object with image mimeType and data
+  if (obj.mimeType && typeof obj.mimeType === 'string' && obj.mimeType.startsWith('image/')) {
+    const b64 = obj.data || obj.bytesBase64Encoded;
+    if (b64 && typeof b64 === 'string') {
+      const uri = `data:${obj.mimeType};base64,${b64}`;
+      if (!targetList.includes(uri)) targetList.push(uri);
+    }
+  }
+
+  // 4. Object with direct fileUri or imageUri
+  if (obj.fileData && obj.fileData.fileUri) {
+    if (!targetList.includes(obj.fileData.fileUri)) targetList.push(obj.fileData.fileUri);
+  }
+  if (obj.imageUri && typeof obj.imageUri === 'string') {
+    if (!targetList.includes(obj.imageUri)) targetList.push(obj.imageUri);
+  }
+
+  // Recurse into arrays and child objects
+  if (Array.isArray(obj)) {
+    for (const item of obj) extractImagesFromObject(item, targetList);
+  } else {
+    for (const key of Object.keys(obj)) {
+      if (typeof obj[key] === 'object' && obj[key] !== null) {
+        extractImagesFromObject(obj[key], targetList);
+      }
+    }
+  }
+}
+
+function processStreamAssistChunks(parsedChunks, originalSessionId, sessionResetOccurred = false) {
   let aggregatedText = '';
   let returnedSessionResource = null;
   const citations = [];
@@ -280,19 +328,20 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
       console.log('[STREAM_ASSIST] Image generation tool invoked by Gemini Enterprise');
     }
 
-    // Check top-level chunk images/media
-    const chunkImgs = chunk.images || chunk.answer?.images;
-    if (chunkImgs && Array.isArray(chunkImgs)) {
-      for (const img of chunkImgs) {
-        if (img.bytesBase64Encoded || img.data) {
-          extractedImages.push(`data:${img.mimeType || 'image/png'};base64,${img.bytesBase64Encoded || img.data}`);
-        } else if (img.uri || img.url) {
-          extractedImages.push(img.uri || img.url);
-        }
-      }
+    // Comprehensive recursive image extraction from the entire chunk
+    extractImagesFromObject(chunk, extractedImages);
+
+    // Support both singular 'reply' object and 'replies' array in StreamAssist
+    const replyCandidate = chunk.answer?.reply || chunk.reply;
+    let replies = [];
+    if (Array.isArray(chunk.answer?.replies)) {
+      replies = chunk.answer.replies;
+    } else if (Array.isArray(chunk.replies)) {
+      replies = chunk.replies;
+    } else if (replyCandidate && typeof replyCandidate === 'object') {
+      replies = [replyCandidate];
     }
 
-    const replies = chunk.answer?.replies || chunk.replies || [];
     for (const reply of replies) {
       // 1. Check content parts (support both grounded and ungrounded parts)
       const parts = reply.groundedContent?.content?.parts 
@@ -308,13 +357,15 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
             thoughtParts.push(part.text);
           } else if (part.inlineData?.data) {
             const mime = part.inlineData.mimeType || 'image/png';
-            extractedImages.push(`data:${mime};base64,${part.inlineData.data}`);
+            const uri = `data:${mime};base64,${part.inlineData.data}`;
+            if (!extractedImages.includes(uri)) extractedImages.push(uri);
             console.log(`[STREAM_ASSIST] Found inlineData image artifact (${part.inlineData.data.length} bytes)`);
           } else if (part.fileData?.fileUri) {
-            extractedImages.push(part.fileData.fileUri);
+            if (!extractedImages.includes(part.fileData.fileUri)) extractedImages.push(part.fileData.fileUri);
             console.log(`[STREAM_ASSIST] Found fileData image artifact (${part.fileData.fileUri})`);
           } else if (part.image?.uri || part.image?.url) {
-            extractedImages.push(part.image.uri || part.image.url);
+            const uri = part.image.uri || part.image.url;
+            if (!extractedImages.includes(uri)) extractedImages.push(uri);
           }
         }
       } else {
@@ -336,11 +387,13 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
         const mediaList = Array.isArray(replyMedia) ? replyMedia : [replyMedia];
         for (const m of mediaList) {
           if (typeof m === 'string') {
-            extractedImages.push(m);
+            if (!extractedImages.includes(m)) extractedImages.push(m);
           } else if (m.bytesBase64Encoded || m.data) {
-            extractedImages.push(`data:${m.mimeType || 'image/png'};base64,${m.bytesBase64Encoded || m.data}`);
+            const uri = `data:${m.mimeType || 'image/png'};base64,${m.bytesBase64Encoded || m.data}`;
+            if (!extractedImages.includes(uri)) extractedImages.push(uri);
           } else if (m.uri || m.url) {
-            extractedImages.push(m.uri || m.url);
+            const uri = m.uri || m.url;
+            if (!extractedImages.includes(uri)) extractedImages.push(uri);
           }
         }
       }
@@ -358,7 +411,10 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
     }
 
     if (!aggregatedText) {
-      const chunkText = chunk.answer?.replyText 
+      const chunkText = chunk.answer?.reply?.groundedContent?.content?.text
+        || chunk.answer?.reply?.content?.text
+        || chunk.answer?.reply?.text
+        || chunk.answer?.replyText 
         || chunk.answer?.text 
         || chunk.answer?.content?.text 
         || chunk.replyText 
@@ -372,6 +428,9 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
 
   // Append extracted images as Markdown images if not already embedded
   if (extractedImages.length > 0) {
+    if (!aggregatedText.trim()) {
+      aggregatedText = "Here is the image generated based on your request:\n\n";
+    }
     for (const imgUrl of extractedImages) {
       if (!aggregatedText.includes(imgUrl)) {
         aggregatedText += `\n\n![Generated Image](${imgUrl})\n\n`;
@@ -384,7 +443,7 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
     if (thoughtParts.length > 0) {
       aggregatedText = thoughtParts.join('\n\n');
     } else {
-      console.warn('[STREAM_ASSIST] StreamAssist returned empty chunks for this query.');
+      console.warn('[STREAM_ASSIST] StreamAssist returned empty text and no images. Parsed chunk count:', parsedChunks.length, 'Chunk sample:', JSON.stringify(parsedChunks).slice(0, 1000));
       aggregatedText = "I processed your request with Gemini Enterprise, but no narrative content was generated. Please try rephrasing your request or asking for slide summaries, structured tables, or data comparisons.";
     }
   }
@@ -397,7 +456,7 @@ function processStreamAssistChunks(parsedChunks, originalSessionId) {
   return {
     resultText: aggregatedText,
     sessionResource: returnedSessionResource,
-    sessionId: shortSessionId || originalSessionId,
+    sessionId: shortSessionId || (sessionResetOccurred ? null : originalSessionId),
     citations: citations,
     images: extractedImages
   };
@@ -635,6 +694,8 @@ async function extractDocumentText(att) {
 
   console.log(`Calling StreamAssist API (${endpointUrl})... Session: ${requestBody.session || 'NEW'}`);
 
+  let sessionResetOccurred = false;
+
   let apiRes = await fetch(endpointUrl, {
     method: 'POST',
     headers: headers,
@@ -649,6 +710,7 @@ async function extractDocumentText(att) {
       (apiRes.status === 400 && (errText.includes('PROMPT_TOO_LARGE') || errText.includes('INVALID_ARGUMENT'))) ||
       (apiRes.status === 403 && errText.includes('Session is not owned'))
     )) {
+      sessionResetOccurred = true;
       console.warn(JSON.stringify({
         severity: 'WARNING',
         message: `[SESSION_RECOVERY] Discovery Engine session '${requestBody.session}' failed (${errText.includes('PROMPT_TOO_LARGE') ? 'PROMPT_TOO_LARGE token overflow' : 'session error'}). Retrying automatically with a fresh clean session...`,
@@ -721,7 +783,7 @@ async function extractDocumentText(att) {
     }
   }
 
-  return processStreamAssistChunks(parsedChunks, sessionId);
+  return processStreamAssistChunks(parsedChunks, sessionId, sessionResetOccurred);
 }
 
 async function handleGeminiEnterpriseRequest(req, res) {
