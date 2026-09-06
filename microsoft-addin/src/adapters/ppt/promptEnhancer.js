@@ -96,18 +96,22 @@ The user explicitly requested EXACTLY ${requestedCount} slides. You MUST generat
     }
 
     const rules = `
-IMPORTANT RULES FOR SLIDE GENERATION:${countConstraint}
-1. Provide EXACTLY ONE definitive presentation version. DO NOT output multiple alternatives or options.
-2. DO NOT output conversational preamble or filler (e.g. "Here is...", "Sure!"). Output the presentation content directly.
-3. Structure your response clearly using Markdown Headings (e.g. ## Slide 1: [Emoji] [Title]) for each slide. Format subtitles as "### [Subtitle Text]" directly underneath each slide title.
-4. For each slide, provide:
-   - A short, punchy **Title** of **MAXIMUM 3 TO 4 WORDS (under 40 characters)** prefixed with a relevant **Emoji / Icon** (e.g., "📊 Financial Highlights", "🚀 Growth Strategy", "💰 Capital & Resources", "📈 Outlook & Guidance"). Put extra details (like dates or quarters) into the Subtitle.
-   - A **Subtitle** (if applicable, formatted as ### [Subtitle]).
-   - **Main Content**:
-     * **STRUCTURED TABLES FOR QUANTITATIVE & COMPARATIVE DATA**: When presenting dense financial results, multi-attribute comparisons, or numeric metrics, format as a clean Markdown table (e.g. | Metric | Q1 2026 | YoY Change | Impact |).
-     * **EXECUTIVE BULLETS FOR STRATEGY & NARRATIVE**: For strategic vision, qualitative analysis, key initiatives, risks, and next steps, use 3 to 4 crisp, high-impact bullet points with bold lead-ins. Do NOT force a table when narrative bullets convey the insight better.
-5. Do NOT output internal design metadata, font sizes (like "Title Size: 44"), hex colors (like "Color: #..."), or raw "Visual Concept:" labels. Keep the output clean, executive-ready presentation content.
-6. Provide all slides in a single response, cleanly separated by headings.
+CRITICAL STRUCTURE CONTRACT FOR SLIDE GENERATION:${countConstraint}
+1. Provide EXACTLY ONE definitive presentation version. DO NOT output multiple alternatives, conversational preamble, pleasantries, or filler. Output the presentation slides directly.
+2. For EVERY slide, strictly follow this standardized structure:
+
+---
+## Slide {N}: [Relevant Emoji] [Title: MAX 3 TO 4 WORDS]
+### [Contextual Subtitle / One-sentence Takeaway]
+
+[CONTENT AREA - Choose the single best format for the slide topic]:
+- For quantitative data / financial metrics: A clean, light Markdown Table (| Indicator | Metric | Impact |)
+- For data breakdowns / distributions: A structured JSON code block (\`\`\`json { "chartType": "doughnut|bar|pie", "title": "...", "data": [...] } \`\`\`)
+- For strategy, vision, narrative, or risks: 3 to 4 crisp executive bullet points with bold lead-ins (• **Theme**: Impactful description)
+- For side-by-side or KPI comparisons: A structured visual JSON code block with "visualType": "metric_grid_3col" or "before_after"
+
+3. Do NOT output internal design metadata, font sizes (like "Title Size: 44"), hex colors (like "Color: #..."), or raw "Visual Concept:" labels. Keep the output clean, executive-ready presentation content.
+4. Separate every slide cleanly with a horizontal rule "---".
 `;
     return `${userPrompt}\n\n${rules}`;
   }
