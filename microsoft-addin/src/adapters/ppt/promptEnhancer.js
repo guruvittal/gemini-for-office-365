@@ -41,8 +41,7 @@ CRITICAL INSTRUCTIONS FOR SLIDE EDITING:
   if (lowerPrompt.includes("chart") || lowerPrompt.includes("pie") || lowerPrompt.includes("bar") || lowerPrompt.includes("graph") || lowerPrompt.includes("visualization") || lowerPrompt.includes("visualize") || lowerPrompt.includes("plot") || lowerPrompt.includes("breakdown") || lowerPrompt.includes("doughnut") || lowerPrompt.includes("column")) {
     const rules = `
 CRITICAL INSTRUCTIONS FOR CHART GENERATION:
-1. Generate an image of the chart: Use your chart / image generation tool to create a clean, modern, high-resolution corporate visual chart image (e.g. pie chart, doughnut chart, or bar chart) illustrating the quantitative breakdown and key data. Ensure clean corporate styling, professional colors, and ensure all titles and data labels do not overlap (placing a clean legend to the side with percentage callouts).
-2. Also output a structured JSON code block with the exact data metrics:
+1. Output a structured JSON code block with the exact data metrics:
 \`\`\`json
 {
   "chartType": "pie",
@@ -53,9 +52,9 @@ CRITICAL INSTRUCTIONS FOR CHART GENERATION:
 }
 \`\`\`
 Supported chartType values: "pie", "doughnut", "bar", "column", "line". Use exact numeric values (not strings).
-3. Also provide a clean Markdown Table with the data metrics (| Category | Metric | Share % |).
-4. Provide 2-3 executive bullet points with bold lead-ins highlighting strategic insights.
-5. DO NOT output conversational preamble or pleasantries.
+2. Also provide a clean Markdown Table with the data metrics (| Category | Metric | Share % |).
+3. Provide 2-3 executive bullet points with bold lead-ins highlighting strategic insights.
+4. DO NOT output conversational preamble or pleasantries.
 `;
     return `${userPrompt}\n\n${rules}`;
   }
@@ -66,7 +65,7 @@ Supported chartType values: "pie", "doughnut", "bar", "column", "line". Use exac
 CRITICAL INSTRUCTIONS FOR EXECUTIVE SUMMARY GENERATION:
 1. Provide EXACTLY ONE single slide. NEVER generate multiple slides or multiple '##' slide headings under any circumstances.
 2. Structure with exactly one slide title: "## 📊 Executive Slide Summary".
-3. Visual Chart Image: If the summary contains quantitative breakdown, comparisons, or metrics, create an image of a professional corporate chart (e.g. pie chart, donut chart, or bar chart) illustrating the primary data using your image generation tool.
+3. Visual Chart: If the summary contains quantitative breakdown, comparisons, or metrics, output a structured JSON code block with the exact data metrics (chartType: "doughnut", title: "...", data: [...]) so our client presentation engine can render a crisp, high-resolution chart.
 4. Content layout:
    - Provide a clean Markdown Table (| Category | Metric | Share / Value |) summarizing quantitative data or metrics.
    - Followed by 2 to 3 concise, high-impact executive takeaway bullets with bold lead-in phrases.

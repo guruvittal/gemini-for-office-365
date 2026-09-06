@@ -164,10 +164,6 @@ export function parseMarkdown(text) {
       trimmedCode.includes('"line"') ||
       (trimmedCode.includes('"data"') && trimmedCode.includes('"value"'))
     )) {
-      // If a high-resolution image version of the chart is already present, do not duplicate with canvas chart
-      if (hasGeneratedChartImage) {
-        return '';
-      }
       try {
         const chartHtml = renderChartHtml(trimmedCode);
         if (chartHtml) {

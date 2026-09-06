@@ -723,8 +723,7 @@ async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, us
 
   if (isChartIntent && !lowerPrompt.includes("critical instructions for chart generation")) {
     effectivePrompt += `\n\nCRITICAL INSTRUCTIONS FOR CHART GENERATION:
-1. Generate an image of the chart: Use your chart / image generation tool to create a clean, modern, high-resolution corporate visual chart image (e.g. pie chart, doughnut chart, or bar chart) illustrating the quantitative breakdown and key data. Ensure clean corporate styling, professional colors, and ensure all titles and data labels do not overlap (placing a clean legend to the side with percentage callouts).
-2. Also output a structured JSON code block with the exact data metrics:
+1. Output a structured JSON code block with the exact data metrics:
 \`\`\`json
 {
   "chartType": "pie",
@@ -735,10 +734,10 @@ async function callStreamAssistAPI({ prompt, sessionId, userId, userPseudoId, us
 }
 \`\`\`
 Supported chartType values: "pie", "doughnut", "bar", "column", "line". Use exact numeric values (not strings).
-3. Also provide a clean Markdown Table with the data metrics (| Category | Metric | Share % |).
-4. Provide 2-3 executive bullet points with bold lead-ins highlighting strategic insights.
-5. DO NOT output conversational preamble or pleasantries.`;
-    console.log(`[STREAM_ASSIST] Server-side prompt enhanced with chart image generation instructions for prompt: "${prompt.slice(0, 60)}..."`);
+2. Also provide a clean Markdown Table with the data metrics (| Category | Metric | Share % |).
+3. Provide 2-3 executive bullet points with bold lead-ins highlighting strategic insights.
+4. DO NOT output conversational preamble or pleasantries.`;
+    console.log(`[STREAM_ASSIST] Server-side prompt enhanced with structured chart data instructions for prompt: "${prompt.slice(0, 60)}..."`);
   }
 
   const requestBody = {
