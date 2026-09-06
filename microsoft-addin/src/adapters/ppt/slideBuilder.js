@@ -79,17 +79,17 @@ function estimateTableRenderedHeight(tableData, colWidth = 280) {
   if (!tableData) return 0;
   const headers = tableData.headers || [];
   const rows = tableData.rows || [];
-  let totalHeight = headers.length > 0 ? 36 : 0; // Header row height
+  let totalHeight = headers.length > 0 ? 28 : 0; // Header row height
 
   for (const row of rows) {
     // Determine maximum length among cell values in this row
     const maxChars = Math.max(...row.map(c => String(c !== undefined && c !== null ? c : "").trim().length), 0);
-    // At ~colWidth, approx colWidth / 8.5 characters fit per line
-    const charsPerLine = Math.max(12, Math.floor(colWidth / 8.5));
+    // At ~colWidth, with 10pt font, approx colWidth / 6.5 characters fit per line
+    const charsPerLine = Math.max(12, Math.floor(colWidth / 6.5));
     const approxLines = Math.max(1, Math.ceil(maxChars / charsPerLine));
 
-    // Cell padding (14pt) + line spacing (~16pt per line)
-    const rowHeight = Math.max(28, approxLines * 16 + 14);
+    // Cell padding (8pt) + line spacing (~13pt per line)
+    const rowHeight = Math.max(24, approxLines * 13 + 8);
     totalHeight += rowHeight;
   }
   return totalHeight;
@@ -123,7 +123,7 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
   const tableWidth = customWidth || 860;
   const approxColWidth = tableWidth / Math.max(1, colCount);
   const estimatedHeight = estimateTableRenderedHeight(tableData, approxColWidth);
-  const tableHeight = customHeight || Math.min(380, Math.max(90, estimatedHeight));
+  const tableHeight = customHeight || Math.min(380, Math.max(80, estimatedHeight));
 
   let addedShape = null;
   try {
@@ -144,34 +144,60 @@ function populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleS
   if (!addedShape) {
     try {
       addedShape = newSlide.shapes.addTable(rowCount, colCount);
-      const table = addedShape.getTable();
-      for (let r = 0; r < tableValues.length; r++) {
-        for (let c = 0; c < colCount; c++) {
-          const cell = table.getCellOrNullObject(r, c);
-          if (cell) cell.text = tableValues[r][c];
+      if (addedShape) {
+        addedShape.left = 50;
+        addedShape.top = tableTop;
+        addedShape.width = tableWidth;
+        addedShape.height = tableHeight;
+        const table = addedShape.table || (typeof addedShape.getTable === "function" ? addedShape.getTable() : null);
+        if (table) {
+          for (let r = 0; r < tableValues.length; r++) {
+            for (let c = 0; c < colCount; c++) {
+              try {
+                const cell = (typeof table.getCell === "function")
+                  ? table.getCell(r, c)
+                  : (typeof table.getCellOrNullObject === "function" ? table.getCellOrNullObject(r, c) : null);
+                if (cell) {
+                  if (cell.textRange) cell.textRange.text = tableValues[r][c];
+                  else if (cell.text !== undefined) cell.text = tableValues[r][c];
+                }
+              } catch (_) {}
+            }
+          }
         }
       }
-      logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table via getCell.`);
+      logToPPTConsole(`Slide ${slideNum}: Added native PowerPoint table via fallback.`);
     } catch (fallbackErr) {
       console.error("Native table shape creation failed:", fallbackErr);
       return estimatedHeight;
     }
   }
 
-  // Format table font size to 11-12pt so cells fit cleanly without extreme wrapping
-  if (addedShape && typeof addedShape.getTable === "function") {
+  // Format table font size to 10-11pt so cells fit cleanly without extreme wrapping
+  if (addedShape) {
     try {
-      const table = addedShape.getTable();
-      for (let r = 0; r < tableValues.length; r++) {
-        for (let c = 0; c < colCount; c++) {
-          const cell = table.getCellOrNullObject(r, c);
-          if (cell && cell.textFrame && cell.textFrame.textRange) {
-            cell.textFrame.textRange.font.size = r === 0 ? 12 : 11;
-            if (r === 0) cell.textFrame.textRange.font.bold = true;
+      const table = addedShape.table || (typeof addedShape.getTable === "function" ? addedShape.getTable() : null);
+      if (table) {
+        for (let r = 0; r < tableValues.length; r++) {
+          for (let c = 0; c < colCount; c++) {
+            try {
+              const cell = (typeof table.getCell === "function")
+                ? table.getCell(r, c)
+                : (typeof table.getCellOrNullObject === "function" ? table.getCellOrNullObject(r, c) : null);
+              if (cell) {
+                const tr = cell.textRange || (cell.textFrame && cell.textFrame.textRange);
+                if (tr && tr.font) {
+                  tr.font.size = r === 0 ? 11 : 10;
+                  if (r === 0) tr.font.bold = true;
+                }
+              }
+            } catch (_) {}
           }
         }
       }
-    } catch (_) {}
+    } catch (tblFmtErr) {
+      console.warn("Table formatting warning:", tblFmtErr);
+    }
   }
   return estimatedHeight;
 }
@@ -590,8 +616,8 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
       // Render takeaway or additional notes below the table without overlapping
       const bottomContent = hasTakeaway ? `💡 Strategic Takeaway: ${takeaway}` : additionalBody;
       if (bottomContent && bottomContent.trim().length > 0) {
-        const notesTop = Math.max(contentTop + realTableHeight + 16, 320);
-        const notesHeight = Math.max(45, Math.min(140, 520 - notesTop));
+        const notesTop = contentTop + realTableHeight + 14;
+        const notesHeight = Math.max(45, Math.min(260, 515 - notesTop));
         const notesBox = newSlide.shapes.addTextBox(bottomContent, {
           left: 50,
           top: notesTop,
@@ -599,11 +625,32 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
           height: notesHeight
         });
         notesBox.textFrame.wordWrap = true;
-        notesBox.textFrame.textRange.font.size = realTableHeight > 200 ? 11.5 : 12.5;
-        notesBox.textFrame.textRange.font.italic = true;
+        notesBox.textFrame.textRange.font.size = hasImages ? 10.5 : 12;
+        notesBox.textFrame.textRange.font.italic = hasTakeaway;
         try {
           if (hasTakeaway) {
             notesBox.textFrame.textRange.getSubstring(0, 22).font.bold = true;
+          }
+        } catch (_) {}
+
+        // Bold lead-ins before colons in bullet points
+        try {
+          const paragraphs = notesBox.textFrame.textRange.paragraphs;
+          paragraphs.load("items/text");
+          await context.sync();
+          if (paragraphs.items) {
+            for (const p of paragraphs.items) {
+              const pText = p.text || "";
+              const colonIdx = pText.indexOf(":");
+              const dashIdx = pText.indexOf("—");
+              const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
+              if (sepIdx > 0 && sepIdx < 50 && typeof p.getSubstring === "function") {
+                try {
+                  const leadIn = p.getSubstring(0, sepIdx + 1);
+                  leadIn.font.bold = true;
+                } catch (_) {}
+              }
+            }
           }
         } catch (_) {}
       }
@@ -661,23 +708,95 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null, targ
       for (const rawImg of imagesToInsert) {
         const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
         if (clean.length > 50) {
+          const imgLeft = 470;
+          const imgTop = contentTop;
+          const imgWidth = 440;
+          const imgHeight = Math.min(380, 515 - contentTop);
+
+          let picInserted = false;
+          // Strategy 1: Standard PowerPoint Office.js shapes.addPicture(base64, options)
           try {
-            const imgShape = newSlide.shapes.addImage(clean);
-            imgShape.left = 460;
-            imgShape.top = contentTop;
-            imgShape.width = 440;
-            imgShape.height = 330;
-            logToPPTConsole(`Slide ${slideNum}: Added chart image shape.`);
-          } catch (imgErr) {
-            console.warn("shapes.addImage failed with clean base64, trying raw:", imgErr);
+            if (typeof newSlide.shapes.addPicture === "function") {
+              const pic = newSlide.shapes.addPicture(clean, {
+                left: imgLeft,
+                top: imgTop,
+                width: imgWidth,
+                height: imgHeight
+              });
+              if (pic) {
+                picInserted = true;
+                logToPPTConsole(`Slide ${slideNum}: Added chart picture via shapes.addPicture.`);
+              }
+            }
+          } catch (picErr) {
+            console.warn("shapes.addPicture clean failed, trying raw URI:", picErr);
             try {
-              const imgShape2 = newSlide.shapes.addImage(rawImg);
-              imgShape2.left = 460;
-              imgShape2.top = contentTop;
-              imgShape2.width = 440;
-              imgShape2.height = 330;
-            } catch (fallbackErr) {
-              console.error("shapes.addImage failed:", fallbackErr);
+              if (typeof newSlide.shapes.addPicture === "function") {
+                const pic2 = newSlide.shapes.addPicture(rawImg, {
+                  left: imgLeft,
+                  top: imgTop,
+                  width: imgWidth,
+                  height: imgHeight
+                });
+                if (pic2) {
+                  picInserted = true;
+                  logToPPTConsole(`Slide ${slideNum}: Added chart picture via rawImg addPicture.`);
+                }
+              }
+            } catch (rawErr) {
+              console.warn("shapes.addPicture rawImg failed:", rawErr);
+            }
+          }
+
+          // Strategy 2: Geometric shape fill (PowerPointApi 1.8+)
+          if (!picInserted) {
+            try {
+              if (typeof newSlide.shapes.addGeometricShape === "function") {
+                const rect = newSlide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.rectangle, {
+                  left: imgLeft,
+                  top: imgTop,
+                  width: imgWidth,
+                  height: imgHeight
+                });
+                if (rect && rect.fill) {
+                  if (typeof rect.fill.setImage === "function") {
+                    rect.fill.setImage(clean);
+                    picInserted = true;
+                  } else if (typeof rect.fill.setPictureFromBase64 === "function") {
+                    rect.fill.setPictureFromBase64(clean);
+                    picInserted = true;
+                  }
+                }
+                if (rect && rect.line) {
+                  try {
+                    rect.line.visible = false;
+                  } catch (_) {}
+                }
+                if (picInserted) {
+                  logToPPTConsole(`Slide ${slideNum}: Added chart picture via shape fill.`);
+                }
+              }
+            } catch (fillErr) {
+              console.warn("Geometric shape fill fallback failed:", fillErr);
+            }
+          }
+
+          // Strategy 3: shapes.addImage if present in custom Office.js host
+          if (!picInserted) {
+            try {
+              if (typeof newSlide.shapes.addImage === "function") {
+                const imgShape = newSlide.shapes.addImage(clean);
+                if (imgShape) {
+                  imgShape.left = imgLeft;
+                  imgShape.top = imgTop;
+                  imgShape.width = imgWidth;
+                  imgShape.height = imgHeight;
+                  picInserted = true;
+                  logToPPTConsole(`Slide ${slideNum}: Added chart picture via addImage.`);
+                }
+              }
+            } catch (addImgErr) {
+              console.warn("shapes.addImage fallback failed:", addImgErr);
             }
           }
         }

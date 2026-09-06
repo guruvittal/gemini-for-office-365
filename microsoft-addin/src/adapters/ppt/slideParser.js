@@ -111,6 +111,12 @@ export function extractSlideMetadataAndBullets(rawLines) {
       continue;
     }
 
+    // Detect section heading or subtitle line (e.g. ### Strategic Analysis and Key Metrics)
+    if (!subtitle && (/^#{2,4}\s+/.test(line) || (!line.startsWith("-") && !line.startsWith("*") && !line.startsWith("•") && cleanBullet.length < 50 && !/[.!?]$/.test(cleanBullet)))) {
+      subtitle = cleanBullet.replace(/^[#*_`\s]+|[#*_`\s]+$/g, "").trim();
+      continue;
+    }
+
     // Strip wrapping markdown italic/bold underscores or asterisks
     if ((cleanBullet.startsWith("_") && cleanBullet.endsWith("_") && cleanBullet.length > 2) ||
         (cleanBullet.startsWith("*") && cleanBullet.endsWith("*") && cleanBullet.length > 2)) {
@@ -641,9 +647,9 @@ export function parseSlides(htmlContent, rawText = "") {
 
       // Extract any extra commentary/bullets before or after standalone table
       const extraLines = [];
-      Array.from(tempDiv.querySelectorAll("p, li")).forEach(el => {
+      Array.from(tempDiv.querySelectorAll("h1, h2, h3, h4, p, li")).forEach(el => {
         const txt = (el.innerText || el.textContent || "").trim();
-        if (txt && !txt.startsWith("Verified Sources") && txt !== tableTitle && !/^(?:Subtitle|Color|Visual):/i.test(txt)) {
+        if (txt && !txt.startsWith("Verified Sources") && txt !== tableTitle && txt !== cleanTitle && !/^(?:Subtitle|Color|Visual):/i.test(txt)) {
           extraLines.push(txt);
         }
       });
