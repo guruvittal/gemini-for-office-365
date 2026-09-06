@@ -156,26 +156,49 @@ async function createSingleSlide(slideData, slideNum) {
 
   // Atomic PowerPoint slide creation with clean shape management
   await PowerPoint.run(async (context) => {
-    // Add slide using standard PowerPoint API (avoids Invalid Param passed to GetItem(id))
-    const newSlide = context.presentation.slides.add();
+    const slides = context.presentation.slides;
+    let newSlide = null;
+
+    // Add slide using standard PowerPoint API
+    try {
+      newSlide = slides.add();
+    } catch (addErr) {
+      console.warn("Direct slides.add() call notice:", addErr);
+    }
     await context.sync();
 
-    // Load shapes on the newly created slide
-    newSlide.shapes.load("items");
-    await context.sync();
-
-    // Delete any default template placeholders (e.g. "Click to add title", "Click to add text")
-    if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
-      for (let i = newSlide.shapes.items.length - 1; i >= 0; i--) {
-        try {
-          newSlide.shapes.items[i].delete();
-        } catch (dErr) {}
-      }
-      try {
+    // In Office.js, slides.add() does not always return a slide proxy directly.
+    // Fetch the newly added slide using slides.getItemAt(count - 1)
+    if (!newSlide || typeof newSlide.shapes === "undefined") {
+      const countResult = slides.getCount();
+      await context.sync();
+      const slideCount = countResult.value;
+      if (slideCount > 0) {
+        newSlide = slides.getItemAt(slideCount - 1);
         await context.sync();
-      } catch (syncErr) {
-        // Safe continuation even if template locks default placeholders
       }
+    }
+
+    if (!newSlide || typeof newSlide.shapes === "undefined") {
+      throw new Error("Unable to obtain reference to PowerPoint Slide proxy after creation.");
+    }
+
+    // Safely delete default template placeholders (e.g. "Click to add title")
+    try {
+      newSlide.shapes.load("items");
+      await context.sync();
+
+      if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
+        for (let i = newSlide.shapes.items.length - 1; i >= 0; i--) {
+          try {
+            newSlide.shapes.items[i].delete();
+          } catch (dErr) {}
+        }
+        await context.sync();
+      }
+    } catch (cleanErr) {
+      // Safe continuation even if template locks default placeholders
+      console.warn("Placeholder cleanup notice:", cleanErr);
     }
 
     // Add Clean Title at Top using Gemini's requested title font size
@@ -185,12 +208,16 @@ async function createSingleSlide(slideData, slideNum) {
       width: 860,
       height: 50
     });
-    titleBox.textFrame.textRange.font.size = titleSize;
-    titleBox.textFrame.textRange.font.bold = true;
+    try {
+      if (titleBox && titleBox.textFrame && titleBox.textFrame.textRange) {
+        titleBox.textFrame.textRange.font.size = titleSize;
+        titleBox.textFrame.textRange.font.bold = true;
+        if (color) titleBox.textFrame.textRange.font.color = color;
+      }
+    } catch (fErr) {}
     try {
       titleBox.textFrame.wordWrap = false;
     } catch (wErr) {}
-    if (color) titleBox.textFrame.textRange.font.color = color;
 
     let contentTop = 85;
 
@@ -202,9 +229,13 @@ async function createSingleSlide(slideData, slideNum) {
         width: 860,
         height: 30
       });
-      subtitleBox.textFrame.textRange.font.size = subtitleSize;
-      subtitleBox.textFrame.textRange.font.italic = true;
-      if (color) subtitleBox.textFrame.textRange.font.color = color;
+      try {
+        if (subtitleBox && subtitleBox.textFrame && subtitleBox.textFrame.textRange) {
+          subtitleBox.textFrame.textRange.font.size = subtitleSize;
+          subtitleBox.textFrame.textRange.font.italic = true;
+          if (color) subtitleBox.textFrame.textRange.font.color = color;
+        }
+      } catch (fErr) {}
       contentTop = 112;
     }
 
@@ -220,7 +251,11 @@ async function createSingleSlide(slideData, slideNum) {
         width: hasImages ? 400 : 860,
         height: 380
       });
-      bodyBox.textFrame.textRange.font.size = 18;
+      try {
+        if (bodyBox && bodyBox.textFrame && bodyBox.textFrame.textRange) {
+          bodyBox.textFrame.textRange.font.size = 18;
+        }
+      } catch (fErr) {}
 
       if (hasImages) {
         for (const rawImg of imagesToInsert) {
