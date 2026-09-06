@@ -14,250 +14,142 @@
     <style>
         * { box-sizing: border-box; }
         html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
-        body { font-family: "Segoe UI", -apple-system, sans-serif; padding: 8px 10px 8px 10px; background-color: #faf9f8; display: flex; flex-direction: column; height: 100vh; }
+        body { font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif; padding: 6px 8px; background-color: #faf9f8; display: flex; flex-direction: column; height: 100vh; }
         
-        .header { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; padding-bottom: 5px; border-bottom: 1px solid #edebe9; }
-        h3 { margin: 0; color: #101010; font-weight: 600; font-size: 14.5px; display: flex; align-items: center; gap: 6px; }
-        .header-badge { font-size: 10px; background: #deecf9; color: #0078d4; padding: 2px 6px; border-radius: 10px; font-weight: 600; }
+        /* Modern Compact Header */
+        .header { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; height: 32px; margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid #edebe9; }
+        .header-left { display: flex; align-items: center; gap: 6px; }
+        .header-right { display: flex; align-items: center; gap: 5px; }
+        h3 { margin: 0; color: #101010; font-weight: 600; font-size: 13.5px; display: flex; align-items: center; gap: 5px; }
+        .header-badge { font-size: 9.5px; background: #deecf9; color: #0078d4; padding: 1px 5px; border-radius: 8px; font-weight: 600; }
+        .user-status-dot { width: 7px; height: 7px; border-radius: 50%; background-color: #107c41; display: inline-block; flex-shrink: 0; }
+        .user-status-dot.offline { background-color: #a19f9d; }
         button.secondary { background-color: #ffffff; color: #323130; border: 1px solid #8a8886; border-radius: 4px; padding: 3px 8px; font-size: 11px; cursor: pointer; font-weight: 500; }
-        .tip-banner { flex-shrink: 0; background-color: #eff6fc; border: 1px solid #c7e0f4; border-radius: 6px; padding: 5px 8px; font-size: 11px; color: #005a9e; margin-bottom: 5px; line-height: 1.3; display: flex; justify-content: space-between; align-items: center; }
-        .tip-banner strong { color: #0078d4; }
-        .scan-btn { background-color: #0078d4; color: white; border: none; border-radius: 4px; padding: 3px 7px; font-size: 10.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
-        .scan-btn:hover { background-color: #106ebe; }
+        button.secondary:hover { background-color: #f3f2f1; }
+        .google-drive-btn { background-color: #ffffff; color: #1a73e8; border: 1px solid #dadce0; border-radius: 10px; padding: 2px 7px; font-size: 10px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; }
 
-        /* Feature 1: Document Intelligence Quick Bar */
-        .doc-tools-bar { flex-shrink: 0; display: flex; flex-direction: column; gap: 5px; background-color: #ffffff; border: 1px solid #e1dfdd; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
-        .doc-tools-title { font-size: 11px; font-weight: 600; color: #323130; display: flex; justify-content: space-between; align-items: center; }
-        .chips-container { display: flex; flex-wrap: wrap; gap: 4px; }
-        .quick-chip { background-color: #eff6fc; color: #005a9e; border: 1px solid #c7e0f4; border-radius: 12px; padding: 3px 8px; font-size: 10.5px; font-weight: 500; cursor: pointer; transition: all 0.15s ease; white-space: nowrap; }
+        /* Empty State inside Chat History */
+        .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px 8px; gap: 8px; margin: auto 0; }
+        .empty-state-icon { font-size: 26px; }
+        .empty-state-title { font-size: 13px; font-weight: 600; color: #201f1e; }
+        .empty-state-sub { font-size: 11px; color: #605e5c; max-width: 260px; line-height: 1.35; }
+        .empty-state-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; margin-top: 4px; }
+        .empty-state-hint { font-size: 10px; color: #005a9e; background: #eff6fc; border: 1px solid #c7e0f4; border-radius: 4px; padding: 4px 8px; margin-top: 6px; }
+        .quick-chip { background-color: #ffffff; color: #005a9e; border: 1px solid #c7e0f4; border-radius: 12px; padding: 3px 9px; font-size: 10.5px; font-weight: 500; cursor: pointer; transition: all 0.15s ease; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
         .quick-chip:hover { background-color: #0078d4; color: #ffffff; border-color: #0078d4; }
-        
-        #debugStatus { font-size: 9.5px; color: #605e5c; font-style: italic; display: block; margin-top: 1px; }
 
-        #chatHistory { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 2px 4px; margin-bottom: 6px; }
+        /* Chat History: takes all available vertical space */
+        #chatHistory { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; margin-bottom: 4px; }
         
-        .chat-bubble { max-width: 95%; padding: 10px 12px; border-radius: 8px; font-size: 12.5px; line-height: 1.5; word-wrap: break-word; }
+        .chat-bubble { max-width: 96%; padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.45; word-wrap: break-word; }
         .chat-bubble.user { align-self: flex-end; background-color: #0078d4; color: white; border-bottom-right-radius: 2px; white-space: pre-wrap; font-weight: 500; }
-        .chat-bubble.assistant { align-self: flex-start; background-color: #ffffff; border: 1px solid #e1dfdd; color: #201f1e; border-bottom-left-radius: 2px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
-        .chat-bubble.system { align-self: center; background-color: #f3f2f1; color: #605e5c; font-size: 11.5px; font-style: italic; max-width: 100%; border-radius: 4px; padding: 5px 8px; text-align: center; }
+        .chat-bubble.assistant { align-self: flex-start; background-color: #ffffff; border: 1px solid #e1dfdd; color: #201f1e; border-bottom-left-radius: 2px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); width: 96%; }
+        .chat-bubble.system { align-self: center; background-color: #f3f2f1; color: #605e5c; font-size: 11px; font-style: italic; max-width: 100%; border-radius: 4px; padding: 4px 8px; text-align: center; }
         
-        /* Rich Multimodal & Executive Document Formatting Styles */
-        .chat-bubble.assistant h1, .chat-bubble.assistant h2, .chat-bubble.assistant h3 { margin-top: 8px; margin-bottom: 4px; color: #0078d4; font-weight: 600; }
-        .chat-bubble.assistant h1 { font-size: 15px; border-bottom: 2px solid #eff6fc; padding-bottom: 3px; }
-        .chat-bubble.assistant h2 { font-size: 13.5px; border-bottom: 1px solid #edebe9; padding-bottom: 2px; }
-        .chat-bubble.assistant h3 { font-size: 12.5px; }
-        .chat-bubble.assistant p { margin: 5px 0; }
-        .chat-bubble.assistant ul, .chat-bubble.assistant ol { padding-left: 16px; margin: 5px 0; }
+        /* Markdown formatting */
+        .chat-bubble.assistant h1, .chat-bubble.assistant h2, .chat-bubble.assistant h3 { margin-top: 6px; margin-bottom: 3px; color: #0078d4; font-weight: 600; }
+        .chat-bubble.assistant h1 { font-size: 14px; border-bottom: 2px solid #eff6fc; padding-bottom: 2px; }
+        .chat-bubble.assistant h2 { font-size: 13px; border-bottom: 1px solid #edebe9; padding-bottom: 2px; }
+        .chat-bubble.assistant h3 { font-size: 12px; }
+        .chat-bubble.assistant p { margin: 4px 0; }
+        .chat-bubble.assistant ul, .chat-bubble.assistant ol { padding-left: 16px; margin: 4px 0; }
         .chat-bubble.assistant li { margin-bottom: 2px; }
-        .chat-bubble.assistant code { background-color: #f3f2f1; padding: 1px 4px; border-radius: 3px; font-family: Consolas, monospace; font-size: 11.5px; color: #a4262c; }
-        .chat-bubble.assistant pre { background-color: #201f1e; color: #f3f2f1; padding: 8px; border-radius: 6px; overflow-x: auto; margin: 6px 0; font-family: Consolas, monospace; }
-        
-        /* Executive Callout & Blockquote Boxes */
-        .chat-bubble.assistant blockquote { margin: 6px 0; padding: 6px 10px; background-color: #f0f6ff; border-left: 4px solid #0078d4; border-radius: 4px; color: #106ebe; font-size: 12px; }
+        .chat-bubble.assistant code { background-color: #f3f2f1; padding: 1px 4px; border-radius: 3px; font-family: Consolas, monospace; font-size: 11px; color: #a4262c; }
+        .chat-bubble.assistant pre { background-color: #201f1e; color: #f3f2f1; padding: 6px 8px; border-radius: 4px; overflow-x: auto; margin: 4px 0; font-family: Consolas, monospace; font-size: 11px; }
+        .chat-bubble.assistant blockquote { margin: 4px 0; padding: 4px 8px; background-color: #f0f6ff; border-left: 3px solid #0078d4; border-radius: 3px; color: #106ebe; font-size: 11.5px; }
         .chat-bubble.assistant blockquote p { margin: 0; }
-
-        /* Rich Executive Tables */
-        .chat-bubble.assistant table { border-collapse: collapse; width: 100%; margin: 8px 0; border: 1px solid #c8c6c4; border-radius: 4px; font-size: 11.5px; }
-        .chat-bubble.assistant th, .chat-bubble.assistant td { border: 1px solid #e1dfdd; padding: 5px 6px; }
+        .chat-bubble.assistant table { border-collapse: collapse; width: 100%; margin: 6px 0; border: 1px solid #c8c6c4; border-radius: 4px; font-size: 11px; }
+        .chat-bubble.assistant th, .chat-bubble.assistant td { border: 1px solid #e1dfdd; padding: 4px 6px; }
         .chat-bubble.assistant th { background-color: #0078d4; color: #ffffff; font-weight: 600; text-align: left; }
         .chat-bubble.assistant tr:nth-child(even) { background-color: #faf9f8; }
 
-        /* Feature 2: Action Toolbar & Refinement Chips under Response */
-        .response-actions-container { margin-top: 8px; padding-top: 6px; border-top: 1px solid #edebe9; display: flex; flex-direction: column; gap: 5px; }
-        .primary-actions { display: flex; gap: 5px; flex-wrap: wrap; }
+        /* Action Toolbar */
+        .response-actions-container { margin-top: 6px; padding-top: 5px; border-top: 1px solid #edebe9; display: flex; flex-direction: column; gap: 4px; }
+        .primary-actions { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
         .action-btn { border: none; border-radius: 4px; padding: 4px 8px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: background-color 0.15s ease; }
-        .action-btn.replace { background-color: #0078d4; color: white; }
-        .action-btn.replace:hover { background-color: #106ebe; }
         .action-btn.insert { background-color: #107c41; color: white; }
         .action-btn.insert:hover { background-color: #0b5a2f; }
         .action-btn.copy { background-color: #ffffff; color: #323130; border: 1px solid #8a8886; }
         .action-btn.copy:hover { background-color: #f3f2f1; }
+        .action-btn.replace { background-color: #ffffff; color: #0078d4; border: 1px solid #0078d4; }
+        .action-btn.replace:hover { background-color: #eff6fc; }
         
-        .refinement-chips-label { font-size: 9.5px; color: #605e5c; font-weight: 600; text-transform: uppercase; margin-top: 2px; }
-        .refinement-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-        .refinement-chip { background-color: #f3f2f1; color: #323130; border: 1px solid #e1dfdd; border-radius: 10px; padding: 2px 7px; font-size: 10px; cursor: pointer; transition: all 0.15s ease; }
+        /* Refine details collapsible */
+        .refine-details { margin-top: 2px; }
+        .refine-summary { cursor: pointer; color: #605e5c; font-size: 10px; font-weight: 500; user-select: none; }
+        .refine-summary:hover { color: #0078d4; }
+        .refinement-chips { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+        .refinement-chip { background-color: #f3f2f1; color: #323130; border: 1px solid #e1dfdd; border-radius: 10px; padding: 2px 6px; font-size: 9.5px; cursor: pointer; transition: all 0.15s ease; }
         .refinement-chip:hover { background-color: #edebe9; border-color: #8a8886; color: #0078d4; }
 
-        /* Feature 3: Selection Quick Toolbar */
-        #selectionToolbar { flex-shrink: 0; display: none; background-color: #fff4ce; border: 1px solid #fce100; border-radius: 6px; padding: 6px; margin-bottom: 5px; font-size: 11px; }
-        .selection-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; font-weight: 600; color: #795b00; }
-        .selection-preview { font-style: italic; color: #323130; margin-bottom: 5px; max-height: 32px; overflow: hidden; text-overflow: ellipsis; }
+        /* Selection Quick Toolbar */
+        #selectionToolbar { flex-shrink: 0; display: none; background-color: #fff4ce; border: 1px solid #fce100; border-radius: 4px; padding: 4px 6px; margin-bottom: 4px; font-size: 10.5px; }
+        .selection-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; font-weight: 600; color: #795b00; }
+        .selection-preview { font-style: italic; color: #323130; margin-bottom: 3px; max-height: 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .chips-container { display: flex; flex-wrap: wrap; gap: 4px; }
         
-        .input-container { flex-shrink: 0; margin-top: 0; display: flex; flex-direction: column; gap: 5px; background-color: #ffffff; padding: 7px; border-radius: 8px; border: 1px solid #e1dfdd; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
-        textarea { width: 100%; border: 1px solid #8a8886; border-radius: 4px; padding: 6px 8px; font-size: 12.5px; font-family: inherit; resize: vertical; min-height: 44px; max-height: 80px; }
+        /* Input Container */
+        .input-container { flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; background-color: #ffffff; padding: 6px; border-radius: 6px; border: 1px solid #d2d0ce; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+        .input-row { display: flex; gap: 6px; align-items: stretch; }
+        textarea { flex: 1; border: 1px solid #8a8886; border-radius: 4px; padding: 6px 8px; font-size: 12px; font-family: inherit; resize: none; min-height: 38px; max-height: 75px; }
         textarea:focus { outline: none; border-color: #0078d4; box-shadow: 0 0 0 1px #0078d4; }
-        
-        .send-btn { width: 100%; background-color: #0078d4; color: white; border: none; border-radius: 4px; padding: 7px; font-weight: 600; font-size: 12.5px; cursor: pointer; transition: background-color 0.2s ease; }
+        .send-btn { background-color: #0078d4; color: white; border: none; border-radius: 4px; padding: 0 14px; font-weight: 600; font-size: 11.5px; cursor: pointer; transition: background-color 0.2s ease; display: flex; align-items: center; justify-content: center; }
         .send-btn:disabled { background-color: #c8c6c4; cursor: not-allowed; }
         .send-btn:hover:not(:disabled) { background-color: #106ebe; }
-        
-        #loading { display: none; color: #0078d4; font-size: 11.5px; font-weight: bold; padding: 2px 0; }
-        
-        /* SSO Identity Status Bar */
-        .user-auth-bar { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; background-color: #f3f2f1; border: 1px solid #edebe9; border-radius: 6px; padding: 4px 8px; margin-bottom: 5px; font-size: 11px; color: #323130; }
-        .user-identity-container { display: flex; align-items: center; gap: 6px; overflow: hidden; }
-        .user-status-dot { width: 7px; height: 7px; border-radius: 50%; background-color: #107c41; flex-shrink: 0; }
-        .user-status-dot.offline { background-color: #a19f9d; }
-        .user-email-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: #107c41; }
-        .user-email-text.offline { color: #605e5c; font-weight: 500; }
-        .google-drive-btn { background-color: #ffffff; color: #1a73e8; border: 1px solid #dadce0; border-radius: 10px; padding: 2px 7px; font-size: 10px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; transition: all 0.15s ease; }
-        .google-drive-btn:hover { background-color: #e8f0fe; border-color: #1a73e8; }
-        .google-drive-btn.connected { background-color: #e6f4ea; color: #137333; border-color: #ceead6; }
+        #loading { display: none; color: #0078d4; font-size: 10.5px; font-weight: 600; padding: 1px 0; }
 
-        /* Feature 4: Collapsible Troubleshooting & Diagnostics Panel */
-        .troubleshoot-panel {
-            flex-shrink: 0;
-            margin-top: 5px;
-            margin-bottom: 0;
-            border: 1px solid #e1dfdd;
-            border-radius: 6px;
-            background-color: #fcfcfc;
-            font-size: 10.5px;
-            color: #323130;
-            overflow: hidden;
-        }
-        .troubleshoot-summary {
-            padding: 5px 8px;
-            font-weight: 600;
-            cursor: pointer;
-            background-color: #f3f2f1;
-            user-select: none;
-            display: flex;
-            align-items: center;
-            outline: none;
-            color: #49454f;
-            font-size: 11px;
-            transition: background-color 0.15s ease;
-        }
-        .troubleshoot-summary:hover {
-            background-color: #edebe9;
-            color: #0078d4;
-        }
-        .troubleshoot-content {
-            padding: 6px 8px;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            background-color: #ffffff;
-            border-top: 1px solid #edebe9;
-            max-height: 160px;
-            overflow-y: auto;
-        }
-        .diag-group {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            background-color: #faf9f8;
-            border: 1px solid #edebe9;
-            border-radius: 4px;
-            padding: 6px 8px;
-        }
-        .diag-title {
-            font-weight: 700;
-            font-size: 11px;
-            color: #0078d4;
-            margin-bottom: 2px;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-        }
-        .diag-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 10.5px;
-            word-break: break-all;
-            gap: 6px;
-        }
-        .diag-row span:first-child {
-            color: #605e5c;
-            flex-shrink: 0;
-            font-weight: 500;
-        }
-        .diag-actions {
-            display: flex;
-            gap: 6px;
-            margin-top: 4px;
-        }
-        .diag-btn {
-            background-color: #0078d4;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            padding: 4px 8px;
-            font-size: 10px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background-color 0.15s ease;
-        }
-        .diag-btn:hover {
-            background-color: #106ebe;
-        }
-        .diag-btn.secondary {
-            background-color: #ffffff;
-            color: #323130;
-            border: 1px solid #8a8886;
-        }
-        .diag-btn.secondary:hover {
-            background-color: #f3f2f1;
-        }
-        .diag-log-box {
-            background-color: #201f1e;
-            color: #8ae234;
-            padding: 6px 8px;
-            border-radius: 4px;
-            font-family: Consolas, Monaco, monospace;
-            font-size: 10px;
-            max-height: 90px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            margin: 0;
-        }
+        /* Troubleshooting details at bottom */
+        .troubleshoot-panel { flex-shrink: 0; margin-top: 3px; border: 1px solid #edebe9; border-radius: 4px; background-color: #fcfcfc; font-size: 10px; color: #605e5c; }
+        .troubleshoot-summary { padding: 3px 6px; font-weight: 500; cursor: pointer; background-color: #f3f2f1; user-select: none; outline: none; }
+        .troubleshoot-summary:hover { color: #0078d4; }
+        .troubleshoot-content { padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; background-color: #ffffff; border-top: 1px solid #edebe9; max-height: 160px; overflow-y: auto; }
+        .diag-group { display: flex; flex-direction: column; gap: 4px; background-color: #faf9f8; border: 1px solid #edebe9; border-radius: 4px; padding: 6px 8px; }
+        .diag-title { font-weight: 700; font-size: 11px; color: #0078d4; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.3px; }
+        .diag-row { display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; word-break: break-all; gap: 6px; }
+        .diag-row span:first-child { color: #605e5c; flex-shrink: 0; font-weight: 500; }
+        .diag-actions { display: flex; gap: 6px; margin-top: 4px; }
+        .diag-btn { background-color: #0078d4; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 10px; font-weight: 600; cursor: pointer; transition: background-color 0.15s ease; }
+        .diag-btn:hover { background-color: #106ebe; }
+        .diag-btn.secondary { background-color: #ffffff; color: #323130; border: 1px solid #8a8886; }
+        .diag-btn.secondary:hover { background-color: #f3f2f1; }
+        .diag-log-box { background-color: #201f1e; color: #8ae234; padding: 6px 8px; border-radius: 4px; font-family: Consolas, Monaco, monospace; font-size: 10px; max-height: 90px; overflow-y: auto; white-space: pre-wrap; margin: 0; }
     </style>
 </head>
 <body>
     <div class="header">
-        <h3>✨ Ask Gemini <span class="header-badge">Enterprise</span></h3>
-        <button id="clearSession" class="secondary">New Chat</button>
-    </div>
-
-    <!-- SSO Authenticated Identity Indicator & Google Connector -->
-    <div class="user-auth-bar" id="userAuthBar" title="Microsoft 365 Single Sign-On Identity">
-        <div class="user-identity-container">
-            <span class="user-status-dot" id="userStatusDot" title="Microsoft 365 Status"></span>
-            <span class="user-email-text" id="userEmailText">Connecting to Office SSO...</span>
+        <div class="header-left">
+            <h3>✨ Ask Gemini <span class="header-badge">Enterprise</span></h3>
+            <span class="user-status-dot" id="userStatusDot" title="SSO Connected"></span>
         </div>
-        <div>
-            <button class="google-drive-btn" id="googleDriveBtn" style="display: none;" title="Identity Status">Connecting...</button>
+        <div class="header-right">
+            <button class="google-drive-btn" id="googleDriveBtn" style="display: none;" title="Identity Status">Drive</button>
+            <button id="clearSession" class="secondary" title="Start new session">New Chat</button>
         </div>
     </div>
 
-    <!-- In-Document @gemini Helper -->
-    <div class="tip-banner">
-        <div id="tipBannerText">💡 Type <code>@gemini &lt;prompt&gt;</code> in Doc</div>
-        <button id="scanInDoc" class="scan-btn">⚡ Run @gemini</button>
-    </div>
-
-    <!-- Feature 1: "Chat with this Document" Q&A & Document Intelligence Bar -->
-    <div class="doc-tools-bar">
-        <div class="doc-tools-title">
-            <span id="docToolsTitle">📄 <strong>Chat with Document:</strong></span>
-            <span id="debugStatus">Host: Word (Ready)</span>
-        </div>
-        <div class="chips-container">
-            <button class="quick-chip" id="chipSummarize">📑 Summarize Doc</button>
-            <button class="quick-chip" id="chipRisks">⚠️ Key Risks</button>
-            <button class="quick-chip" id="chipActionItems">✅ Action Items</button>
-            <button class="quick-chip" id="chipExecBox">💡 Executive Card</button>
-        </div>
-    </div>
+    <!-- Hidden compatibility elements to maintain unbroken JS queries -->
+    <div id="userAuthBar" style="display:none;"><span id="userEmailText"></span></div>
+    <div id="tipBanner" style="display:none;"><div id="tipBannerText"></div><button id="scanInDoc"></button></div>
+    <div id="debugStatus" style="display:none;"></div>
+    <div id="docToolsTitle" style="display:none;"></div>
     
     <div id="chatHistory">
-        <div class="chat-bubble system" id="welcomeSystemBubble">
-            Type a prompt below, click a <strong>Doc Chip</strong> above, or highlight text in Word!
+        <div class="empty-state" id="emptyState">
+            <div class="empty-state-icon">✨</div>
+            <div class="empty-state-title" id="emptyStateTitle">Gemini Enterprise Assistant</div>
+            <div class="empty-state-sub" id="emptyStateSub">Ask questions, create slides, or pick a starter prompt:</div>
+            <div class="empty-state-chips">
+                <button class="quick-chip" id="chipSummarize">📊 Summarize Slides</button>
+                <button class="quick-chip" id="chipRisks">⚠️ Key Risks</button>
+                <button class="quick-chip" id="chipActionItems">✅ Action Items</button>
+                <button class="quick-chip" id="chipExecBox">🎯 Slide Takeaways</button>
+            </div>
+            <div class="empty-state-hint">💡 Tip: Type <code>@gemini &lt;prompt&gt;</code> directly in any slide</div>
         </div>
+        <div class="chat-bubble system" id="welcomeSystemBubble" style="display:none;"></div>
     </div>
 
-    <!-- Feature 3: Dynamic Selection Quick Toolbar -->
+    <!-- Dynamic Selection Quick Toolbar -->
     <div id="selectionToolbar">
         <div class="selection-header">
             <span id="selectionTitle">✨ Selected Text Detected</span>
@@ -275,13 +167,15 @@
     
     <div class="input-container">
         <div id="loading">⚡ Gemini Enterprise is thinking...</div>
-        <textarea id="promptText" placeholder="Ask Gemini anything or type instructions..."></textarea>
-        <button id="run" class="send-btn">Send</button>
+        <div class="input-row">
+            <textarea id="promptText" rows="1" placeholder="Ask Gemini anything or type instructions..."></textarea>
+            <button id="run" class="send-btn">Send</button>
+        </div>
     </div>
 
     <!-- Feature 4: Collapsible Troubleshooting & Diagnostics Panel -->
     <details class="troubleshoot-panel" id="troubleshootPanel">
-        <summary class="troubleshoot-summary">🔧 Troubleshooting & Diagnostics</summary>
+        <summary class="troubleshoot-summary">🔧 Diagnostics</summary>
         <div class="troubleshoot-content">
             <div class="diag-group">
                 <div class="diag-title">Microsoft 365 Entra SSO</div>

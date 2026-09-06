@@ -12,6 +12,8 @@
   <AppDomains>
     <AppDomain>https://gemini-frontend-j43mxpthfa-uc.a.run.app</AppDomain>
     <AppDomain>https://auth-proxy-j43mxpthfa-uc.a.run.app</AppDomain>
+    <AppDomain>https://askgemini-proxy-j43mxpthfa-uc.a.run.app</AppDomain>
+    <AppDomain>https://accounts.google.com</AppDomain>
   </AppDomains>
   <Hosts>
     <Host Name="Document"/>

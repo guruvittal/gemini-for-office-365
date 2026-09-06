@@ -31,6 +31,10 @@ module.exports = async (env, options) => {
     ? "manifest-gsuite.xml"
     : (fs.existsSync(path.resolve(__dirname, "../manifest-gsuite.xml")) ? path.resolve(__dirname, "../manifest-gsuite.xml") : null);
 
+  const manifestDeployedSrc = fs.existsSync(path.resolve(__dirname, "manifest-deployed.xml"))
+    ? "manifest-deployed.xml"
+    : (fs.existsSync(path.resolve(__dirname, "../manifest-deployed.xml")) ? path.resolve(__dirname, "../manifest-deployed.xml") : null);
+
   const copyPatterns = [
     {
       from: "Dockerfile",
@@ -74,6 +78,22 @@ module.exports = async (env, options) => {
     copyPatterns.push({
       from: manifestGsuiteSrc,
       to: "manifest-gsuite.xml",
+      toType: "file",
+      noErrorOnMissing: true,
+      transform(content) {
+        if (dev) {
+          return content;
+        } else {
+          return content.toString().replace(new RegExp(urlDev, "g"), urlProd);
+        }
+      },
+    });
+  }
+
+  if (manifestDeployedSrc) {
+    copyPatterns.push({
+      from: manifestDeployedSrc,
+      to: "manifest-deployed.xml",
       toType: "file",
       noErrorOnMissing: true,
       transform(content) {

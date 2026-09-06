@@ -314,7 +314,22 @@ function resetChatSession() {
   chatHistoryState = [];
   const historyDiv = document.getElementById("chatHistory");
   if (historyDiv) {
-    historyDiv.innerHTML = '<div class="chat-bubble system">Chat session reset. Ready for a new topic!</div>';
+    historyDiv.innerHTML = `
+      <div class="empty-state" id="emptyState">
+        <div class="empty-state-icon">✨</div>
+        <div class="empty-state-title" id="emptyStateTitle">Gemini Enterprise Assistant</div>
+        <div class="empty-state-sub" id="emptyStateSub">Ask questions, create content, or pick a starter prompt:</div>
+        <div class="empty-state-chips">
+          <button class="quick-chip" id="chipSummarize">📊 Summarize</button>
+          <button class="quick-chip" id="chipRisks">⚠️ Key Risks</button>
+          <button class="quick-chip" id="chipActionItems">✅ Action Items</button>
+          <button class="quick-chip" id="chipExecBox">🎯 Key Takeaways</button>
+        </div>
+        <div class="empty-state-hint">💡 Tip: Type <code>@gemini &lt;prompt&gt;</code> directly in your document</div>
+      </div>
+    `;
+    setupDocToolsChips();
+    adaptUIForHost(hostAdapter ? hostAdapter.name : "Word");
   }
   const debugStatus = document.getElementById("debugStatus");
   if (debugStatus) debugStatus.innerText = `${hostAdapter ? hostAdapter.name : 'Office'} Ready (Session Reset)`;
@@ -582,6 +597,9 @@ async function executeGeminiWorkflow(fullPrompt, displayUserBubble) {
 }
 
 function appendBubble(text, type) {
+  const emptyState = document.getElementById("emptyState");
+  if (emptyState) emptyState.style.display = "none";
+
   const historyDiv = document.getElementById("chatHistory");
   if (!historyDiv) return;
   const bubble = document.createElement("div");
@@ -592,6 +610,9 @@ function appendBubble(text, type) {
 }
 
 function appendAssistantBubble(text) {
+  const emptyState = document.getElementById("emptyState");
+  if (emptyState) emptyState.style.display = "none";
+
   const historyDiv = document.getElementById("chatHistory");
   if (!historyDiv) return;
   const bubble = document.createElement("div");
@@ -608,7 +629,7 @@ function appendAssistantBubble(text) {
   const actionsContainer = document.createElement("div");
   actionsContainer.className = "response-actions-container";
 
-  // Primary Actions: Replace / Insert / Copy
+  // Primary Actions: Insert (Primary) / Copy / Replace
   const primaryActions = document.createElement("div");
   primaryActions.className = "primary-actions";
 
@@ -616,16 +637,7 @@ function appendAssistantBubble(text) {
   const isPPT = hostName === "PowerPoint";
   const isExcel = hostName === "Excel";
 
-  // 1. In-Place Replace Button
-  const replaceBtn = document.createElement("button");
-  replaceBtn.className = "action-btn replace";
-  replaceBtn.innerHTML = isPPT ? `🔄 Replace Slides` : (isExcel ? `🔄 Replace in Sheet` : `🔄 Replace in Doc`);
-  replaceBtn.title = isPPT ? "Replace existing presentation slides" : "Replace active draft or selection in Word";
-  replaceBtn.onclick = async () => {
-    await performDocumentInsertion(textDiv.innerHTML, text, "replace_draft");
-  };
-
-  // 2. Insert Button
+  // 1. Insert Button (Highlighted primary action)
   const insertBtn = document.createElement("button");
   insertBtn.className = "action-btn insert";
   insertBtn.innerHTML = isPPT ? `➕ Insert into Slides` : (isExcel ? `➕ Insert into Sheet` : `➕ Insert at Cursor`);
@@ -634,7 +646,7 @@ function appendAssistantBubble(text) {
     await performDocumentInsertion(textDiv.innerHTML, text, "insert_cursor");
   };
 
-  // 3. Copy Button
+  // 2. Copy Button
   const copyBtn = document.createElement("button");
   copyBtn.className = "action-btn copy";
   copyBtn.innerHTML = `📋 Copy`;
@@ -649,16 +661,28 @@ function appendAssistantBubble(text) {
     }
   };
 
-  primaryActions.appendChild(replaceBtn);
+  // 3. In-Place Replace Button
+  const replaceBtn = document.createElement("button");
+  replaceBtn.className = "action-btn replace";
+  replaceBtn.innerHTML = isPPT ? `🔄 Replace Slides` : (isExcel ? `🔄 Replace in Sheet` : `🔄 Replace in Doc`);
+  replaceBtn.title = isPPT ? "Replace existing presentation slides" : "Replace active draft or selection in Word";
+  replaceBtn.onclick = async () => {
+    await performDocumentInsertion(textDiv.innerHTML, text, "replace_draft");
+  };
+
   primaryActions.appendChild(insertBtn);
   primaryActions.appendChild(copyBtn);
+  primaryActions.appendChild(replaceBtn);
   actionsContainer.appendChild(primaryActions);
 
-  // Refinement Chips: Quick 1-Click Multi-Turn Prompts
-  const chipsLabel = document.createElement("div");
-  chipsLabel.className = "refinement-chips-label";
-  chipsLabel.innerText = "Refine Draft:";
-  actionsContainer.appendChild(chipsLabel);
+  // Refinement Chips: Collapsible to save vertical screen real estate
+  const refineDetails = document.createElement("details");
+  refineDetails.className = "refine-details";
+
+  const refineSummary = document.createElement("summary");
+  refineSummary.className = "refine-summary";
+  refineSummary.innerHTML = `✨ Refine draft ▾`;
+  refineDetails.appendChild(refineSummary);
 
   const refinementChips = document.createElement("div");
   refinementChips.className = "refinement-chips";
@@ -681,7 +705,8 @@ function appendAssistantBubble(text) {
     refinementChips.appendChild(chip);
   });
 
-  actionsContainer.appendChild(refinementChips);
+  refineDetails.appendChild(refinementChips);
+  actionsContainer.appendChild(refineDetails);
   bubble.appendChild(actionsContainer);
 
   historyDiv.appendChild(bubble);
