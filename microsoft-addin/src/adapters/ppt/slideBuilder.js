@@ -154,69 +154,56 @@ async function createSingleSlide(slideData, slideNum) {
 
   logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."`);
 
-  // Atomic PowerPoint slide creation with clean shape management
+  // Atomic PowerPoint slide creation matching the verified diagnostic pattern
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
-    let newSlide = null;
 
-    // Add slide using standard PowerPoint API
-    try {
-      newSlide = slides.add();
-    } catch (addErr) {
-      console.warn("Direct slides.add() call notice:", addErr);
-    }
+    // 1. Add slide and sync
+    slides.add();
     await context.sync();
 
-    // In Office.js, slides.add() does not always return a slide proxy directly.
-    // Fetch the newly added slide using slides.getItemAt(count - 1)
-    if (!newSlide || typeof newSlide.shapes === "undefined") {
-      const countResult = slides.getCount();
-      await context.sync();
-      const slideCount = countResult.value;
-      if (slideCount > 0) {
-        newSlide = slides.getItemAt(slideCount - 1);
-        await context.sync();
-      }
+    // 2. Fetch slide count and sync
+    const countResult = slides.getCount();
+    await context.sync();
+
+    const slideCount = countResult.value;
+    if (slideCount <= 0) {
+      throw new Error("Unable to obtain PowerPoint slide reference after creation.");
     }
 
-    if (!newSlide || typeof newSlide.shapes === "undefined") {
-      throw new Error("Unable to obtain reference to PowerPoint Slide proxy after creation.");
-    }
+    // 3. Obtain slide proxy via getItemAt (guaranteed valid proxy across Mac, Windows & Web)
+    const newSlide = slides.getItemAt(slideCount - 1);
 
-    // 1. Add Title Textbox
+    // 4. Add Title Textbox with safe geometry (fits 16:9 and 4:3)
     newSlide.shapes.addTextBox(cleanTitle, {
       left: 50,
-      top: 35,
-      width: 860,
+      top: 40,
+      width: 650,
       height: 55
     });
 
-    let contentTop = 95;
+    let contentTop = 105;
 
-    // 2. Add Subtitle if present
+    // 5. Add Subtitle if present
     if (subtitle) {
       newSlide.shapes.addTextBox(subtitle, {
         left: 50,
-        top: 85,
-        width: 860,
+        top: 95,
+        width: 650,
         height: 35
       });
-      contentTop = 125;
+      contentTop = 135;
     }
 
-    // 3. If tableData is present, create native PowerPoint table
-    if (tableData && tableData.rows && tableData.rows.length > 0) {
-      populateSlideTable(newSlide, cleanTitle, subtitle, titleSize, subtitleSize, color, tableData, slideNum, contentTop);
-    } else {
-      // Body text / bullets
-      newSlide.shapes.addTextBox(bodyTextContent, {
-        left: 50,
-        top: contentTop,
-        width: 860,
-        height: 380
-      });
-    }
+    // 6. Body text bullets
+    newSlide.shapes.addTextBox(bodyTextContent, {
+      left: 50,
+      top: contentTop,
+      width: 650,
+      height: 320
+    });
 
+    // 7. Commit all shapes
     await context.sync();
   });
 

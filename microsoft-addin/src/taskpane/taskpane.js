@@ -732,7 +732,8 @@ async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {
     }
   } catch (err) {
     console.error("Document insertion error:", err);
-    appendBubble(`🔴 Insertion Error: ${err.message || err}`, "system");
+    const diagDetail = err.debugInfo?.errorLocation || err.debugInfo?.statement || err.code || "";
+    appendBubble(`🔴 Insertion Error: ${err.message || err}${diagDetail ? ` [${diagDetail}]` : ""}`, "system");
   } finally {
     if (runButton) runButton.disabled = false;
     if (loadingText) loadingText.style.display = "none";
