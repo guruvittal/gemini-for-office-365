@@ -501,46 +501,133 @@ async function processStreamAssistChunks(parsedChunks, originalSessionId, sessio
 
   // 4. Download any pending fileId resources emitted by Gemini Enterprise
   if (pendingFiles.length > 0 && headers) {
+    const downloadHeaders = {
+      'Authorization': headers['Authorization'] || headers['authorization'] || '',
+      'Accept': '*/*'
+    };
+    const userProj = headers['X-Goog-User-Project'] || headers['x-goog-user-project'];
+    if (userProj) {
+      downloadHeaders['X-Goog-User-Project'] = userProj;
+    }
+
     for (const file of pendingFiles) {
       const sessionPath = file.session || returnedSessionResource || originalSessionId;
       if (!sessionPath) continue;
       const regionalHost = `${STREAM_ASSIST_ENDPOINT_LOCATION}-discoveryengine.googleapis.com`;
-      const downloadUrl = `https://${regionalHost}/v1alpha/${sessionPath}:downloadFile?fileId=${encodeURIComponent(file.fileId)}`;
-      try {
-        console.log(`[STREAM_ASSIST] Fetching generated file '${file.fileId}' from ${downloadUrl}...`);
-        const fileRes = await fetch(downloadUrl, {
-          method: 'GET',
-          headers: headers
-        });
-        if (fileRes.ok) {
+      const encodedId = encodeURIComponent(file.fileId);
+
+      // Multiple candidate endpoints in order of priority:
+      // 1. :downloadFile with alt=media (standard Google Cloud API raw media streaming)
+      // 2. :downloadFile without alt=media (standard custom method)
+      // 3. snake_case file_id variants
+      // 4. direct session /files/{fileId} resource path
+      const candidates = [
+        `https://${regionalHost}/v1alpha/${sessionPath}:downloadFile?fileId=${encodedId}&alt=media`,
+        `https://${regionalHost}/v1alpha/${sessionPath}:downloadFile?fileId=${encodedId}`,
+        `https://${regionalHost}/v1alpha/${sessionPath}:downloadFile?file_id=${encodedId}&alt=media`,
+        `https://${regionalHost}/v1alpha/${sessionPath}:downloadFile?file_id=${encodedId}`,
+        `https://${regionalHost}/v1alpha/${sessionPath}/files/${encodedId}?alt=media`,
+        `https://${regionalHost}/v1alpha/${sessionPath}/files/${encodedId}`
+      ];
+
+      let downloaded = false;
+      for (const downloadUrl of candidates) {
+        if (downloaded) break;
+        try {
+          console.log(`[STREAM_ASSIST] Attempting to fetch file '${file.fileId}' from ${downloadUrl}...`);
+          const fileRes = await fetch(downloadUrl, {
+            method: 'GET',
+            headers: downloadHeaders
+          });
+
           const contentType = fileRes.headers.get('content-type') || '';
-          if (contentType.includes('application/json')) {
-            const fileJson = await fileRes.json();
-            const mime = fileJson.mimeType || file.mimeType || 'image/png';
-            const b64 = fileJson.data || fileJson.bytesBase64Encoded || fileJson.fileContents || fileJson.content;
-            if (b64) {
-              const uri = b64.startsWith('data:') ? b64 : `data:${mime};base64,${b64}`;
-              if (!extractedImages.includes(uri)) {
-                extractedImages.push(uri);
-                console.log(`[STREAM_ASSIST] Successfully fetched generated file '${file.fileId}' (${b64.length} base64 chars)`);
-              }
-            }
-          } else {
-            const arrayBuffer = await fileRes.arrayBuffer();
-            const b64 = Buffer.from(arrayBuffer).toString('base64');
-            const mime = contentType || file.mimeType || 'image/png';
+          console.log(`[STREAM_ASSIST] Response status: ${fileRes.status} ${fileRes.statusText}, Content-Type: ${contentType}`);
+
+          if (!fileRes.ok) {
+            const errText = await fileRes.text();
+            console.warn(`[STREAM_ASSIST] Candidate failed (HTTP ${fileRes.status}):`, errText.slice(0, 200));
+            continue;
+          }
+
+          const arrayBuffer = await fileRes.arrayBuffer();
+          const buf = Buffer.from(arrayBuffer);
+          console.log(`[STREAM_ASSIST] Downloaded payload size: ${buf.length} bytes`);
+
+          if (buf.length === 0) {
+            console.log(`[STREAM_ASSIST] Empty body returned (0 bytes), trying next candidate...`);
+            continue;
+          }
+
+          // Check for image magic bytes
+          let detectedMime = null;
+          if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) {
+            detectedMime = 'image/png';
+          } else if (buf.length >= 3 && buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) {
+            detectedMime = 'image/jpeg';
+          } else if (buf.length >= 6 && buf.toString('ascii', 0, 4) === 'GIF8') {
+            detectedMime = 'image/gif';
+          } else if (buf.length >= 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') {
+            detectedMime = 'image/webp';
+          }
+
+          if (detectedMime || contentType.startsWith('image/')) {
+            const mime = detectedMime || contentType.split(';')[0].trim() || file.mimeType || 'image/png';
+            const b64 = buf.toString('base64');
             const uri = `data:${mime};base64,${b64}`;
             if (!extractedImages.includes(uri)) {
               extractedImages.push(uri);
-              console.log(`[STREAM_ASSIST] Successfully fetched binary file '${file.fileId}' (${b64.length} base64 chars)`);
+              console.log(`[STREAM_ASSIST] Successfully extracted binary image '${file.fileId}' (${mime}, ${b64.length} base64 chars)`);
+            }
+            downloaded = true;
+            break;
+          }
+
+          // Check if payload is JSON
+          const rawText = buf.toString('utf-8').trim();
+          if (rawText.startsWith('{') || rawText.startsWith('[')) {
+            try {
+              const fileJson = JSON.parse(rawText);
+              console.log(`[STREAM_ASSIST] JSON keys returned:`, Object.keys(fileJson));
+              const mime = fileJson.mimeType || file.mimeType || 'image/png';
+              const b64 = fileJson.data || fileJson.bytesBase64Encoded || fileJson.fileContents || fileJson.content;
+              if (b64) {
+                const uri = b64.startsWith('data:') ? b64 : `data:${mime};base64,${b64}`;
+                if (!extractedImages.includes(uri)) {
+                  extractedImages.push(uri);
+                  console.log(`[STREAM_ASSIST] Successfully extracted JSON base64 image '${file.fileId}' (${b64.length} chars)`);
+                }
+                downloaded = true;
+                break;
+              }
+
+              // Check if a signed download URL or URI was returned
+              const downloadUri = fileJson.downloadUri || fileJson.downloadUrl || fileJson.signedUrl || fileJson.uri || fileJson.url;
+              if (downloadUri && typeof downloadUri === 'string') {
+                console.log(`[STREAM_ASSIST] Found download URL in JSON: ${downloadUri.slice(0, 100)}... Fetching...`);
+                const signedRes = await fetch(downloadUri);
+                if (signedRes.ok) {
+                  const sBuf = Buffer.from(await signedRes.arrayBuffer());
+                  const sMime = signedRes.headers.get('content-type') || mime;
+                  const uri = `data:${sMime};base64,${sBuf.toString('base64')}`;
+                  if (!extractedImages.includes(uri)) {
+                    extractedImages.push(uri);
+                    console.log(`[STREAM_ASSIST] Successfully fetched image from signed URL (${sBuf.length} bytes)`);
+                  }
+                  downloaded = true;
+                  break;
+                }
+              }
+            } catch (jsonErr) {
+              console.warn(`[STREAM_ASSIST] Could not parse text as JSON:`, jsonErr.message, rawText.slice(0, 200));
             }
           }
-        } else {
-          const errText = await fileRes.text();
-          console.warn(`[STREAM_ASSIST] Could not download file '${file.fileId}' (HTTP ${fileRes.status}):`, errText.slice(0, 300));
+        } catch (candErr) {
+          console.warn(`[STREAM_ASSIST] Exception querying candidate '${downloadUrl}':`, candErr.message);
         }
-      } catch (dlErr) {
-        console.warn(`[STREAM_ASSIST] Exception downloading file '${file.fileId}':`, dlErr.message);
+      }
+
+      if (!downloaded) {
+        console.warn(`[STREAM_ASSIST] Unable to retrieve file content for '${file.fileId}' across all candidates`);
       }
     }
   }
