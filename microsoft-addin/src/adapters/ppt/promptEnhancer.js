@@ -122,14 +122,14 @@ CRITICAL STRUCTURE CONTRACT FOR SLIDE GENERATION:${countConstraint}
 
 3. CRITICAL VISUAL RULES:
 - PRESENTATION DIVERSITY (Decks with 3+ slides): NEVER make every slide a plain bullet slide! A high-performing executive presentation MUST use varied layouts across slides:
-  * Slide 1: Executive introduction or strategic overview (clean title, subtitle, and 3 to 4 structured narrative bullets with bold lead-ins).
+  * Slide 1: Dedicated Title and Summary Slide containing a clean Presentation Title, Subtitle, and a comprehensive Executive Summary explaining what the content and attached document are all about (e.g. document overview, primary objective, and deck scope). NEVER put granular sub-topic operational bullets, departmental trivia, charts, or tables on Slide 1.
   * Data & Metrics Slide: At least 1 slide MUST feature an Executive Markdown Table (3-4 columns) showing core metrics, dimensions, and strategic impacts.
   * Optional Chart Slide: At most 1 slide can feature a Data Chart (\`\`\`json { "chartType": "doughnut|bar|pie" ... } \`\`\`).
   * Remaining Slides: Strategic pillars, roadmap, or narrative bullets with bold lead-ins.
 - NEVER OUTPUT PSEUDO-TEXT LABELS: NEVER output labels like "Metric Grid", "Comparison Card", or raw placeholder text in the slide content.
 - EACH CHART MUST BE 100% UNIQUE: NEVER repeat or duplicate the same chart, metrics, or title across multiple slides. If a deck has 5 to 10 slides, at most 2 should contain a data chart, and each MUST cover a completely different topic and metric.
 - NEVER COMBINE A CHART AND A TABLE ON THE SAME SLIDE: A slide must feature EITHER a table OR a chart, NEVER both.
-- SLIDE 1 MUST BE AN INTRODUCTION SLIDE: Slide 1 should contain a clean title, subtitle, and 3 to 4 introductory narrative bullet points. Do NOT put charts or tables on Slide 1.
+- SLIDE 1 MUST BE A TITLE & SUMMARY SLIDE: Slide 1 must contain the presentation title, subtitle, and a high-level executive summary explaining what the content and attached document are all about (e.g. • **Executive Summary**: ..., • **Core Objective**: ..., • **Deck Scope**: ...). Save specific operational details, findings, metrics, data tables, and pillars for Slides 2 through 6.
 4. Do NOT output internal design metadata, font sizes (like "Title Size: 44"), hex colors (like "Color: #..."), or raw "Visual Concept:" labels. Keep the output clean, executive-ready presentation content.
 5. Separate every slide cleanly with a horizontal rule "---".
 `;

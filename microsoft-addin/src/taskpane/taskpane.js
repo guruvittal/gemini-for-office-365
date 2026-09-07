@@ -758,7 +758,7 @@ async function runPowerPointSlideAction(actionType) {
       displayBubble = `📊 [Summarize Slides] Generating executive summary slide from ${slides.length} highlighted slides...`;
     } else {
       appendBubble(
-        "ℹ️ **Summarize Slides**: Single slide or no multi-slide selection detected. Analyzing all slides across the entire presentation to generate a comprehensive deck summary...",
+        "ℹ️ **Summarize Slides**: Analyzing all slides across the entire presentation to generate a comprehensive deck summary...",
         "assistant"
       );
       const fullDocText = await hostAdapter.getFullDocumentText();
@@ -808,7 +808,7 @@ Create content for a new PowerPoint slide titled "📊 Executive Slide Summary" 
     fullPrompt = taskInstruction;
   }
 
-  // Apply PowerPoint slide generation formatting rules
+  // Apply PowerPoint prompt enhancer rules
   const { enhancePromptForPowerPoint } = await import('../adapters/ppt/promptEnhancer.js');
   fullPrompt = enhancePromptForPowerPoint(fullPrompt);
 
@@ -854,9 +854,9 @@ async function callGeminiProxy(customPrompt = null) {
   await executeGeminiWorkflow(fullPrompt, displayUserBubble);
 }
 
-// Feature: Transform Doc to Deck (Direct document attachments to Discovery Engine streamAssist)
+// Feature: Transform Doc to Deck (Upload document -> PowerPoint presentation)
 function initDocToDeckFeature() {
-  const fileInput = document.getElementById("docToDeckFileInput");
+  const fileInput = document.getElementById("docToDeckFileInput") || document.getElementById("docToDeckInput");
   if (!fileInput) return;
 
   fileInput.addEventListener("change", async (event) => {
@@ -918,10 +918,17 @@ PowerPoint Slide Deck Requirements:
 1. SLIDE DECK STRUCTURE (MAXIMUM 6 SLIDES TOTAL):
    - ## Slide 1: [Relevant Emoji] [Presentation Title (3-4 words max)]
      ### [Compelling Subtitle / Executive Orientation]
-     Slide 1 MUST be a dedicated Title & Introduction Slide providing an executive orientation to the presentation, outlining the document's core thesis and strategic background in 3-4 concise introductory bullets. (Do NOT put tables or charts on Slide 1).
+     Slide 1 MUST be a dedicated TITLE & SUMMARY SLIDE providing an executive orientation explaining what the content and attached document are all about:
+     * Presentation Title: A crisp, impactful title capturing the overarching subject.
+     * Subtitle: An executive subtitle setting the strategic context.
+     * Summary of Content (What the Document is All About):
+       • **Executive Summary**: A concise, comprehensive executive summary synthesizing what the entire attached document is all about, its primary strategic context, and why it matters.
+       • **Core Objective**: What this document and strategy aim to achieve or solve.
+       • **Deck Scope & Outline**: A high-level overview explaining what key areas leadership will discover across the upcoming content slides (Slides 2 to 6).
+     * STRICT RULE FOR SLIDE 1: Do NOT include isolated operational details, individual department metrics, or granular sub-topic points (such as data controls, specific reporting standard names, or individual program descriptions) on Slide 1! Slide 1 is strictly for orienting the executive audience on WHAT THE CONTENT IS ALL ABOUT. All specific operational details, findings, metrics, and tables belong on Slides 2 through 6.
    - ## Slide 2 to Slide 6 (5 Content Slides):
      5 focused executive content slides breaking down the core insights, findings, data, and recommendations from the document.
-2. Provide EXACTLY ONE presentation deck (Slide 1 Title Slide + 5 Content Slides, maximum 6 slides total). DO NOT output multiple alternative options.
+2. Provide EXACTLY ONE presentation deck (Slide 1 Title & Summary Slide + 5 Content Slides, maximum 6 slides total). DO NOT output multiple alternative options.
 3. DO NOT output conversational preamble or filler (e.g. "Here is...", "Sure!"). Output the slide deck content directly.
 4. For each content slide (Slides 2-6), structure with rich executive visual hierarchy:
    - "## Slide <N>: <Emoji> <Punchy Slide Title (3-4 words max)>"
