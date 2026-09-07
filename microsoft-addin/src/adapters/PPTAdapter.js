@@ -27,6 +27,127 @@ export class PPTAdapter {
     }
   }
 
+  /**
+   * Safely extracts all text and table contents from a PowerPoint slide object.
+   * Completely resilient against non-text shapes, groups, and API version differences.
+   */
+  async extractSlideText(slide, slideNum, context) {
+    const slideLines = [];
+    try {
+      const shapes = slide.shapes;
+      shapes.load("items/id,items/type,items/name");
+      await context.sync();
+
+      if (!shapes.items || shapes.items.length === 0) {
+        return { slideNumber: slideNum, id: slide.id || `slide-${slideNum}`, text: "" };
+      }
+
+      // Track text ranges and tables safely based on verified shape type
+      const textItemTrackers = [];
+      const tableItemTrackers = [];
+
+      for (const shape of shapes.items) {
+        try {
+          const type = shape.type;
+          // Check for Table shape (starting in PowerPointApi 1.8)
+          if (type === "Table" || (typeof PowerPoint !== "undefined" && PowerPoint.ShapeType && type === PowerPoint.ShapeType.table)) {
+            if (typeof shape.getTable === "function") {
+              const table = shape.getTable();
+              table.load("values");
+              tableItemTrackers.push(table);
+            }
+          } else if (
+            type === "TextBox" || 
+            type === "GeometricShape" || 
+            type === "Placeholder" || 
+            type === "Callout" ||
+            !type // Fallback if type property was not populated
+          ) {
+            // Text-bearing shapes
+            if (shape.textFrame) {
+              const tr = shape.textFrame.textRange;
+              tr.load("text");
+              textItemTrackers.push(tr);
+            }
+          }
+        } catch (shapeErr) {
+          console.warn(`[PPTAdapter] Shape pre-check skipped on slide ${slideNum}:`, shapeErr);
+        }
+      }
+
+      // Try batch sync for efficiency
+      let batchSuccess = false;
+      if (textItemTrackers.length > 0 || tableItemTrackers.length > 0) {
+        try {
+          await context.sync();
+          batchSuccess = true;
+        } catch (batchErr) {
+          console.warn(`[PPTAdapter] Batch shape sync failed on slide ${slideNum}, falling back to per-shape sync:`, batchErr);
+        }
+      }
+
+      if (batchSuccess) {
+        for (const tr of textItemTrackers) {
+          try {
+            const val = (tr.text || "").trim();
+            if (val) slideLines.push(val);
+          } catch (_) {}
+        }
+        for (const tb of tableItemTrackers) {
+          try {
+            if (tb.values && Array.isArray(tb.values)) {
+              for (const row of tb.values) {
+                if (Array.isArray(row)) {
+                  const rowStr = row.map(c => String(c ?? "").trim()).join(" | ");
+                  if (rowStr.replace(/[|\s]/g, "")) {
+                    slideLines.push(`| ${rowStr} |`);
+                  }
+                }
+              }
+            }
+          } catch (_) {}
+        }
+      } else {
+        // Fallback: Per-shape isolated extraction so a problematic shape never blocks other shapes
+        for (const shape of shapes.items) {
+          try {
+            if (shape.type === "Table" && typeof shape.getTable === "function") {
+              const table = shape.getTable();
+              table.load("values");
+              await context.sync();
+              if (table.values && Array.isArray(table.values)) {
+                for (const row of table.values) {
+                  if (Array.isArray(row)) {
+                    const rowStr = row.map(c => String(c ?? "").trim()).join(" | ");
+                    if (rowStr.replace(/[|\s]/g, "")) slideLines.push(`| ${rowStr} |`);
+                  }
+                }
+              }
+            } else if (shape.textFrame) {
+              const tr = shape.textFrame.textRange;
+              tr.load("text");
+              await context.sync();
+              const val = (tr.text || "").trim();
+              if (val) slideLines.push(val);
+            }
+          } catch (innerErr) {
+            // Silently swallow per-shape errors so other shapes succeed
+          }
+        }
+      }
+    } catch (slideErr) {
+      console.warn(`[PPTAdapter] Error extracting text from slide ${slideNum}:`, slideErr);
+    }
+
+    const slideText = slideLines.join("\n").trim();
+    console.log(`📊 [PPTAdapter] Extracted ${slideLines.length} text/table blocks from Slide ${slideNum} (${slideText.length} chars)`);
+    return {
+      slideNumber: slideNum,
+      id: slide.id || `slide-${slideNum}`,
+      text: slideText
+    };
+  }
+
   // On-demand selection extraction (strictly user-triggered on button click, NO background event listeners)
   async getSelectedSlidesText() {
     const selectedSlidesData = [];
@@ -53,65 +174,14 @@ export class PPTAdapter {
 
           if (selectedSlides && selectedSlides.items && selectedSlides.items.length > 0) {
             for (let i = 0; i < selectedSlides.items.length; i++) {
-              const slide = selectedSlides.items[i];
-              const slideNum = (slide.id && slideIndexMap[slide.id]) ? slideIndexMap[slide.id] : (i + 1);
-
-              const shapes = slide.shapes;
-              shapes.load("items");
-              await context.sync();
-
-              const textTrackers = [];
-              const tableTrackers = [];
-
-              if (shapes.items) {
-                for (const shape of shapes.items) {
-                  try {
-                    if (typeof shape.getTable === "function") {
-                      const table = shape.getTable();
-                      table.load("values");
-                      tableTrackers.push(table);
-                    }
-                  } catch (_) {}
-                  try {
-                    if (shape.textFrame) {
-                      const tr = shape.textFrame.textRange;
-                      tr.load("text");
-                      textTrackers.push(tr);
-                    }
-                  } catch (_) {}
-                }
+              try {
+                const slide = selectedSlides.items[i];
+                const slideNum = (slide.id && slideIndexMap[slide.id]) ? slideIndexMap[slide.id] : (i + 1);
+                const slideData = await this.extractSlideText(slide, slideNum, context);
+                selectedSlidesData.push(slideData);
+              } catch (slideLoopErr) {
+                console.warn(`[PPTAdapter] Error in selected slide loop item ${i}:`, slideLoopErr);
               }
-
-              if (textTrackers.length > 0 || tableTrackers.length > 0) {
-                try {
-                  await context.sync();
-                } catch (_) {}
-              }
-
-              const slideLines = [];
-              for (const tr of textTrackers) {
-                try {
-                  const val = (tr.text || "").trim();
-                  if (val) slideLines.push(val);
-                } catch (_) {}
-              }
-              for (const tb of tableTrackers) {
-                try {
-                  if (tb.values && Array.isArray(tb.values)) {
-                    for (const row of tb.values) {
-                      if (Array.isArray(row)) {
-                        slideLines.push("| " + row.map(c => String(c || "").trim()).join(" | ") + " |");
-                      }
-                    }
-                  }
-                } catch (_) {}
-              }
-
-              selectedSlidesData.push({
-                slideNumber: slideNum,
-                id: slide.id || `slide-${slideNum}`,
-                text: slideLines.join("\n").trim()
-              });
             }
           }
         });
@@ -210,62 +280,18 @@ export class PPTAdapter {
           const slideTexts = [];
 
           for (let i = 0; i < total; i++) {
-            const slide = slides.getItemAt(i);
-            const shapes = slide.shapes;
-            shapes.load("items");
-            await context.sync();
-
-            const textTrackers = [];
-            const tableTrackers = [];
-
-            if (shapes.items) {
-              for (const shape of shapes.items) {
-                try {
-                  if (typeof shape.getTable === "function") {
-                    const table = shape.getTable();
-                    table.load("values");
-                    tableTrackers.push(table);
-                  }
-                } catch (_) {}
-                try {
-                  if (shape.textFrame) {
-                    const tr = shape.textFrame.textRange;
-                    tr.load("text");
-                    textTrackers.push(tr);
-                  }
-                } catch (_) {}
+            try {
+              const slide = slides.getItemAt(i);
+              const slideData = await this.extractSlideText(slide, i + 1, context);
+              if (slideData.text && slideData.text.length > 0) {
+                slideTexts.push(`[Slide ${i + 1}]:\n${slideData.text}`);
               }
+            } catch (slideErr) {
+              console.warn(`[PPTAdapter] Error in getFullDocumentText slide ${i + 1}:`, slideErr);
             }
-
-            if (textTrackers.length > 0 || tableTrackers.length > 0) {
-              try {
-                await context.sync();
-              } catch (_) {}
-            }
-
-            const slideLines = [];
-            for (const tr of textTrackers) {
-              try {
-                const val = (tr.text || "").trim();
-                if (val) slideLines.push(val);
-              } catch (_) {}
-            }
-            for (const tb of tableTrackers) {
-              try {
-                if (tb.values && Array.isArray(tb.values)) {
-                  for (const row of tb.values) {
-                    if (Array.isArray(row)) {
-                      slideLines.push("| " + row.map(c => String(c || "").trim()).join(" | ") + " |");
-                    }
-                  }
-                }
-              } catch (_) {}
-            }
-
-            slideTexts.push(`--- Slide ${i + 1} ---\n${slideLines.join("\n").trim() || "(Visual / Slide content)"}`);
           }
 
-          fullText = slideTexts.join("\n\n");
+          fullText = slideTexts.join("\n\n---\n\n");
         });
       }
     } catch (e) {

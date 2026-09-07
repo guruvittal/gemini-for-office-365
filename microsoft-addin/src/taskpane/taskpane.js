@@ -30,6 +30,23 @@ let hostAdapter = null;
 let currentSelectedText = "";
 let userClearedSelection = false;
 
+/**
+ * Clears prior chat interaction history and empties the prompt textarea above the send button.
+ * Invoked whenever a user clicks any top action chip/button.
+ */
+export function clearChatAndInput() {
+  const historyDiv = document.getElementById("chatHistory");
+  if (historyDiv) {
+    historyDiv.innerHTML = "";
+  }
+  const promptInput = document.getElementById("promptText");
+  if (promptInput) {
+    promptInput.value = "";
+    promptInput.style.height = "auto";
+  }
+  console.log("🧹 [Chat] Cleared previous chat interactions and reset input box.");
+}
+
 Office.onReady(async (info) => {
   // Detect active Microsoft Office host (Word, PowerPoint, Excel) dynamically
   hostAdapter = HostAdapterFactory.getAdapter(info);
@@ -42,6 +59,34 @@ Office.onReady(async (info) => {
 
   // Initialize Collapsible Troubleshooting & Diagnostics Panel
   initTroubleshootPanel();
+
+  // Wire capture listener on top buttons to clear chat history and input box on click
+  const docToolsContainer = document.getElementById("docToolsChipsContainer");
+  if (docToolsContainer) {
+    docToolsContainer.addEventListener("click", (e) => {
+      if (e.target.closest(".quick-chip")) {
+        clearChatAndInput();
+      }
+    }, true);
+  }
+
+  // Wire click-to-zoom on preview images in chat history
+  const chatHistoryDiv = document.getElementById("chatHistory");
+  if (chatHistoryDiv) {
+    chatHistoryDiv.addEventListener("click", (e) => {
+      const zoomBtn = e.target.closest(".img-zoom-btn, .img-action-btn-zoom");
+      const imgEl = e.target.closest(".office-preview-img, .office-visual-image-card img, .office-visual-image-container img");
+      if (zoomBtn) {
+        const card = zoomBtn.closest(".office-visual-image-card, .office-visual-image-container");
+        const img = card ? card.querySelector("img") : null;
+        if (img && img.src) {
+          openImageZoomModal(img.src, img.alt);
+        }
+      } else if (imgEl && imgEl.src) {
+        openImageZoomModal(imgEl.src, imgEl.alt);
+      }
+    });
+  }
 
   // Log Add-in startup and host context to Cloud Logging
   sendDiagnosticLogToCloud(
@@ -648,6 +693,7 @@ async function checkForInDocumentCommands(forceRun = false) {
 }
 
 async function runSelectionPrompt(instruction) {
+  clearChatAndInput();
   const freshText = await hostAdapter.getSelectedText();
   if (freshText && freshText.trim().length > 0) {
     currentSelectedText = freshText.trim();
@@ -681,6 +727,7 @@ export function isSubstantiveText(text) {
 
 // Dedicated Image Generation Action from Selection or User Query
 async function handleCreateImageClick() {
+  clearChatAndInput();
   const loadingText = document.getElementById("loading");
   if (loadingText) {
     loadingText.innerText = "⚡ Checking selection...";
@@ -758,6 +805,7 @@ async function handleCreateImageClick() {
 
 // Dedicated Chart Creation Action from Selection or User Guidance
 async function handleCreateChartClick() {
+  clearChatAndInput();
   const loadingText = document.getElementById("loading");
   if (loadingText) {
     loadingText.innerText = "⚡ Checking selection for chart...";
@@ -936,6 +984,7 @@ Requirements:
 }
 
 async function runDocIntelligencePrompt(instruction) {
+  clearChatAndInput();
   const loadingText = document.getElementById("loading");
   if (loadingText) {
     loadingText.innerText = "⚡ Reading document context...";
@@ -957,6 +1006,7 @@ async function runDocIntelligencePrompt(instruction) {
 
 // Dedicated PowerPoint Slide Intelligence Action (Targets Highlighted / Selected Slides)
 async function runPowerPointSlideAction(actionType) {
+  clearChatAndInput();
   const loadingText = document.getElementById("loading");
   if (loadingText) {
     loadingText.innerText = "⚡ Reading slide context...";
@@ -979,7 +1029,7 @@ async function runPowerPointSlideAction(actionType) {
   if (actionType === "summarize" || actionType === "takeaways") {
     if (slides && slides.length >= 2) {
       slideLabel = `${slides.length} highlighted slides`;
-      slideContext = slides.map((s) => `[Highlighted Slide ${s.slideNumber}]:\n${s.text}`).join("\n\n---\n\n");
+      slideContext = slides.map((s) => `[Highlighted Slide ${s.slideNumber}]:\n${s.text || "(No readable text)"}`).join("\n\n---\n\n");
       displayBubble = `📊 [Summarize Slides] Generating executive summary slide from ${slides.length} highlighted slides...`;
     } else {
       appendBubble(
@@ -994,7 +1044,7 @@ async function runPowerPointSlideAction(actionType) {
   } else {
     if (slides && slides.length > 0) {
       slideLabel = slides.length === 1 ? `Slide ${slides[0].slideNumber || 1}` : `${slides.length} highlighted slides`;
-      slideContext = slides.map((s) => `[Highlighted Slide ${s.slideNumber || 1}]:\n${s.text}`).join("\n\n---\n\n");
+      slideContext = slides.map((s) => `[Highlighted Slide ${s.slideNumber || 1}]:\n${s.text || "(No readable text)"}`).join("\n\n---\n\n");
     } else {
       const fullDocText = await hostAdapter.getFullDocumentText();
       if (fullDocText && fullDocText.length > 10) {
@@ -1013,9 +1063,14 @@ async function runPowerPointSlideAction(actionType) {
       break;
     case "summarize":
     case "takeaways":
-      taskInstruction = `Based on the context from the ${slideLabel} provided below, create EXACTLY ONE executive summary slide.
-CRITICAL CONSTRAINT: You must output ONLY ONE SINGLE SLIDE. Do NOT generate multiple slides.
-Create content for a new PowerPoint slide titled "📊 Executive Slide Summary" highlighting high-impact findings, core metrics, and strategic implications across the presentation.`;
+      taskInstruction = `Based strictly on the content from the ${slideLabel} provided below, create EXACTLY ONE executive summary slide.
+CRITICAL GROUNDING REQUIREMENTS:
+1. Every bullet point, finding, metric, and theme in your summary MUST come directly from the slide content provided below. Do NOT make up unrelated generic topics or hallucinate information not present in the slides.
+2. Structure the slide as follows:
+   - Slide Title: "## 📊 Executive Slide Summary"
+   - Key Takeaways: 3 to 4 high-impact executive bullets with bold lead-in phrases summarizing the primary insights, metrics, and outcomes synthesized directly from the slides.
+   - If the slides contain quantitative metrics or data tables, include a clean Markdown Table (| Category | Metric | Value / Share |) reflecting those exact numbers.
+3. CRITICAL CONSTRAINT: You must output ONLY ONE SINGLE SLIDE. Do NOT generate multiple slides.`;
       if (!displayBubble) {
         displayBubble = `📊 [Summarize Slides] Generating executive summary slide from ${slideLabel}...`;
       }
@@ -1028,7 +1083,7 @@ Create content for a new PowerPoint slide titled "📊 Executive Slide Summary" 
 
   let fullPrompt = "";
   if (slideContext && slideContext.length > 5) {
-    fullPrompt = `Context from ${slideLabel}:\n"""\n${slideContext.substring(0, 50000)}\n"""\n\nTask: ${taskInstruction}`;
+    fullPrompt = `CRITICAL SLIDE CONTEXT:\nThe following is the actual content extracted from the ${slideLabel}. You MUST base your summary strictly on this content:\n"""\n${slideContext.substring(0, 50000)}\n"""\n\nTask: ${taskInstruction}`;
   } else {
     fullPrompt = taskInstruction;
   }
@@ -1110,6 +1165,7 @@ function initDocToDeckFeature() {
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
+    clearChatAndInput();
     const loadingText = document.getElementById("loading");
     if (loadingText) {
       loadingText.innerText = `⚡ Document(s) uploaded. Generating presentation summary deck...`;
@@ -1258,6 +1314,135 @@ function appendInteractiveBubble(htmlContent, onMountCallback = null) {
   }
   historyDiv.scrollTop = historyDiv.scrollHeight;
   return bubble;
+}
+
+/**
+ * Opens an expanded high-resolution review modal for any generated visual image.
+ * Provides explicit actions to review and decide to insert directly onto the current slide
+ * or as a brand-new presentation slide.
+ */
+export function openImageZoomModal(imgSrc, altText = "Generated Visual") {
+  if (!imgSrc) return;
+
+  let modal = document.getElementById("imageZoomModal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "imageZoomModal";
+    modal.className = "image-zoom-overlay";
+    document.body.appendChild(modal);
+  }
+
+  const isPPT = hostAdapter && hostAdapter.name === "PowerPoint";
+
+  modal.innerHTML = `
+    <div class="image-zoom-header">
+      <span>🔍 Image Review & Zoom</span>
+      <button class="image-zoom-close" id="closeZoomModalBtn" title="Close preview (Esc)">✕</button>
+    </div>
+    <div class="image-zoom-body" id="zoomModalBody">
+      <img src="${imgSrc}" alt="${altText}" />
+    </div>
+    <div class="image-zoom-footer">
+      ${isPPT ? `
+        <button class="image-zoom-btn" id="zoomInsertCurrentBtn">📌 Insert on Current Slide</button>
+        <button class="image-zoom-btn secondary" id="zoomInsertNewBtn">➕ Insert as New Slide</button>
+      ` : `
+        <button class="image-zoom-btn" id="zoomInsertDocBtn">📌 Insert Image</button>
+      `}
+      <button class="image-zoom-btn secondary" id="zoomCancelBtn">Close</button>
+    </div>
+  `;
+
+  modal.style.display = "flex";
+
+  const closeModal = () => {
+    modal.style.display = "none";
+  };
+
+  const closeBtn = document.getElementById("closeZoomModalBtn");
+  if (closeBtn) closeBtn.onclick = closeModal;
+
+  const cancelBtn = document.getElementById("zoomCancelBtn");
+  if (cancelBtn) cancelBtn.onclick = closeModal;
+
+  modal.onclick = (e) => {
+    if (e.target === modal || e.target.id === "zoomModalBody") {
+      closeModal();
+    }
+  };
+
+  const handleKeydown = (e) => {
+    if (e.key === "Escape") {
+      closeModal();
+      window.removeEventListener("keydown", handleKeydown);
+    }
+  };
+  window.addEventListener("keydown", handleKeydown);
+
+  if (isPPT) {
+    const insertCurrentBtn = document.getElementById("zoomInsertCurrentBtn");
+    if (insertCurrentBtn) {
+      insertCurrentBtn.onclick = async () => {
+        insertCurrentBtn.innerText = "⏳ Inserting...";
+        insertCurrentBtn.disabled = true;
+        try {
+          await performDocumentInsertion(`<img src="${imgSrc}" />`, `![Generated Image](${imgSrc})`, "insert_current_slide");
+          insertCurrentBtn.innerText = "✅ Inserted!";
+          insertCurrentBtn.classList.add("success");
+          setTimeout(() => { closeModal(); }, 1000);
+        } catch (err) {
+          console.error("Zoom insert error:", err);
+          insertCurrentBtn.innerText = "❌ Failed to insert";
+          setTimeout(() => {
+            insertCurrentBtn.innerText = "📌 Insert on Current Slide";
+            insertCurrentBtn.disabled = false;
+          }, 2000);
+        }
+      };
+    }
+
+    const insertNewBtn = document.getElementById("zoomInsertNewBtn");
+    if (insertNewBtn) {
+      insertNewBtn.onclick = async () => {
+        insertNewBtn.innerText = "⏳ Creating slide...";
+        insertNewBtn.disabled = true;
+        try {
+          const slideMd = `## 🖼️ Visual Presentation\n\n![Generated Image](${imgSrc})\n`;
+          await performDocumentInsertion(`<img src="${imgSrc}" />`, slideMd, "insert_cursor");
+          insertNewBtn.innerText = "✅ Created!";
+          insertNewBtn.classList.add("success");
+          setTimeout(() => { closeModal(); }, 1000);
+        } catch (err) {
+          console.error("Zoom insert as new slide error:", err);
+          insertNewBtn.innerText = "❌ Failed";
+          setTimeout(() => {
+            insertNewBtn.innerText = "➕ Insert as New Slide";
+            insertNewBtn.disabled = false;
+          }, 2000);
+        }
+      };
+    }
+  } else {
+    const insertDocBtn = document.getElementById("zoomInsertDocBtn");
+    if (insertDocBtn) {
+      insertDocBtn.onclick = async () => {
+        insertDocBtn.innerText = "⏳ Inserting...";
+        insertDocBtn.disabled = true;
+        try {
+          await performDocumentInsertion(`<img src="${imgSrc}" />`, `![Generated Image](${imgSrc})`, "insert_cursor");
+          insertDocBtn.innerText = "✅ Inserted!";
+          setTimeout(() => { closeModal(); }, 1000);
+        } catch (err) {
+          console.error("Zoom insert doc error:", err);
+          insertDocBtn.innerText = "❌ Failed";
+          setTimeout(() => {
+            insertDocBtn.innerText = "📌 Insert Image";
+            insertDocBtn.disabled = false;
+          }, 2000);
+        }
+      };
+    }
+  }
 }
 
 function appendAssistantBubble(text, apiData = null, originalPrompt = "") {

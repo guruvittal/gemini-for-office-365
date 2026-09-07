@@ -260,6 +260,107 @@
             margin: 0;
         }
 
+        /* Image Zoom / Review Modal */
+        .image-zoom-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.88);
+            z-index: 99999;
+            display: flex;
+            flex-direction: column;
+            backdrop-filter: blur(4px);
+            animation: fadeInModal 0.15s ease-out;
+            padding: 12px;
+            box-sizing: border-box;
+        }
+        @keyframes fadeInModal {
+            from { opacity: 0; transform: scale(0.98); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .image-zoom-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: #ffffff;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .image-zoom-close {
+            background: rgba(255, 255, 255, 0.15);
+            color: #ffffff;
+            border: none;
+            border-radius: 4px;
+            width: 26px;
+            height: 26px;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.15s ease;
+        }
+        .image-zoom-close:hover {
+            background: rgba(239, 68, 68, 0.85);
+        }
+        .image-zoom-body {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: auto;
+            padding: 12px 0;
+        }
+        .image-zoom-body img {
+            max-width: 95%;
+            max-height: 68vh;
+            object-fit: contain;
+            border-radius: 6px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+            background: #ffffff;
+        }
+        .image-zoom-footer {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+            flex-wrap: wrap;
+        }
+        .image-zoom-btn {
+            background-color: #0078d4;
+            color: #ffffff;
+            border: none;
+            border-radius: 5px;
+            padding: 8px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.15s ease;
+        }
+        .image-zoom-btn:hover {
+            background-color: #106ebe;
+        }
+        .image-zoom-btn.secondary {
+            background-color: rgba(255, 255, 255, 0.2);
+            color: #ffffff;
+        }
+        .image-zoom-btn.secondary:hover {
+            background-color: rgba(255, 255, 255, 0.35);
+        }
+        .image-zoom-btn.success {
+            background-color: #107c41;
+        }
+        .office-preview-img:hover {
+            opacity: 0.95;
+            box-shadow: 0 4px 12px rgba(0, 120, 212, 0.25);
+        }
+
     </style>
 </head>
 <body>

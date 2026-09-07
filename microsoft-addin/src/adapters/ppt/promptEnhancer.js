@@ -75,11 +75,12 @@ CRITICAL INSTRUCTIONS FOR IMAGE GENERATION:
 CRITICAL INSTRUCTIONS FOR EXECUTIVE SUMMARY GENERATION:
 1. Provide EXACTLY ONE single slide. NEVER generate multiple slides or multiple '##' slide headings under any circumstances.
 2. Structure with exactly one slide title: "## 📊 Executive Slide Summary".
-3. Visual Chart: If the summary contains quantitative breakdown, comparisons, or metrics, output a structured JSON code block with the exact data metrics (chartType: "doughnut", title: "...", data: [...]) so our client presentation engine can render a crisp, high-resolution chart.
-4. Content layout:
-   - Provide a clean Markdown Table (| Category | Metric | Share / Value |) summarizing quantitative data or metrics.
+3. STRICT GROUNDING: Every bullet point, finding, metric, and theme in your summary MUST be synthesized directly from the provided slide context. Do NOT invent generic topics or hallucinate information not in the slides.
+4. Visual Chart: If the summary contains quantitative breakdown, comparisons, or metrics from the slides, output a structured JSON code block with the exact data metrics (chartType: "doughnut", title: "...", data: [...]) so our client presentation engine can render a crisp, high-resolution chart.
+5. Content layout:
+   - Provide a clean Markdown Table (| Category | Metric | Share / Value |) summarizing quantitative data or metrics directly from the slides.
    - Followed by 2 to 3 concise, high-impact executive takeaway bullets with bold lead-in phrases.
-5. DO NOT output conversational preamble, pleasantries, or additional slides.
+6. DO NOT output conversational preamble, pleasantries, or additional slides.
 `;
     return `${userPrompt}\n\n${rules}`;
   }
