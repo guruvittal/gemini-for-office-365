@@ -84,7 +84,7 @@ CRITICAL INSTRUCTIONS FOR SUMMARIZE SLIDES GENERATION (UP TO 5 SLIDES):
    - Separate distinct topics, tables, and visual charts into their own slides (e.g. ## Slide 1: [Executive Overview / Main Metrics Table], ## Slide 2: [Category Breakdown / Visual Chart / Details Table], etc.).
    - If there are multiple tables or data sets, place each table on its own appropriate slide.
    - If a visual chart represents data, output a structured JSON code block with the exact data metrics (chartType: "doughnut" or "bar", title: "...", data: [...]) so our client presentation engine can render a crisp chart.
-   - Break down the key takeaways into a dedicated single slide titled "## 📊 Executive Summary: Key Takeaways" with impactful bullet points and bold lead-in phrases.
+   - Break down the key takeaways into a dedicated single slide titled "## 📊 Executive Summary: Key Takeaways" with a maximum of 5 bullet points (each with an impactful bold lead-in phrase). CRITICAL: Generate at most 5 bullet points for the key takeaways to fit cleanly on the slide; do not exceed 5 bullet points.
    - Format each slide with a clear markdown header (## Slide 1: [Title], ## Slide 2: [Title], etc.) so each section generates its own slide.
 2. STRICT CLOSED-BOOK GROUNDING CONTRACT:
    - You are operating in 100% STRICT CLOSED-BOOK MODE based SOLELY on the provided slide context.

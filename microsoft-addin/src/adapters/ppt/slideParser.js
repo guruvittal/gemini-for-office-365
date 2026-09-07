@@ -479,25 +479,30 @@ function parseSummarizeDeck(tempDiv, allImages = [], rawText = "", options = {})
       }
     }
 
-    slides.push({
-      slideNumber: slides.length + 1,
-      title: takeawayTitle,
-      subtitle: "Strategic Highlights & Next Steps",
-      visualConcept: "",
-      visualType: null,
-      visualData: null,
-      color: null,
-      titleSize: 36,
-      subtitleSize: 20,
-      body: takeawayBullets.join("\n\n"),
-      additionalBody: takeawayBullets.join("\n\n"),
-      tableData: null,
-      base64Images: []
-    });
+    const maxBulletsPerSlide = 5;
+    for (let c = 0; c < takeawayBullets.length; c += maxBulletsPerSlide) {
+      const chunk = takeawayBullets.slice(c, c + maxBulletsPerSlide);
+      const isContinuation = c > 0;
+      slides.push({
+        slideNumber: slides.length + 1,
+        title: isContinuation ? `${takeawayTitle} (Cont.)` : takeawayTitle,
+        subtitle: isContinuation ? "Continued Highlights" : "Strategic Highlights & Next Steps",
+        visualConcept: "",
+        visualType: null,
+        visualData: null,
+        color: null,
+        titleSize: 36,
+        subtitleSize: 20,
+        body: chunk.join("\n\n"),
+        additionalBody: chunk.join("\n\n"),
+        tableData: null,
+        base64Images: []
+      });
+    }
   }
 
   if (slides.length >= 2) {
-    return slides.slice(0, 5);
+    return slides;
   }
   return null;
 }
@@ -1483,7 +1488,7 @@ function finalizeSlides(slides, allImages = [], rawText = "", options = {}) {
       processedSlides.push(tableSlide);
 
       // In Summarize Slides mode: if there are takeaways attached to the table slide, and no separate
-      // Key Takeaways slide exists yet, break down the key takeaways into their own dedicated slide!
+      // Key Takeaways slide exists yet, break down the key takeaways into dedicated slide(s) (max 5 bullets per slide)!
       if (isSummarizeSlides && filteredBullets.length > 0) {
         const hasExistingTakeawaysSlide = finalSlides.some(other =>
           other !== s && (
@@ -1491,35 +1496,83 @@ function finalizeSlides(slides, allImages = [], rawText = "", options = {}) {
             (other.title || "").toLowerCase().includes("key takeaways")
           )
         );
-        if (!hasExistingTakeawaysSlide && processedSlides.length < 5) {
-          const takeawaySlide = {
-            slideNumber: processedSlides.length + 1,
-            title: "Executive Summary: Key Takeaways",
-            subtitle: "Strategic Highlights & Next Steps",
-            visualConcept: "",
-            visualType: null,
-            visualData: null,
-            color: null,
-            titleSize: 36,
-            subtitleSize: 20,
-            body: filteredBullets.join("\n\n"),
-            additionalBody: filteredBullets.join("\n\n"),
-            tableData: null,
-            base64Images: []
-          };
-          processedSlides.push(takeawaySlide);
+        if (!hasExistingTakeawaysSlide) {
+          const maxBulletsPerSlide = 5;
+          for (let c = 0; c < filteredBullets.length; c += maxBulletsPerSlide) {
+            const chunk = filteredBullets.slice(c, c + maxBulletsPerSlide);
+            const isContinuation = c > 0;
+            const takeawaySlide = {
+              slideNumber: processedSlides.length + 1,
+              title: isContinuation ? "Executive Summary: Key Takeaways (Cont.)" : "Executive Summary: Key Takeaways",
+              subtitle: isContinuation ? "Continued Highlights" : "Strategic Highlights & Next Steps",
+              visualConcept: "",
+              visualType: null,
+              visualData: null,
+              color: null,
+              titleSize: 36,
+              subtitleSize: 20,
+              body: chunk.join("\n\n"),
+              additionalBody: chunk.join("\n\n"),
+              tableData: null,
+              base64Images: []
+            };
+            processedSlides.push(takeawaySlide);
+          }
         }
       }
       continue;
     }
+
+    // If this is an existing takeaway slide in Summarize Slides with more than 5 bullets,
+    // break into multiple slides with 5 bullet points per slide!
+    const isTakeaway = (s.title || "").toLowerCase().includes("takeaway") ||
+                       (s.subtitle || "").toLowerCase().includes("strategic highlights");
+    if (isSummarizeSlides && isTakeaway && !s.tableData) {
+      const rawLines = (s.body || "")
+        .split(/\r?\n/)
+        .map(b => b.trim())
+        .filter(b => b && b !== "• Executive slide content" && !b.startsWith("|") && !b.startsWith("---"));
+      
+      const bullets = [];
+      let current = "";
+      for (const line of rawLines) {
+        if (/^(?:•|[-*]|\d+\.)/.test(line)) {
+          if (current) bullets.push(current);
+          current = line.startsWith("•") ? line : `• ${line.replace(/^(?:[-*]|\d+\.)\s*/, "").trim()}`;
+        } else if (current) {
+          current += " " + line;
+        } else {
+          current = `• ${line}`;
+        }
+      }
+      if (current) bullets.push(current);
+
+      if (bullets.length > 5) {
+        const maxBulletsPerSlide = 5;
+        for (let c = 0; c < bullets.length; c += maxBulletsPerSlide) {
+          const chunk = bullets.slice(c, c + maxBulletsPerSlide);
+          const isContinuation = c > 0;
+          processedSlides.push({
+            ...s,
+            slideNumber: processedSlides.length + 1,
+            title: isContinuation ? `${s.title} (Cont.)` : s.title,
+            subtitle: isContinuation ? "Continued Highlights" : (s.subtitle || "Strategic Highlights & Next Steps"),
+            body: chunk.join("\n\n"),
+            additionalBody: chunk.join("\n\n")
+          });
+        }
+        continue;
+      }
+    }
+
     processedSlides.push(s);
   }
   finalSlides = processedSlides;
 
-  // In Summarize Slides mode: enforce up to 5 slides maximum and re-index slide numbers
+  // In Summarize Slides mode: enforce maximum slides and re-index slide numbers
   if (isSummarizeSlides) {
-    if (finalSlides.length > 5) {
-      finalSlides = finalSlides.slice(0, 5);
+    if (finalSlides.length > 8) {
+      finalSlides = finalSlides.slice(0, 8);
     }
     finalSlides.forEach((s, idx) => {
       s.slideNumber = idx + 1;
