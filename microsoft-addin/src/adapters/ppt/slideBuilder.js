@@ -2,13 +2,12 @@
  * PowerPoint Slide Builder
  * 
  * Standard Office.js Slide Generation:
- * - Uses official Microsoft pattern: slides.add() -> slides.getCount() -> slides.getItemAt(count - 1)
- * - Appends new slides to the end of the presentation without displacing existing slides
- * - Automatically neutralizes and deletes default placeholders ("Click to add title", "Click to add subtitle")
+ * - Discovers Theme Blank Layout dynamically via slideMasters to eliminate template placeholders
+ * - Appends new slides to presentation tail using official pattern: slides.add() -> slides.getCount() -> slides.getItemAt(count - 1)
+ * - Zero shapes.load("items") or shape deletion calls to eliminate InvalidParam passed to GetItem(id) COM errors
  * - Strictly isolates tables: when a slide has a table, only the native table is rendered (no overlapping bullets)
  * - Renders native Title, Subtitle, Table / Bullets, and side-by-side visual images
  * - Zero artificial card backgrounds, zero borders, respecting native presentation theme
- * - Zero GetItem(id) COM calls to eliminate InvalidParam passed to GetItem(id) errors
  * 
  * @author Sathya AG, Principal Architect, Google
  */
@@ -89,9 +88,120 @@ export function compressImageForPowerPoint(base64Str, maxWidth = 800, maxHeight 
 }
 
 /**
+ * Discovers the Blank layout (or best clean layout) from the presentation's active theme/master.
+ */
+async function getThemeBlankLayoutOptions() {
+  try {
+    return await PowerPoint.run(async (context) => {
+      const slideMasters = context.presentation.slideMasters;
+      slideMasters.load("id, name, layouts/items/name, layouts/items/id");
+      await context.sync();
+
+      if (!slideMasters.items || slideMasters.items.length === 0) {
+        return null;
+      }
+
+      for (const master of slideMasters.items) {
+        if (!master.layouts || !master.layouts.items || master.layouts.items.length === 0) {
+          continue;
+        }
+
+        // 1. Look for a layout named "blank", "em branco", "en blanco", "vide", "leer"
+        let targetLayout = master.layouts.items.find(l => {
+          const n = (l.name || "").toLowerCase();
+          return n.includes("blank") || n.includes("branco") || n.includes("blanco") || n.includes("vide") || n.includes("leer");
+        });
+
+        // 2. Fallback: look for "empty" or "clean"
+        if (!targetLayout) {
+          targetLayout = master.layouts.items.find(l => {
+            const n = (l.name || "").toLowerCase();
+            return n.includes("empty") || n.includes("clean");
+          });
+        }
+
+        if (targetLayout) {
+          return {
+            slideMasterId: master.id,
+            layoutId: targetLayout.id
+          };
+        }
+      }
+
+      return null;
+    });
+  } catch (err) {
+    console.warn("[PPTBuilder] Could not query slide masters/layouts:", err);
+    return null;
+  }
+}
+
+/**
+ * Populates a native Microsoft PowerPoint table using PowerPoint.js shapes.addTable().
+ */
+function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90) {
+  const headers = tableData.headers || [];
+  const rows = tableData.rows || [];
+  const colCount = Math.max(headers.length, ...rows.map(r => r.length), 1);
+  const rowCount = (headers.length > 0 ? 1 : 0) + rows.length;
+
+  const tableValues = [];
+  if (headers.length > 0) {
+    const hRow = [];
+    for (let c = 0; c < colCount; c++) {
+      hRow.push(headers[c] || "");
+    }
+    tableValues.push(hRow);
+  }
+  for (const r of rows) {
+    const rowVals = [];
+    for (let c = 0; c < colCount; c++) {
+      rowVals.push(r[c] !== undefined && r[c] !== null ? String(r[c]) : "");
+    }
+    tableValues.push(rowVals);
+  }
+
+  const tableHeight = Math.min(380, Math.max(100, rowCount * 36));
+
+  try {
+    if (typeof newSlide.shapes.addTable === "function") {
+      const tableShape = newSlide.shapes.addTable(rowCount, colCount, {
+        left: 50,
+        top: tableTop,
+        width: 860,
+        height: tableHeight,
+        values: tableValues
+      });
+      try {
+        tableShape.table.format = PowerPoint.TableFormat.lightStyle1;
+      } catch (_) {}
+      logToPPTConsole(`Slide ${slideNum}: Added native table (${rowCount} rows x ${colCount} cols).`);
+      return;
+    }
+  } catch (err) {
+    console.warn("[PPTBuilder] shapes.addTable with options failed, trying basic addTable:", err);
+  }
+
+  try {
+    const shape = newSlide.shapes.addTable(rowCount, colCount);
+    const table = shape.getTable();
+    for (let r = 0; r < tableValues.length; r++) {
+      for (let c = 0; c < colCount; c++) {
+        const cell = table.getCellOrNullObject(r, c);
+        if (cell) cell.text = tableValues[r][c];
+      }
+    }
+    logToPPTConsole(`Slide ${slideNum}: Added native table via getCell.`);
+  } catch (fallbackErr) {
+    console.error("[PPTBuilder] Native table shape creation failed:", fallbackErr);
+    logToPPTConsole(`Slide ${slideNum}: ⚠️ Table shape notice: ${fallbackErr.message}`);
+  }
+}
+
+/**
  * Creates a single slide in PowerPoint with title, body bullets, native table, or optional images.
  */
-async function createSingleSlide(slideData, slideNum) {
+async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
   const cleanTitle = (slideData.title || `Slide ${slideNum}`).replace(/\*\*/g, "").trim();
   const subtitle = slideData.subtitle || "";
   const titleSize = slideData.titleSize || 36;
@@ -114,11 +224,19 @@ async function createSingleSlide(slideData, slideNum) {
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
 
-    // 1. Add slide to presentation tail and sync
-    slides.add();
+    // 1. Add slide using Theme Blank Layout if available, falling back to standard add
+    if (layoutOptions) {
+      try {
+        slides.add(layoutOptions);
+      } catch (lErr) {
+        slides.add();
+      }
+    } else {
+      slides.add();
+    }
     await context.sync();
 
-    // 2. Fetch total count to locate newly added slide at the end
+    // 2. Fetch total count to locate newly added slide at the tail
     const countResult = slides.getCount();
     await context.sync();
 
@@ -127,30 +245,7 @@ async function createSingleSlide(slideData, slideNum) {
 
     const newSlide = slides.getItemAt(slideCount - 1);
 
-    // 3. Clear and delete default template placeholders ("Click to add title", "Click to add subtitle")
-    try {
-      newSlide.shapes.load("items");
-      await context.sync();
-
-      if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
-        for (let i = newSlide.shapes.items.length - 1; i >= 0; i--) {
-          const s = newSlide.shapes.items[i];
-          try {
-            if (s.textFrame && s.textFrame.textRange) {
-              s.textFrame.textRange.text = "";
-            }
-          } catch (_) {}
-          try {
-            s.delete();
-          } catch (_) {}
-        }
-        await context.sync();
-      }
-    } catch (cleanErr) {
-      console.warn("[PPTBuilder] Notice clearing placeholders:", cleanErr.message);
-    }
-
-    // 4. Add Title TextBox at Top
+    // 3. Add Title TextBox at Top
     const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
       left: 50,
       top: 30,
@@ -163,7 +258,7 @@ async function createSingleSlide(slideData, slideNum) {
       titleBox.textFrame.textRange.font.color = color;
     }
 
-    // 5. Add Subtitle if exists directly under Title
+    // 4. Add Subtitle directly under Title if present
     let contentTop = 85;
     if (subtitle) {
       const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
@@ -180,38 +275,10 @@ async function createSingleSlide(slideData, slideNum) {
       contentTop = 120;
     }
 
-    // 6. Render Native Table OR Body Bullets / Images
+    // 5. Render Native Table OR Body Bullets / Images
     if (hasTable) {
-      // Table Slide: Render ONLY the native table (zero overlapping bullets/takeaways)
-      const numRows = tableData.rows.length + 1;
-      const numCols = Math.max(
-        tableData.headers ? tableData.headers.length : 0,
-        ...tableData.rows.map(r => r.length),
-        1
-      );
-      const tableValues = [
-        tableData.headers || [],
-        ...tableData.rows
-      ];
-      for (let r = 0; r < tableValues.length; r++) {
-        while (tableValues[r].length < numCols) {
-          tableValues[r].push("");
-        }
-      }
-
-      const tableHeight = Math.min(380, Math.max(100, numRows * 36));
-      const tableShape = newSlide.shapes.addTable(numRows, numCols, {
-        left: 50,
-        top: contentTop,
-        width: 860,
-        height: tableHeight,
-        values: tableValues
-      });
-
-      try {
-        tableShape.table.format = PowerPoint.TableFormat.lightStyle1;
-      } catch (_) {}
-      logToPPTConsole(`Slide ${slideNum}: Added native table (${numRows} rows x ${numCols} cols).`);
+      // Table slide: render ONLY the table! No overlapping bullets or takeaway boxes.
+      populateSlideTable(newSlide, tableData, slideNum, contentTop);
     } else {
       // Standard clean body bullets
       const cleanBullets = bodyTextContent.replace(/\*\*/g, "").replace(/__/g, "");
@@ -245,7 +312,7 @@ async function createSingleSlide(slideData, slideNum) {
       }
     }
 
-    // 7. Commit all shapes in single batch
+    // 6. Commit all shapes in single batch
     await context.sync();
     logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}${hasTable ? 'Native Table' : 'Bullets'}.`);
   });
@@ -269,7 +336,13 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
   const totalSlides = slideStructures.length;
   logToPPTConsole(`=== Starting Generation of ${totalSlides} Slide(s) ===`);
 
-  // 1. Pre-process images
+  // 1. Discover Theme Blank Layout ONCE upfront to preserve presentation theme and eliminate placeholders
+  const layoutOptions = await getThemeBlankLayoutOptions();
+  if (layoutOptions) {
+    logToPPTConsole(`ℹ️ Using Theme Blank Layout.`);
+  }
+
+  // 2. Pre-process images
   for (let idx = 0; idx < slideStructures.length; idx++) {
     const slide = slideStructures[idx];
     slide.compressedImages = [];
@@ -286,7 +359,7 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     }
   }
 
-  // 2. Build each slide sequentially, appending to end of presentation
+  // 3. Build each slide sequentially, appending to end of presentation
   for (let i = 0; i < totalSlides; i++) {
     const slideData = slideStructures[i];
     const slideNum = i + 1;
@@ -300,7 +373,7 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     }
 
     try {
-      await createSingleSlide(slideData, slideNum);
+      await createSingleSlide(slideData, slideNum, layoutOptions);
     } catch (slideErr) {
       logToPPTConsole(`Slide ${slideNum} Error: ${slideErr.message}`, true);
       console.error(`[PPTBuilder] Slide ${slideNum} Error:`, slideErr);
