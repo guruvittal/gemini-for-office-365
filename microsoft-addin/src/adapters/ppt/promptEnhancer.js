@@ -122,14 +122,15 @@ CRITICAL STRUCTURE CONTRACT FOR SLIDE GENERATION:${countConstraint}
 
 3. CRITICAL VISUAL RULES:
 - PRESENTATION DIVERSITY (Decks with 3+ slides): NEVER make every slide a plain bullet slide! A high-performing executive presentation MUST use varied layouts across slides:
-  * Slide 1: Dedicated Title and Summary Slide containing a clean Presentation Title, Subtitle, and a comprehensive Executive Summary explaining what the content and attached document are all about (e.g. document overview, primary objective, and deck scope). NEVER put granular sub-topic operational bullets, departmental trivia, charts, or tables on Slide 1.
+  * Slide 1: Dedicated Title and Executive Summary Slide containing ONLY a clean Presentation Title, Subtitle, and ONE small Executive Summary paragraph (2-4 sentences max) explaining what the document is all about. NEVER include "Deck Scope & Outline", upcoming slide lists (Slide 2, Slide 3, etc.), operational bullets, metrics, charts, or tables on Slide 1.
   * Data & Metrics Slide: At least 1 slide MUST feature an Executive Markdown Table (3-4 columns) showing core metrics, dimensions, and strategic impacts.
   * Optional Chart Slide: At most 1 slide can feature a Data Chart (\`\`\`json { "chartType": "doughnut|bar|pie" ... } \`\`\`).
   * Remaining Slides: Strategic pillars, roadmap, or narrative bullets with bold lead-ins.
 - NEVER OUTPUT PSEUDO-TEXT LABELS: NEVER output labels like "Metric Grid", "Comparison Card", or raw placeholder text in the slide content.
 - EACH CHART MUST BE 100% UNIQUE: NEVER repeat or duplicate the same chart, metrics, or title across multiple slides. If a deck has 5 to 10 slides, at most 2 should contain a data chart, and each MUST cover a completely different topic and metric.
+- CRITICAL CHART TITLE RULE: Every chart title MUST be short and punchy (maximum 2 to 5 words). NEVER create long, rambling titles or include parenthetical details in the title.
 - NEVER COMBINE A CHART AND A TABLE ON THE SAME SLIDE: A slide must feature EITHER a table OR a chart, NEVER both.
-- SLIDE 1 MUST BE A TITLE & SUMMARY SLIDE: Slide 1 must contain the presentation title, subtitle, and a high-level executive summary explaining what the content and attached document are all about (e.g. • **Executive Summary**: ..., • **Core Objective**: ..., • **Deck Scope**: ...). Save specific operational details, findings, metrics, data tables, and pillars for Slides 2 through 6.
+- SLIDE 1 MUST BE A TITLE & SUMMARY SLIDE: Slide 1 must contain ONLY the presentation title, subtitle, and ONE single executive summary small paragraph. Save specific operational details, findings, metrics, data tables, and pillars for Slides 2 through 6.
 4. Do NOT output internal design metadata, font sizes (like "Title Size: 44"), hex colors (like "Color: #..."), or raw "Visual Concept:" labels. Keep the output clean, executive-ready presentation content.
 5. Separate every slide cleanly with a horizontal rule "---".
 `;

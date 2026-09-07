@@ -669,6 +669,16 @@ async function runSelectionPrompt(instruction) {
   await executeGeminiWorkflow(fullPrompt, displayUserBubble);
 }
 
+export function isSubstantiveText(text) {
+  if (!text || typeof text !== "string") return false;
+  const cleaned = text
+    .replace(/\(Visual\s*\/\s*Slide\s*content\)/gi, "")
+    .replace(/\[Slide\s*\d+\]:?/gi, "")
+    .replace(/[-•*#_`~|\s\r\n\t]/g, "")
+    .trim();
+  return /[a-zA-Z0-9]/.test(cleaned) && cleaned.length >= 3;
+}
+
 // Dedicated Image Generation Action from Selection or User Query
 async function handleCreateImageClick() {
   const loadingText = document.getElementById("loading");
@@ -682,7 +692,8 @@ async function handleCreateImageClick() {
 
   try {
     if (hostAdapter && typeof hostAdapter.getSelectedText === "function") {
-      selectedText = (await hostAdapter.getSelectedText())?.trim() || "";
+      const raw = await hostAdapter.getSelectedText();
+      selectedText = isSubstantiveText(raw) ? raw.trim() : "";
     }
     if (hostAdapter && typeof hostAdapter.getSelectedSlidesText === "function") {
       const slides = await hostAdapter.getSelectedSlidesText();
@@ -694,7 +705,7 @@ async function handleCreateImageClick() {
     if (loadingText) loadingText.style.display = "none";
   }
 
-  // 1. If text is selected AND not multiple slides: generate image for that selected content
+  // 1. If substantive text is selected AND not multiple slides: generate image for that selected content
   if (selectedText && selectedText.length > 0 && slideCount <= 1) {
     const prompt = `Create a high-quality, professional image visual illustration representing the following selected content:\n\n"""\n${selectedText}\n"""\n\nGenerate an impactful, visually stunning illustration for this presentation topic.`;
     const snippet = selectedText.replace(/\s+/g, " ").trim().substring(0, 75);
@@ -758,7 +769,8 @@ async function handleCreateChartClick() {
 
   try {
     if (hostAdapter && typeof hostAdapter.getSelectedText === "function") {
-      selectedText = (await hostAdapter.getSelectedText())?.trim() || "";
+      const raw = await hostAdapter.getSelectedText();
+      selectedText = isSubstantiveText(raw) ? raw.trim() : "";
     }
     if (hostAdapter && typeof hostAdapter.getSelectedSlidesText === "function") {
       const slides = await hostAdapter.getSelectedSlidesText();
@@ -807,13 +819,16 @@ Requirements:
 \`\`\`json
 {
   "chartType": "${chartType}",
-  "title": "<High-Impact Chart Title>",
+  "title": "<Short Title (2-5 words max)>",
   "data": [
     { "label": "<Category/Metric>", "value": <NumericValue> }
   ]
 }
 \`\`\`
-2. Include 2 concise, executive takeaway bullet points analyzing the data under the chart.`;
+2. CRITICAL CONSTRAINT FOR TITLE:
+   - The chart title MUST be short and punchy (maximum 2 to 5 words, e.g. "Coffee Output by State", "Q4 Revenue Share").
+   - NEVER create long titles, never include parenthetical subtitles in the title, and never exceed 5 words!
+3. Include 2 concise, executive takeaway bullet points analyzing the data under the chart.`;
 
           const displayBubble = `📈 [Create Chart] Generating ${chartType} chart from selected text...`;
           await executeGeminiWorkflow(prompt, displayBubble);
@@ -899,7 +914,10 @@ Requirements:
   ]
 }
 \`\`\`
-2. Include 2 concise, executive takeaway bullet points analyzing the data under the chart.`;
+2. CRITICAL CONSTRAINT FOR TITLE:
+   - The chart title MUST be short and punchy (maximum 2 to 5 words).
+   - NEVER create long titles, never include parenthetical subtitles in the title, and never exceed 5 words!
+3. Include 2 concise, executive takeaway bullet points analyzing the data under the chart.`;
 
         const displayBubble = `📈 [Create Chart] Generating ${currentType} chart for "${topic}"...`;
         await executeGeminiWorkflow(prompt, displayBubble);
@@ -1027,6 +1045,9 @@ async function callGeminiProxy(customPrompt = null) {
   const userText = customPrompt || (promptInput ? promptInput.value.trim() : "");
 
   let selectedText = await hostAdapter.getSelectedText();
+  if (!isSubstantiveText(selectedText)) {
+    selectedText = "";
+  }
 
   if (!userText && !selectedText) {
     appendBubble(`Please type a prompt or select content in ${hostAdapter.name} first.`, "system");
@@ -1144,14 +1165,15 @@ PowerPoint Slide Deck Requirements:
 1. SLIDE DECK STRUCTURE (MAXIMUM 6 SLIDES TOTAL):
    - ## Slide 1: [Relevant Emoji] [Presentation Title (3-4 words max)]
      ### [Compelling Subtitle / Executive Orientation]
-     Slide 1 MUST be a dedicated TITLE & SUMMARY SLIDE providing an executive orientation explaining what the content and attached document are all about:
+     Slide 1 MUST be a dedicated TITLE & EXECUTIVE SUMMARY SLIDE containing ONLY:
      * Presentation Title: A crisp, impactful title capturing the overarching subject.
      * Subtitle: An executive subtitle setting the strategic context.
-     * Summary of Content (What the Document is All About):
-       • **Executive Summary**: A concise, comprehensive executive summary synthesizing what the entire attached document is all about, its primary strategic context, and why it matters.
-       • **Core Objective**: What this document and strategy aim to achieve or solve.
-       • **Deck Scope & Outline**: A high-level overview explaining what key areas leadership will discover across the upcoming content slides (Slides 2 to 6).
-     * STRICT RULE FOR SLIDE 1: Do NOT include isolated operational details, individual department metrics, or granular sub-topic points (such as data controls, specific reporting standard names, or individual program descriptions) on Slide 1! Slide 1 is strictly for orienting the executive audience on WHAT THE CONTENT IS ALL ABOUT. All specific operational details, findings, metrics, and tables belong on Slides 2 through 6.
+     * Executive Summary: Exactly ONE small, high-impact executive summary paragraph (2 to 4 sentences max) explaining what the document is all about and its key strategic value.
+     * STRICT RULES FOR SLIDE 1:
+       - ONLY include Title, Subtitle, and the ONE small Executive Summary paragraph.
+       - NEVER include a "Deck Scope & Outline" section!
+       - NEVER list upcoming slides (e.g. "Slide 2: ...", "Slide 3: ...")!
+       - NEVER include granular operational bullets, department trivia, metrics, or tables on Slide 1!
    - ## Slide 2 to Slide 6 (5 Content Slides):
      5 focused executive content slides breaking down the core insights, findings, data, and recommendations from the document.
 2. Provide EXACTLY ONE presentation deck (Slide 1 Title & Summary Slide + 5 Content Slides, maximum 6 slides total). DO NOT output multiple alternative options.
@@ -1162,9 +1184,10 @@ PowerPoint Slide Deck Requirements:
    - Format slide content using clean, professional formats:
      * Qualitative / Strategic Slides (Vision, Market Drivers, Operational Pillars, Roadmap): 3 to 4 high-impact bullet points with bold lead-ins (• **Strategic Pillar**: Detailed description).
      * Quantitative / Comparative Slides (Financials, KPIs, Decarbonization, Operational Metrics): When presenting dense metrics, performance targets, or before/after comparisons, use a clean Markdown table (| Dimension / Metric | Baseline / Prior | Target / Strategic Impact |). Follow the table with 1 to 2 concise takeaway bullets. (Limit tables to at most 1 or 2 slides in the deck).
-     * Optional Visual Breakdown Slide (Only if document has market share or volume distribution): A clean high-resolution chart JSON block (\`\`\`json { "chartType": "doughnut", "title": "<Chart Title>", "data": [...] } \`\`\`) accompanied by 2 narrative bullets.
-5. Do NOT output internal design metadata like "Visual Concept:", "Color:", or font sizes.
-6. Do NOT output pseudocode visual labels like "Metric Grid" or "Comparison Card" in plain text. Format content cleanly as narrative bullets, structured tables, or chart JSON.
+     * Optional Visual Breakdown Slide (Only if document has market share or volume distribution): A clean high-resolution chart JSON block (\`\`\`json { "chartType": "doughnut", "title": "<Short Title (2-5 words max)>", "data": [...] } \`\`\`) accompanied by 2 narrative bullets.
+5. CRITICAL CHART TITLE RULE: Any chart title MUST be short and punchy (2 to 5 words max).
+6. Do NOT output internal design metadata like "Visual Concept:", "Color:", or font sizes.
+7. Do NOT output pseudocode visual labels like "Metric Grid" or "Comparison Card" in plain text. Format content cleanly as narrative bullets, structured tables, or chart JSON.
 7. Separate each slide cleanly with "---".`;
 
       await executeGeminiWorkflow(prompt, displayUserBubble, attachments);

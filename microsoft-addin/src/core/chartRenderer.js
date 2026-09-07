@@ -220,16 +220,43 @@ export function renderChartToDataUrl(spec, options = {}) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, width, height);
 
-  // Header: Title & Subtitle
+  // Header: Title & Subtitle with dynamic fitting to prevent overflow
+  let titleText = (spec.title || 'Data Visualization').trim();
+  const maxTitleWidth = width - 72; // 36px padding on left and right
+
+  let titleFontSize = 26;
+  ctx.font = `800 ${titleFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
+  while (ctx.measureText(titleText).width > maxTitleWidth && titleFontSize > 16) {
+    titleFontSize -= 2;
+    ctx.font = `800 ${titleFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
+  }
+  if (ctx.measureText(titleText).width > maxTitleWidth) {
+    while (titleText.length > 0 && ctx.measureText(titleText + '...').width > maxTitleWidth) {
+      titleText = titleText.slice(0, -1).trim();
+    }
+    titleText += '...';
+  }
+
   ctx.fillStyle = '#0f172a';
-  ctx.font = '800 28px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText(spec.title || 'Data Visualization', 36, 44);
+  ctx.fillText(titleText, 36, 44);
 
   if (spec.subtitle) {
+    let subText = spec.subtitle.trim();
     ctx.fillStyle = '#475569';
-    ctx.font = '600 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
-    ctx.fillText(spec.subtitle, 36, 72);
+    let subFontSize = 15;
+    ctx.font = `600 ${subFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
+    while (ctx.measureText(subText).width > maxTitleWidth && subFontSize > 12) {
+      subFontSize -= 1;
+      ctx.font = `600 ${subFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
+    }
+    if (ctx.measureText(subText).width > maxTitleWidth) {
+      while (subText.length > 0 && ctx.measureText(subText + '...').width > maxTitleWidth) {
+        subText = subText.slice(0, -1).trim();
+      }
+      subText += '...';
+    }
+    ctx.fillText(subText, 36, 72);
   }
 
   // Draw chart according to type

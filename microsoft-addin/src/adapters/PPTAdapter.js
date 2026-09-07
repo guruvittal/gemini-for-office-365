@@ -110,7 +110,7 @@ export class PPTAdapter {
               selectedSlidesData.push({
                 slideNumber: slideNum,
                 id: slide.id || `slide-${slideNum}`,
-                text: slideLines.join("\n").trim() || "(Visual / Slide content)"
+                text: slideLines.join("\n").trim()
               });
             }
           }
@@ -161,7 +161,7 @@ export class PPTAdapter {
     return selectedText;
   }
 
-  // Read currently highlighted text or selected slide(s) text on demand
+  // Read currently highlighted text or selected text shape on demand
   async getSelectedText() {
     // 1. Try Office Common getSelectedDataAsync first (fastest for user-highlighted text in any text box)
     try {
@@ -184,20 +184,14 @@ export class PPTAdapter {
       }
     } catch (_) {}
 
-    // 2. Try selected shape(s) text
+    // 2. Try selected shape(s) text (when user clicked or selected a text box / shape)
     const shapeText = await this.getSelectedShapeText();
-    if (shapeText && shapeText.length > 0) {
-      return shapeText;
+    if (shapeText && shapeText.trim().length > 0) {
+      return shapeText.trim();
     }
 
-    // 3. Try selected slide(s) text
-    const selectedSlides = await this.getSelectedSlidesText();
-    if (selectedSlides && selectedSlides.length > 0) {
-      return selectedSlides
-        .map(s => (selectedSlides.length > 1 ? `[Slide ${s.slideNumber}]:\n${s.text}` : s.text))
-        .join("\n\n---\n\n");
-    }
-
+    // Return empty string if no specific text or text shape is selected
+    // (Slide text extraction is handled on demand by getSelectedSlidesText)
     return "";
   }
 

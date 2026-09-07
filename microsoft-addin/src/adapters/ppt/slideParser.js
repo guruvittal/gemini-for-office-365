@@ -1312,6 +1312,24 @@ function finalizeSlides(slides, allImages = [], rawText = "") {
     finalSlides = finalSlides.slice(0, requestedCount);
   }
 
+  // On multi-slide decks, sanitize Slide 1 (Title slide) to strictly contain Title, Subtitle, and Executive Summary
+  if (finalSlides.length >= 2 && finalSlides[0].body) {
+    let body = finalSlides[0].body;
+    // Strip "Deck Scope & Outline" and all subsequent lines
+    body = body.replace(/(?:•\s*)?Deck Scope\s*&\s*Outline[\s\S]*$/i, "").trim();
+    // Strip any remaining upcoming slide references like "• Slide 2: ...", "• Slide 3: ..."
+    body = body.replace(/(?:^|\n)\s*•?\s*Slide\s*\d+\s*:?[^\n]*/gi, "").trim();
+    // If the body contains "• Executive Summary: ...", keep that clean executive summary paragraph
+    const execSummaryMatch = body.match(/(?:•\s*)?(?:Executive Summary|Summary):\s*([\s\S]*?)(?=(?:\n\s*•|\n\s*#{1,6}|$))/i);
+    if (execSummaryMatch && execSummaryMatch[1]) {
+      const summaryText = execSummaryMatch[1].trim();
+      if (summaryText.length > 20) {
+        body = `• Executive Summary: ${summaryText}`;
+      }
+    }
+    finalSlides[0].body = body;
+  }
+
   const seenImageSignatures = new Set();
   finalSlides.forEach((s, idx) => {
     s.slideNumber = idx + 1;
