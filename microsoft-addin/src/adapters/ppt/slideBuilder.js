@@ -182,6 +182,32 @@ function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90, tableL
 
   const tableHeight = Math.min(maxTableHeight, Math.max(80, rowCount * 34));
 
+  // Helper to format table cells: 18pt for headers/title row, 14pt for data rows
+  const applyTableCellFontSizes = (tableObj) => {
+    if (!tableObj || typeof tableObj.getCellOrNullObject !== "function") return;
+    for (let r = 0; r < rowCount; r++) {
+      const isHeaderRow = (r === 0 && headers.length > 0);
+      const fontSize = isHeaderRow ? 18 : 14;
+      for (let c = 0; c < colCount; c++) {
+        try {
+          const cell = tableObj.getCellOrNullObject(r, c);
+          if (cell) {
+            if (cell.font) {
+              cell.font.size = fontSize;
+              if (isHeaderRow) cell.font.bold = true;
+            } else if (cell.textRange && cell.textRange.font) {
+              cell.textRange.font.size = fontSize;
+              if (isHeaderRow) cell.textRange.font.bold = true;
+            } else if (cell.textFrame && cell.textFrame.textRange && cell.textFrame.textRange.font) {
+              cell.textFrame.textRange.font.size = fontSize;
+              if (isHeaderRow) cell.textFrame.textRange.font.bold = true;
+            }
+          }
+        } catch (_) {}
+      }
+    }
+  };
+
   try {
     if (typeof newSlide.shapes.addTable === "function") {
       const tableShape = newSlide.shapes.addTable(rowCount, colCount, {
@@ -194,7 +220,16 @@ function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90, tableL
       try {
         tableShape.table.format = PowerPoint.TableFormat.lightStyle1;
       } catch (_) {}
-      logToPPTConsole(`Slide ${slideNum}: Added native table (${rowCount} rows x ${colCount} cols).`);
+
+      // Apply cell font sizes: header row 18pt, data rows 14pt
+      try {
+        const tableObj = tableShape.table || (typeof tableShape.getTable === "function" ? tableShape.getTable() : null);
+        applyTableCellFontSizes(tableObj);
+      } catch (fErr) {
+        console.warn("[PPTBuilder] Notice applying table cell font sizes:", fErr);
+      }
+
+      logToPPTConsole(`Slide ${slideNum}: Added native table (${rowCount} rows x ${colCount} cols, header: 18pt, data: 14pt).`);
       return tableHeight;
     }
   } catch (err) {
@@ -213,7 +248,13 @@ function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90, tableL
         if (cell) cell.text = tableValues[r][c];
       }
     }
-    logToPPTConsole(`Slide ${slideNum}: Added native table via getCell.`);
+
+    // Apply cell font sizes: header row 18pt, data rows 14pt
+    try {
+      applyTableCellFontSizes(table);
+    } catch (_) {}
+
+    logToPPTConsole(`Slide ${slideNum}: Added native table via getCell (header: 18pt, data: 14pt).`);
     return tableHeight;
   } catch (fallbackErr) {
     console.error("[PPTBuilder] Native table shape creation failed:", fallbackErr);
