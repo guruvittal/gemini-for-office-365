@@ -33,45 +33,85 @@ export class PPTAdapter {
     try {
       if (typeof PowerPoint !== 'undefined') {
         await PowerPoint.run(async (context) => {
+          // Map all slide IDs in presentation to determine real 1-based slide numbers
+          const allSlides = context.presentation.slides;
+          allSlides.load("items/id");
+
+          let selectedSlides = null;
           if (context.presentation.getSelectedSlides) {
-            const selectedSlides = context.presentation.getSelectedSlides();
-            selectedSlides.load("items");
-            await context.sync();
+            selectedSlides = context.presentation.getSelectedSlides();
+            selectedSlides.load("items/id");
+          }
+          await context.sync();
 
-            if (selectedSlides.items && selectedSlides.items.length > 0) {
-              for (let i = 0; i < selectedSlides.items.length; i++) {
-                const slide = selectedSlides.items[i];
-                const shapes = slide.shapes;
-                shapes.load("items");
-                await context.sync();
+          const slideIndexMap = {};
+          if (allSlides.items) {
+            allSlides.items.forEach((s, idx) => {
+              if (s.id) slideIndexMap[s.id] = idx + 1;
+            });
+          }
 
-                const textTrackers = [];
-                if (shapes.items) {
-                  for (const shape of shapes.items) {
-                    try {
-                      if (shape.textFrame) {
-                        const tr = shape.textFrame.textRange;
-                        tr.load("text");
-                        textTrackers.push(tr);
-                      }
-                    } catch (_) {}
-                  }
-                }
+          if (selectedSlides && selectedSlides.items && selectedSlides.items.length > 0) {
+            for (let i = 0; i < selectedSlides.items.length; i++) {
+              const slide = selectedSlides.items[i];
+              const slideNum = (slide.id && slideIndexMap[slide.id]) ? slideIndexMap[slide.id] : (i + 1);
 
-                if (textTrackers.length > 0) {
-                  await context.sync();
-                  const lines = textTrackers
-                    .map(tr => (tr.text || "").trim())
-                    .filter(Boolean);
-                  if (lines.length > 0) {
-                    selectedSlidesData.push({
-                      slideNumber: i + 1,
-                      id: slide.id || `slide-${i + 1}`,
-                      text: lines.join("\n")
-                    });
-                  }
+              const shapes = slide.shapes;
+              shapes.load("items");
+              await context.sync();
+
+              const textTrackers = [];
+              const tableTrackers = [];
+
+              if (shapes.items) {
+                for (const shape of shapes.items) {
+                  try {
+                    if (typeof shape.getTable === "function") {
+                      const table = shape.getTable();
+                      table.load("values");
+                      tableTrackers.push(table);
+                    }
+                  } catch (_) {}
+                  try {
+                    if (shape.textFrame) {
+                      const tr = shape.textFrame.textRange;
+                      tr.load("text");
+                      textTrackers.push(tr);
+                    }
+                  } catch (_) {}
                 }
               }
+
+              if (textTrackers.length > 0 || tableTrackers.length > 0) {
+                try {
+                  await context.sync();
+                } catch (_) {}
+              }
+
+              const slideLines = [];
+              for (const tr of textTrackers) {
+                try {
+                  const val = (tr.text || "").trim();
+                  if (val) slideLines.push(val);
+                } catch (_) {}
+              }
+              for (const tb of tableTrackers) {
+                try {
+                  if (tb.values && Array.isArray(tb.values)) {
+                    for (const row of tb.values) {
+                      if (Array.isArray(row)) {
+                        slideLines.push("| " + row.map(c => String(c || "").trim()).join(" | ") + " |");
+                      }
+                    }
+                  }
+                } catch (_) {}
+              }
+
+              selectedSlidesData.push({
+                slideNumber: slideNum,
+                id: slide.id || `slide-${slideNum}`,
+                text: slideLines.join("\n").trim() || "(Visual / Slide content)"
+              });
             }
           }
         });
@@ -168,10 +208,11 @@ export class PPTAdapter {
       if (typeof PowerPoint !== 'undefined') {
         await PowerPoint.run(async (context) => {
           const slides = context.presentation.slides;
+          slides.load("items/id");
           const countResult = slides.getCount();
           await context.sync();
 
-          const total = countResult.value || 0;
+          const total = countResult.value || (slides.items ? slides.items.length : 0);
           const slideTexts = [];
 
           for (let i = 0; i < total; i++) {
@@ -180,24 +221,54 @@ export class PPTAdapter {
             shapes.load("items");
             await context.sync();
 
-            const shapeTexts = [];
+            const textTrackers = [];
+            const tableTrackers = [];
+
             if (shapes.items) {
               for (const shape of shapes.items) {
-                if (shape.textFrame) {
-                  const tr = shape.textFrame.textRange;
-                  tr.load("text");
-                  shapeTexts.push(tr);
-                }
+                try {
+                  if (typeof shape.getTable === "function") {
+                    const table = shape.getTable();
+                    table.load("values");
+                    tableTrackers.push(table);
+                  }
+                } catch (_) {}
+                try {
+                  if (shape.textFrame) {
+                    const tr = shape.textFrame.textRange;
+                    tr.load("text");
+                    textTrackers.push(tr);
+                  }
+                } catch (_) {}
               }
             }
 
-            if (shapeTexts.length > 0) {
-              await context.sync();
-              const lines = shapeTexts.map(t => (t.text || "").trim()).filter(Boolean);
-              if (lines.length > 0) {
-                slideTexts.push(`--- Slide ${i + 1} ---\n${lines.join("\n")}`);
-              }
+            if (textTrackers.length > 0 || tableTrackers.length > 0) {
+              try {
+                await context.sync();
+              } catch (_) {}
             }
+
+            const slideLines = [];
+            for (const tr of textTrackers) {
+              try {
+                const val = (tr.text || "").trim();
+                if (val) slideLines.push(val);
+              } catch (_) {}
+            }
+            for (const tb of tableTrackers) {
+              try {
+                if (tb.values && Array.isArray(tb.values)) {
+                  for (const row of tb.values) {
+                    if (Array.isArray(row)) {
+                      slideLines.push("| " + row.map(c => String(c || "").trim()).join(" | ") + " |");
+                    }
+                  }
+                }
+              } catch (_) {}
+            }
+
+            slideTexts.push(`--- Slide ${i + 1} ---\n${slideLines.join("\n").trim() || "(Visual / Slide content)"}`);
           }
 
           fullText = slideTexts.join("\n\n");

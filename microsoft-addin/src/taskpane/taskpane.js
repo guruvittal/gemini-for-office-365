@@ -129,9 +129,6 @@ Office.onReady(async (info) => {
   // Setup Transform Doc to Deck Feature
   initDocToDeckFeature();
 
-  // Setup Insert Executive Visual Feature
-  initExecutiveVisualFeature();
-
   // Wire Tip Banner Dismiss button
   const dismissTipBtn = document.getElementById("dismissTipBtn");
   if (dismissTipBtn) {
@@ -356,7 +353,6 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
 
       container.innerHTML = `
         <button class="quick-chip" id="chipSummarize" style="background-color:#e0f2fe; color:#0369a1; border-color:#bae6fd;">📊 Summarize Slides</button>
-        <button class="quick-chip" id="chipExecVisual" style="background-color:#ecfdf5; color:#047857; border-color:#a7f3d0; font-weight:600;">✨ Insert Executive Visual</button>
         <button class="quick-chip" id="chipGenImage" style="background-color:#fdf2f8; color:#be185d; border-color:#fbcfe8; font-weight:600;">🎨 Create Image</button>
         <button class="quick-chip" id="chipRisks" style="background-color:#fef3c7; color:#b45309; border-color:#fde68a;">⚠️ Key Risks</button>
         <button class="quick-chip" id="chipRewrite" style="background-color:#f3e8ff; color:#7e22ce; border-color:#e9d5ff;">🪄 Rewrite Slide</button>
@@ -367,9 +363,6 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
 
       const cSummarize = document.getElementById("chipSummarize");
       if (cSummarize) cSummarize.onclick = () => runPowerPointSlideAction("takeaways");
-
-      const cExecVisual = document.getElementById("chipExecVisual");
-      if (cExecVisual) cExecVisual.onclick = () => openExecutiveVisualModal();
 
       const cGenImage = document.getElementById("chipGenImage");
       if (cGenImage) {
@@ -404,7 +397,6 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
 
       container.innerHTML = `
         <button class="quick-chip" id="chipDocToDeck" style="background-color:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600;">📄 Doc to Deck</button>
-        <button class="quick-chip" id="chipExecVisual" style="background-color:#ecfdf5; color:#047857; border-color:#a7f3d0; font-weight:600;">✨ Insert Executive Visual</button>
         <button class="quick-chip" id="chipSummarize" style="background-color:#e0f2fe; color:#0369a1; border-color:#bae6fd;">📊 Summarize Slides</button>
         <button class="quick-chip" id="chipGenImage" style="background-color:#fdf2f8; color:#be185d; border-color:#fbcfe8; font-weight:600;">🎨 Create Image</button>
       `;
@@ -416,9 +408,6 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
           if (fileInput) fileInput.click();
         };
       }
-
-      const cExecVisual = document.getElementById("chipExecVisual");
-      if (cExecVisual) cExecVisual.onclick = () => openExecutiveVisualModal();
 
       const cSum = document.getElementById("chipSummarize");
       if (cSum) cSum.onclick = () => runPowerPointSlideAction("takeaways");
@@ -745,7 +734,7 @@ async function runDocIntelligencePrompt(instruction) {
 async function runPowerPointSlideAction(actionType) {
   const loadingText = document.getElementById("loading");
   if (loadingText) {
-    loadingText.innerText = "⚡ Reading highlighted slide(s)...";
+    loadingText.innerText = "⚡ Reading slide context...";
     loadingText.style.display = "block";
   }
 
@@ -759,22 +748,38 @@ async function runPowerPointSlideAction(actionType) {
   }
 
   let slideContext = "";
-  let slideLabel = "current slide";
+  let slideLabel = "presentation deck";
+  let displayBubble = "";
 
-  if (slides && slides.length > 0) {
-    slideLabel = slides.length === 1 ? "highlighted slide" : `${slides.length} highlighted slides`;
-    slideContext = slides.map((s, idx) => `[Highlighted Slide ${idx + 1}]:\n${s.text}`).join("\n\n---\n\n");
+  if (actionType === "summarize" || actionType === "takeaways") {
+    if (slides && slides.length >= 2) {
+      slideLabel = `${slides.length} highlighted slides`;
+      slideContext = slides.map((s) => `[Highlighted Slide ${s.slideNumber}]:\n${s.text}`).join("\n\n---\n\n");
+      displayBubble = `📊 [Summarize Slides] Generating executive summary slide from ${slides.length} highlighted slides...`;
+    } else {
+      appendBubble(
+        "ℹ️ **Summarize Slides**: Single slide or no multi-slide selection detected. Analyzing all slides across the entire presentation to generate a comprehensive deck summary...",
+        "assistant"
+      );
+      const fullDocText = await hostAdapter.getFullDocumentText();
+      slideContext = fullDocText || (slides && slides.length === 1 ? `[Slide ${slides[0].slideNumber}]:\n${slides[0].text}` : "");
+      slideLabel = "entire presentation deck";
+      displayBubble = `📊 [Summarize Slides] Summarizing entire presentation deck...`;
+    }
   } else {
-    // Fall back to full presentation text if no specific slide is highlighted
-    const fullDocText = await hostAdapter.getFullDocumentText();
-    if (fullDocText && fullDocText.length > 10) {
-      slideContext = fullDocText;
-      slideLabel = "presentation deck";
+    if (slides && slides.length > 0) {
+      slideLabel = slides.length === 1 ? `Slide ${slides[0].slideNumber || 1}` : `${slides.length} highlighted slides`;
+      slideContext = slides.map((s) => `[Highlighted Slide ${s.slideNumber || 1}]:\n${s.text}`).join("\n\n---\n\n");
+    } else {
+      const fullDocText = await hostAdapter.getFullDocumentText();
+      if (fullDocText && fullDocText.length > 10) {
+        slideContext = fullDocText;
+        slideLabel = "presentation deck";
+      }
     }
   }
 
   let taskInstruction = "";
-  let displayBubble = "";
 
   switch (actionType) {
     case "risks":
@@ -785,8 +790,10 @@ async function runPowerPointSlideAction(actionType) {
     case "takeaways":
       taskInstruction = `Based on the context from the ${slideLabel} provided below, create EXACTLY ONE executive summary slide.
 CRITICAL CONSTRAINT: You must output ONLY ONE SINGLE SLIDE. Do NOT generate multiple slides.
-Create content for a new PowerPoint slide titled "📊 Executive Slide Summary" highlighting high-impact findings, core metrics, and strategic implications.`;
-      displayBubble = `📊 [Summarize Slides] Generating executive summary slide from ${slideLabel}...`;
+Create content for a new PowerPoint slide titled "📊 Executive Slide Summary" highlighting high-impact findings, core metrics, and strategic implications across the presentation.`;
+      if (!displayBubble) {
+        displayBubble = `📊 [Summarize Slides] Generating executive summary slide from ${slideLabel}...`;
+      }
       break;
     case "action_items":
       taskInstruction = `Based on the context from the ${slideLabel} provided below, extract all Action Items, Deliverables, Next Steps, and Ownership. Create content for a new PowerPoint slide titled "✅ Action Items & Next Steps" with actionable task bullets, suggested owners, and priority levels.`;
@@ -858,7 +865,7 @@ function initDocToDeckFeature() {
 
     const loadingText = document.getElementById("loading");
     if (loadingText) {
-      loadingText.innerText = `⚡ Uploading ${files.length} document(s) to Gemini Enterprise...`;
+      loadingText.innerText = `⚡ Document(s) uploaded. Generating presentation summary deck...`;
       loadingText.style.display = "block";
     }
 
@@ -899,22 +906,33 @@ function initDocToDeckFeature() {
         });
       }
 
-      const displayUserBubble = `📄 [Doc to Deck]\nAttached: ${fileNames.join(', ')}`;
-      const prompt = `Extract the key takeaways from the attached document(s) and create an executive presentation slide deck with no more than 5 slides summarizing the key insights.
+      appendBubble(
+        `📄 **Doc to Deck**: Uploaded \`${fileNames.join(', ')}\`.\n\nA comprehensive presentation summary is being created from your document...`,
+        "assistant"
+      );
+
+      const displayUserBubble = `📄 [Doc to Deck] Uploaded: ${fileNames.join(', ')}`;
+      const prompt = `Extract the key takeaways from the attached document(s) and create a structured executive presentation slide deck with a total of up to 6 slides (1 Title/Intro Slide + 5 Content Slides).
 
 PowerPoint Slide Deck Requirements:
-1. Provide EXACTLY ONE presentation deck with no more than 5 slides. DO NOT output multiple alternative options.
-2. DO NOT output conversational preamble or filler (e.g. "Here is...", "Sure!"). Output the slide deck content directly.
-3. For each slide, structure with rich executive visual hierarchy:
+1. SLIDE DECK STRUCTURE (MAXIMUM 6 SLIDES TOTAL):
+   - ## Slide 1: [Relevant Emoji] [Presentation Title (3-4 words max)]
+     ### [Compelling Subtitle / Executive Orientation]
+     Slide 1 MUST be a dedicated Title & Introduction Slide providing an executive orientation to the presentation, outlining the document's core thesis and strategic background in 3-4 concise introductory bullets. (Do NOT put tables or charts on Slide 1).
+   - ## Slide 2 to Slide 6 (5 Content Slides):
+     5 focused executive content slides breaking down the core insights, findings, data, and recommendations from the document.
+2. Provide EXACTLY ONE presentation deck (Slide 1 Title Slide + 5 Content Slides, maximum 6 slides total). DO NOT output multiple alternative options.
+3. DO NOT output conversational preamble or filler (e.g. "Here is...", "Sure!"). Output the slide deck content directly.
+4. For each content slide (Slides 2-6), structure with rich executive visual hierarchy:
    - "## Slide <N>: <Emoji> <Punchy Slide Title (3-4 words max)>"
-   - "Subtitle: <Crisp Subtitle / Strategic Context>"
+   - "### <Crisp Subtitle / Strategic Takeaway>"
    - Format slide content using clean, professional formats:
-     * Qualitative / Strategic Slides (Overview, Vision, Operational Pillars, Roadmap): Use 3 to 4 high-impact bullet points with bold lead-ins (• **Strategic Pillar:** Detailed description). Do NOT include tables or charts on these slides.
-     * Quantitative / Comparative Slides (Financials, KPIs, Decarbonization, Operational Metrics): When presenting dense metrics, performance targets, or before/after comparisons, use a clean Markdown table (| Dimension / Metric | Current / Baseline | Target / Strategic Impact |). Follow the table with 1 to 2 concise takeaway bullets. Limit tables to at most 1 or 2 slides in the entire deck.
-     * Optional Breakdown Slide (Only if document has market share or volume distribution): A clean high-resolution chart JSON block (\`\`\`json { "chartType": "doughnut", "title": "<Chart Title>", "data": [{ "label": "...", "value": 60 }] } \`\`\`).
-   - Conclude each slide with a clear strategic takeaway line: "Takeaway: <Executive takeaway sentence>"
-4. Do NOT output internal design metadata like "Visual Concept:", "Color:", or font sizes.
-5. Do NOT output pseudocode visual labels like "Metric Grid" or "Comparison Card" in plain text. Format content cleanly as narrative bullets or structured tables.`;
+     * Qualitative / Strategic Slides (Vision, Market Drivers, Operational Pillars, Roadmap): 3 to 4 high-impact bullet points with bold lead-ins (• **Strategic Pillar**: Detailed description).
+     * Quantitative / Comparative Slides (Financials, KPIs, Decarbonization, Operational Metrics): When presenting dense metrics, performance targets, or before/after comparisons, use a clean Markdown table (| Dimension / Metric | Baseline / Prior | Target / Strategic Impact |). Follow the table with 1 to 2 concise takeaway bullets. (Limit tables to at most 1 or 2 slides in the deck).
+     * Optional Visual Breakdown Slide (Only if document has market share or volume distribution): A clean high-resolution chart JSON block (\`\`\`json { "chartType": "doughnut", "title": "<Chart Title>", "data": [...] } \`\`\`) accompanied by 2 narrative bullets.
+5. Do NOT output internal design metadata like "Visual Concept:", "Color:", or font sizes.
+6. Do NOT output pseudocode visual labels like "Metric Grid" or "Comparison Card" in plain text. Format content cleanly as narrative bullets, structured tables, or chart JSON.
+7. Separate each slide cleanly with "---".`;
 
       await executeGeminiWorkflow(prompt, displayUserBubble, attachments);
     } catch (err) {
@@ -925,157 +943,6 @@ PowerPoint Slide Deck Requirements:
       if (loadingText) loadingText.style.display = "none";
     }
   });
-}
-
-// Feature: Insert Executive Visual (3-Column Metric Grid or Before/After Comparison)
-function initExecutiveVisualFeature() {
-  const modal = document.getElementById("execVisualModal");
-  const closeBtn = document.getElementById("closeExecVisualModal");
-  const cancelBtn = document.getElementById("cancelExecVisualBtn");
-  const generateBtn = document.getElementById("generateExecVisualBtn");
-  const promptInput = document.getElementById("execVisualPrompt");
-  const optMetric = document.getElementById("optMetricGrid");
-  const optBeforeAfter = document.getElementById("optBeforeAfter");
-
-  if (!modal) return;
-
-  let selectedType = "metric_grid_3col";
-
-  if (optMetric) {
-    optMetric.onclick = () => {
-      selectedType = "metric_grid_3col";
-      optMetric.classList.add("selected");
-      if (optBeforeAfter) optBeforeAfter.classList.remove("selected");
-    };
-  }
-
-  if (optBeforeAfter) {
-    optBeforeAfter.onclick = () => {
-      selectedType = "before_after";
-      optBeforeAfter.classList.add("selected");
-      if (optMetric) optMetric.classList.remove("selected");
-    };
-  }
-
-  const closeModal = () => {
-    modal.style.display = "none";
-  };
-
-  if (closeBtn) closeBtn.onclick = closeModal;
-  if (cancelBtn) cancelBtn.onclick = closeModal;
-
-  if (generateBtn) {
-    generateBtn.onclick = async () => {
-      closeModal();
-      const customTopic = promptInput ? promptInput.value.trim() : "";
-      if (promptInput) promptInput.value = "";
-      await runGenerateExecutiveVisual(selectedType, customTopic);
-    };
-  }
-}
-
-function openExecutiveVisualModal() {
-  const modal = document.getElementById("execVisualModal");
-  if (modal) {
-    modal.style.display = "flex";
-    const promptInput = document.getElementById("execVisualPrompt");
-    if (promptInput) promptInput.focus();
-  }
-}
-
-async function runGenerateExecutiveVisual(visualType, customTopic = "") {
-  let slideContext = "";
-  try {
-    if (typeof hostAdapter.getSelectedSlidesText === "function") {
-      slideContext = await hostAdapter.getSelectedSlidesText();
-    }
-  } catch (_) {}
-
-  const topicContext = customTopic || (slideContext && slideContext.length > 20 
-    ? `the following slide context:\n"""\n${slideContext.substring(0, 30000)}\n"""` 
-    : "enterprise transformation, operational performance, and strategic execution");
-
-  let prompt = "";
-  let displayBubble = "";
-
-  if (visualType === "metric_grid_3col") {
-    displayBubble = `✨ [Executive Visual] Generating 3-Column Metric Grid...`;
-    prompt = `You are an elite executive presentation designer. Create a high-impact PowerPoint 3-Column Metric Grid visual slide based on: ${topicContext}.
-
-You MUST return a JSON object inside a \`\`\`json markdown code block adhering strictly to this schema:
-\`\`\`json
-{
-  "visualType": "metric_grid_3col",
-  "title": "Short Impactful Slide Title (e.g. FY25 Key Performance Indicators)",
-  "subtitle": "Clear Context Subtitle (e.g. Accelerating enterprise revenue and cloud operational scale)",
-  "cards": [
-    {
-      "metric": "+42%",
-      "title": "Revenue Growth",
-      "subtitle": "Year-over-Year ARR",
-      "bullets": [
-        "Driven by cloud AI enterprise adoption",
-        "Net retention rate expanded to 124%"
-      ]
-    },
-    {
-      "metric": "$1.4B",
-      "title": "Global Bookings",
-      "subtitle": "Record Annual High",
-      "bullets": [
-        "Closed 38 Fortune 500 deals",
-        "Pipeline grew 3.2x across key verticals"
-      ]
-    },
-    {
-      "metric": "99.98%",
-      "title": "Operational Uptime",
-      "subtitle": "Mission-Critical SLA",
-      "bullets": [
-        "Sub-second p99 latency globally",
-        "Automated failover across multi-region clusters"
-      ]
-    }
-  ]
-}
-\`\`\`
-Ensure metrics are short and punchy (e.g., +35%, $4.2B, 10x, 99.9%). Each card should have exactly 2-3 concise takeaway bullets.`;
-  } else {
-    displayBubble = `✨ [Executive Visual] Generating Before/After Comparison...`;
-    prompt = `You are an elite executive presentation designer. Create a high-impact PowerPoint Before/After Comparison visual slide based on: ${topicContext}.
-
-You MUST return a JSON object inside a \`\`\`json markdown code block adhering strictly to this schema:
-\`\`\`json
-{
-  "visualType": "before_after",
-  "title": "Short Impactful Slide Title (e.g. Operational Modernization & AI Transformation)",
-  "subtitle": "Clear Context Subtitle (e.g. Transitioning from legacy bottlenecks to intelligent automation)",
-  "before": {
-    "title": "Legacy / Current State Challenges",
-    "bullets": [
-      "Fragmented data silos causing 3-day reporting delays",
-      "High human operational overhead and error-prone reconciliation",
-      "Static quarterly projections lacking predictive insights"
-    ]
-  },
-  "after": {
-    "title": "Gemini AI / Future State Transformation",
-    "bullets": [
-      "Sub-second unified intelligence across enterprise data",
-      "Automated presentation drafting & 99.9% data accuracy",
-      "Continuous predictive forecasting with actionable real-time alerts"
-    ]
-  }
-}
-\`\`\`
-Ensure each side has 3-4 clear, parallel, high-contrast bullet points.`;
-  }
-
-  // Apply PowerPoint prompt enhancer rules
-  const { enhancePromptForPowerPoint } = await import('../adapters/ppt/promptEnhancer.js');
-  prompt = enhancePromptForPowerPoint(prompt);
-
-  await executeGeminiWorkflow(prompt, displayBubble);
 }
 
 async function executeGeminiWorkflow(fullPrompt, displayUserBubble, attachments = null) {
