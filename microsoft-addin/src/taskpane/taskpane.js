@@ -1214,6 +1214,18 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
 
   historyDiv.appendChild(bubble);
   historyDiv.scrollTop = historyDiv.scrollHeight;
+
+  // Ensure action buttons remain fully visible when images finish decoding
+  const bubbleImages = bubble.querySelectorAll("img");
+  bubbleImages.forEach(img => {
+    if (img.complete) {
+      historyDiv.scrollTop = historyDiv.scrollHeight;
+    } else {
+      img.addEventListener("load", () => {
+        historyDiv.scrollTop = historyDiv.scrollHeight;
+      });
+    }
+  });
 }
 
 async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {

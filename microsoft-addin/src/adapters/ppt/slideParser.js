@@ -723,7 +723,7 @@ export function parseSlides(htmlContent, rawText = "") {
       let slideImgs = [];
       if (sectionImgs.length > 0) {
         slideImgs = sectionImgs;
-      } else if (allImages.length > 0 && (headerEls.length === 1 || i === 0)) {
+      } else if (allImages.length > 0 && headerEls.length === 1) {
         slideImgs = allImages;
       }
 

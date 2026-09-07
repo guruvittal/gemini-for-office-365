@@ -255,35 +255,56 @@ export function parseMarkdownFormatting(rawContent) {
 }
 
 /**
- * Inserts a picture onto a slide using official Office.js PowerPoint shapes.addPicture().
- * Includes fallback to data URI and geometric shape fill.
+ * Inserts a picture via Office Common API setSelectedDataAsync (works universally across platforms).
+ */
+export async function insertPictureViaCommonApi(rawImg, { left, top, width, height }) {
+  if (typeof Office === "undefined" || !Office.context?.document?.setSelectedDataAsync) {
+    return false;
+  }
+  const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
+  if (clean.length <= 50) return false;
+
+  return new Promise((resolve) => {
+    try {
+      Office.context.document.setSelectedDataAsync(
+        clean,
+        {
+          coercionType: Office.CoercionType.Image,
+          imageLeft: left,
+          imageTop: top,
+          imageWidth: width,
+          imageHeight: height
+        },
+        (asyncResult) => {
+          if (asyncResult && asyncResult.status === Office.AsyncResultStatus.Succeeded) {
+            logToPPTConsole(`Added picture via Office Common API setSelectedDataAsync.`);
+            resolve(true);
+          } else {
+            console.warn("[PPTBuilder] setSelectedDataAsync notice:", asyncResult ? asyncResult.error : null);
+            resolve(false);
+          }
+        }
+      );
+    } catch (err) {
+      console.warn("[PPTBuilder] setSelectedDataAsync threw:", err);
+      resolve(false);
+    }
+  });
+}
+
+/**
+ * Inserts a picture onto a slide using official Office.js PowerPoint APIs.
+ * 1. Geometric shape with fill.setImage(clean) (PowerPointApi 1.8+ official method)
+ *    If setImage is unavailable or fails, immediately deletes the shape to prevent leaving a solid blue box.
+ * 2. shapes.addPicture(clean) (PowerPointApi 1.10+ / preview)
+ * 3. shapes.addImage(clean) fallback
  */
 export function insertPictureOnSlide(slide, rawImg, { left, top, width, height }, slideNum = 1) {
   if (!rawImg) return false;
   const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
   if (clean.length <= 50) return false;
 
-  // 1. Primary: shapes.addPicture with clean base64
-  try {
-    if (typeof slide.shapes.addPicture === "function") {
-      slide.shapes.addPicture(clean, { left, top, width, height });
-      logToPPTConsole(`Slide ${slideNum}: Added picture via shapes.addPicture.`);
-      return true;
-    }
-  } catch (e) {
-    console.warn("[PPTBuilder] shapes.addPicture with clean base64 failed, trying data uri:", e);
-    try {
-      if (typeof slide.shapes.addPicture === "function") {
-        slide.shapes.addPicture(rawImg, { left, top, width, height });
-        logToPPTConsole(`Slide ${slideNum}: Added picture via data uri.`);
-        return true;
-      }
-    } catch (e2) {
-      console.warn("[PPTBuilder] shapes.addPicture data uri fallback failed:", e2);
-    }
-  }
-
-  // 2. Fallback: Geometric Shape with picture fill
+  // 1. Primary: Geometric Shape with picture fill (PowerPointApi 1.8+ official method)
   try {
     if (typeof slide.shapes.addGeometricShape === "function" && typeof PowerPoint !== "undefined" && PowerPoint.GeometricShapeType) {
       const rect = slide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.rectangle, {
@@ -294,16 +315,62 @@ export function insertPictureOnSlide(slide, rawImg, { left, top, width, height }
       });
       if (rect) {
         if (rect.line) { try { rect.line.visible = false; } catch (_) {} }
-        if (rect.fill && typeof rect.fill.setPictureFromBase64 === "function") {
-          rect.fill.setPictureFromBase64(clean);
-          logToPPTConsole(`Slide ${slideNum}: Added picture via shape picture fill.`);
+        if (rect.lineFormat) {
+          try {
+            rect.lineFormat.visible = false;
+            rect.lineFormat.weight = 0;
+          } catch (_) {}
+        }
+        if (rect.fill && typeof rect.fill.setImage === "function") {
+          rect.fill.setImage(clean);
+          logToPPTConsole(`Slide ${slideNum}: Added picture via shape.fill.setImage.`);
           return true;
+        } else {
+          // IMPORTANT: If setImage is not available, delete rect immediately to prevent leaving a blank blue box!
+          try { rect.delete(); } catch (_) {}
         }
       }
     }
   } catch (fillErr) {
-    console.warn("[PPTBuilder] Shape picture fill fallback failed:", fillErr);
+    console.warn("[PPTBuilder] Shape fill.setImage attempt failed:", fillErr);
   }
+
+  // 2. Secondary: shapes.addPicture (PowerPointApi 1.10+ / preview)
+  try {
+    if (typeof slide.shapes.addPicture === "function") {
+      const pic = slide.shapes.addPicture(clean, { left, top, width, height });
+      if (pic) {
+        if (pic.line) { try { pic.line.visible = false; } catch (_) {} }
+        if (pic.lineFormat) { try { pic.lineFormat.visible = false; } catch (_) {} }
+        logToPPTConsole(`Slide ${slideNum}: Added picture via shapes.addPicture.`);
+        return true;
+      }
+    }
+  } catch (e) {
+    console.warn("[PPTBuilder] shapes.addPicture with clean base64 failed, trying data uri:", e);
+    try {
+      if (typeof slide.shapes.addPicture === "function") {
+        const pic2 = slide.shapes.addPicture(rawImg, { left, top, width, height });
+        if (pic2) {
+          logToPPTConsole(`Slide ${slideNum}: Added picture via data uri.`);
+          return true;
+        }
+      }
+    } catch (e2) {
+      console.warn("[PPTBuilder] shapes.addPicture data uri fallback failed:", e2);
+    }
+  }
+
+  // 3. Fallback: shapes.addImage if present in host
+  try {
+    if (typeof slide.shapes.addImage === "function") {
+      const img = slide.shapes.addImage(clean, { left, top, width, height });
+      if (img) {
+        logToPPTConsole(`Slide ${slideNum}: Added picture via shapes.addImage.`);
+        return true;
+      }
+    }
+  } catch (_) {}
 
   return false;
 }
@@ -332,6 +399,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
 
   logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."`);
 
+  let imageInserted = false;
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
 
@@ -389,7 +457,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
     // 5. Layout Rendering: Table + Image, Table Only, Image + Bullets, Image Only, or Bullets Only
     if (hasTable && hasImages) {
       // 5a. Side-by-side: Chart/Image on Left, Table on Right
-      insertPictureOnSlide(newSlide, imagesToInsert[0], {
+      imageInserted = insertPictureOnSlide(newSlide, imagesToInsert[0], {
         left: 50,
         top: contentTop + 10,
         width: 430,
@@ -415,28 +483,21 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
       // Apply bold styling to lead-in phrases
       if (parsedParagraphs && parsedParagraphs.some(p => p.boldRanges && p.boldRanges.length > 0)) {
         try {
-          const paras = bodyBox.textFrame.textRange.paragraphs;
-          paras.load("items/text");
-          await context.sync();
-          if (paras.items) {
-            for (let pIdx = 0; pIdx < paras.items.length && pIdx < parsedParagraphs.length; pIdx++) {
-              const pItem = paras.items[pIdx];
-              const pData = parsedParagraphs[pIdx];
-              const pLen = (pItem.text || "").length;
-              for (const b of (pData.boldRanges || [])) {
-                if (b.start >= 0 && b.length > 0 && (b.start + b.length) <= pLen) {
-                  try {
-                    const sub = pItem.getSubstring(b.start, b.length);
-                    sub.font.bold = true;
-                  } catch (_) {}
-                }
+          let charOffset = 0;
+          for (let pIdx = 0; pIdx < parsedParagraphs.length; pIdx++) {
+            const p = parsedParagraphs[pIdx];
+            for (const b of (p.boldRanges || [])) {
+              if (b.start >= 0 && b.length > 0) {
+                const sub = bodyBox.textFrame.textRange.getSubstring(charOffset + b.start, b.length);
+                sub.font.bold = true;
               }
             }
+            charOffset += p.cleanText.length + 1; // +1 for \n
           }
         } catch (_) {}
       }
 
-      insertPictureOnSlide(newSlide, imagesToInsert[0], {
+      imageInserted = insertPictureOnSlide(newSlide, imagesToInsert[0], {
         left: 490,
         top: contentTop + 10,
         width: 420,
@@ -444,7 +505,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
       }, slideNum);
     } else if (hasImages) {
       // 5d. Image Only: Centered prominently, NO placeholder text box
-      insertPictureOnSlide(newSlide, imagesToInsert[0], {
+      imageInserted = insertPictureOnSlide(newSlide, imagesToInsert[0], {
         left: 170,
         top: contentTop + 10,
         width: 620,
@@ -466,23 +527,16 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
       // Apply bold styling to lead-in phrases
       if (parsedParagraphs && parsedParagraphs.some(p => p.boldRanges && p.boldRanges.length > 0)) {
         try {
-          const paras = bodyBox.textFrame.textRange.paragraphs;
-          paras.load("items/text");
-          await context.sync();
-          if (paras.items) {
-            for (let pIdx = 0; pIdx < paras.items.length && pIdx < parsedParagraphs.length; pIdx++) {
-              const pItem = paras.items[pIdx];
-              const pData = parsedParagraphs[pIdx];
-              const pLen = (pItem.text || "").length;
-              for (const b of (pData.boldRanges || [])) {
-                if (b.start >= 0 && b.length > 0 && (b.start + b.length) <= pLen) {
-                  try {
-                    const sub = pItem.getSubstring(b.start, b.length);
-                    sub.font.bold = true;
-                  } catch (_) {}
-                }
+          let charOffset = 0;
+          for (let pIdx = 0; pIdx < parsedParagraphs.length; pIdx++) {
+            const p = parsedParagraphs[pIdx];
+            for (const b of (p.boldRanges || [])) {
+              if (b.start >= 0 && b.length > 0) {
+                const sub = bodyBox.textFrame.textRange.getSubstring(charOffset + b.start, b.length);
+                sub.font.bold = true;
               }
             }
+            charOffset += p.cleanText.length + 1; // +1 for \n
           }
         } catch (_) {}
       }
@@ -492,6 +546,18 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
     await context.sync();
     logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}${hasTable ? 'Native Table' : 'Bullets'}.`);
   });
+
+  // Universal Fallback: If shape picture insertion failed, inject via Office Common API
+  if (hasImages && !imageInserted && imagesToInsert.length > 0) {
+    const imgWidth = (hasMeaningfulBody || hasTable) ? 420 : 620;
+    const imgLeft = (hasMeaningfulBody || hasTable) ? 490 : 170;
+    await insertPictureViaCommonApi(imagesToInsert[0], {
+      left: imgLeft,
+      top: 95,
+      width: imgWidth,
+      height: 350
+    });
+  }
 }
 
 /**
@@ -564,9 +630,11 @@ export async function insertOnCurrentSlide(slideStructures, options = {}) {
       !rawBody.toLowerCase().startsWith("here is the image") &&
       !isConversationalPreamble(rawBody);
 
+    let imageInserted = false;
+
     // 1. Chart/Image + Table
     if (hasImages && hasTable) {
-      insertPictureOnSlide(activeSlide, imagesToInsert[0], { left: 50, top: 90, width: 430, height: 350 }, 1);
+      imageInserted = insertPictureOnSlide(activeSlide, imagesToInsert[0], { left: 50, top: 90, width: 430, height: 350 }, 1);
       populateSlideTable(activeSlide, tableData, 1, 90, 500, 410);
       logToPPTConsole(`Inserted chart and table onto current slide.`);
     }
@@ -575,12 +643,13 @@ export async function insertOnCurrentSlide(slideStructures, options = {}) {
       const imgWidth = hasMeaningfulBody ? 420 : 620;
       const imgLeft = hasMeaningfulBody ? 490 : 170;
       for (const rawImg of imagesToInsert) {
-        insertPictureOnSlide(activeSlide, rawImg, {
+        const added = insertPictureOnSlide(activeSlide, rawImg, {
           left: imgLeft,
           top: 80,
           width: imgWidth,
           height: 370
         }, 1);
+        if (added) imageInserted = true;
       }
       if (hasMeaningfulBody) {
         const { cleanText: cleanBullets } = parseMarkdownFormatting(rawBody);
@@ -618,6 +687,25 @@ export async function insertOnCurrentSlide(slideStructures, options = {}) {
     await context.sync();
     logToPPTConsole(`🎉 Successfully inserted content onto current slide!`);
   });
+
+  // Universal Fallback: If shape picture insertion failed, inject via Office Common API
+  if (hasImages && !imageInserted && imagesToInsert.length > 0) {
+    const rawBody = (slideData.body || "").trim();
+    const hasMeaningfulBody = rawBody.length > 0 &&
+      rawBody !== "• Executive slide content" &&
+      !rawBody.toLowerCase().startsWith("here is the image") &&
+      !isConversationalPreamble(rawBody);
+    const imgWidth = (hasMeaningfulBody || hasTable) ? 420 : 620;
+    const imgLeft = (hasMeaningfulBody || hasTable) ? 490 : 170;
+    for (const rawImg of imagesToInsert) {
+      await insertPictureViaCommonApi(rawImg, {
+        left: imgLeft,
+        top: 80,
+        width: imgWidth,
+        height: 370
+      });
+    }
+  }
 }
 
 /**
