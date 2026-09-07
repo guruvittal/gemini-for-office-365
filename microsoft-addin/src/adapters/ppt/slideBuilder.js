@@ -14,6 +14,23 @@
 
 import { isConversationalPreamble } from "./slideParser.js";
 
+export function isSubstantiveSlideBody(text) {
+  if (!text || typeof text !== "string") return false;
+  const trimmed = text.trim();
+  if (!trimmed || trimmed === "• Executive slide content") return false;
+  // If text contains only backticks, punctuation, quotes, or markdown fence characters
+  if (/^[`'"*#_~>|\-\s•]+$/.test(trimmed)) return false;
+
+  // Clean markdown markers and bullets
+  const cleaned = trimmed
+    .replace(/[`*#_~>|\-•]/g, " ")
+    .replace(/\b(?:here\s+is\s+|below\s+is\s+|sure|certainly|image\s+of|the\s+image\s+you\s+requested|executive\s+slide\s+content)\b/gi, " ")
+    .trim();
+
+  // Must have at least 15 characters and contain words with letters
+  return /[a-zA-Z]{3,}/.test(cleaned) && cleaned.length >= 15;
+}
+
 function logToPPTConsole(msg, isError = false) {
   const prefix = isError ? "❌ [PPT] " : "ℹ️ [PPT] ";
   console.log(`${prefix}${msg}`);
@@ -385,9 +402,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
   const subtitleSize = slideData.subtitleSize || 18;
   const color = slideData.color || null;
   const bodyTextContent = (slideData.body || "").trim();
-  const hasMeaningfulBody = bodyTextContent.length > 0 &&
-    bodyTextContent !== "• Executive slide content" &&
-    !isConversationalPreamble(bodyTextContent);
+  const hasMeaningfulBody = isSubstantiveSlideBody(bodyTextContent);
 
   const tableData = slideData.tableData || null;
   const hasTable = Boolean(tableData && tableData.rows && tableData.rows.length > 0);
@@ -625,10 +640,7 @@ export async function insertOnCurrentSlide(slideStructures, options = {}) {
     const tableData = slideData.tableData || null;
     const hasTable = Boolean(tableData && tableData.rows && tableData.rows.length > 0);
     const rawBody = (slideData.body || "").trim();
-    const hasMeaningfulBody = rawBody.length > 0 &&
-      rawBody !== "• Executive slide content" &&
-      !rawBody.toLowerCase().startsWith("here is the image") &&
-      !isConversationalPreamble(rawBody);
+    const hasMeaningfulBody = isSubstantiveSlideBody(rawBody);
 
     let imageInserted = false;
 
@@ -691,10 +703,7 @@ export async function insertOnCurrentSlide(slideStructures, options = {}) {
   // Universal Fallback: If shape picture insertion failed, inject via Office Common API
   if (hasImages && !imageInserted && imagesToInsert.length > 0) {
     const rawBody = (slideData.body || "").trim();
-    const hasMeaningfulBody = rawBody.length > 0 &&
-      rawBody !== "• Executive slide content" &&
-      !rawBody.toLowerCase().startsWith("here is the image") &&
-      !isConversationalPreamble(rawBody);
+    const hasMeaningfulBody = isSubstantiveSlideBody(rawBody);
     const imgWidth = (hasMeaningfulBody || hasTable) ? 420 : 620;
     const imgLeft = (hasMeaningfulBody || hasTable) ? 490 : 170;
     for (const rawImg of imagesToInsert) {

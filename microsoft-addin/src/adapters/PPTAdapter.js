@@ -129,23 +129,19 @@ export class PPTAdapter {
 
                   // Bold lead-in phrases before colons
                   try {
-                    const paras = shape.textFrame.textRange.paragraphs;
-                    paras.load("items/text");
-                    await context.sync();
-                    if (paras.items) {
-                      for (const p of paras.items) {
-                        const pText = p.text || "";
-                        const colonIdx = pText.indexOf(":");
-                        const dashIdx = pText.indexOf("—");
-                        const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
-                        if (sepIdx > 0 && sepIdx < 45 && typeof p.getSubstring === "function") {
-                          try {
-                            const leadIn = p.getSubstring(0, sepIdx + 1);
-                            leadIn.font.bold = true;
-                          } catch (_) {}
-                        }
+                    const lines = cleanBullets.split("\n");
+                    let charOffset = 0;
+                    for (const l of lines) {
+                      const colonIdx = l.indexOf(":");
+                      const dashIdx = l.indexOf("—");
+                      const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
+                      if (sepIdx > 0 && sepIdx < 45 && typeof shape.textFrame.textRange.getSubstring === "function") {
+                        try {
+                          const leadIn = shape.textFrame.textRange.getSubstring(charOffset, sepIdx + 1);
+                          leadIn.font.bold = true;
+                        } catch (_) {}
                       }
-                      await context.sync();
+                      charOffset += l.length + 1;
                     }
                   } catch (_) {}
 

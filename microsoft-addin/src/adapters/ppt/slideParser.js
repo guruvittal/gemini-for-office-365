@@ -155,7 +155,8 @@ export function extractSlideMetadataAndBullets(rawLines) {
       continue;
     }
 
-    if (/^`+$/.test(line) || line.startsWith("```") || line.startsWith("{") || line.startsWith("}") || line.startsWith('"') || line.startsWith("|") || /^{.*}$/.test(line)) {
+    // Ignore lines that are only backticks, markdown markers, quotes, or whitespace
+    if (/^[`'"*#_~>|\-\s•]+$/.test(line) || line.startsWith("```") || line.startsWith("{") || line.startsWith("}") || line.startsWith('"') || line.startsWith("|") || /^{.*}$/.test(line)) {
       continue;
     }
 
@@ -168,7 +169,13 @@ export function extractSlideMetadataAndBullets(rawLines) {
     let cleanBullet = line
       .replace(/^[-•*]\s*/, "")
       .replace(/^#{1,6}\s*/, "")
+      .replace(/^[`'"*#_~]+|[`'"*#_~]+$/g, "")
       .trim();
+
+    // Must contain substantive alphanumeric text
+    if (!/[a-zA-Z0-9]/.test(cleanBullet)) {
+      continue;
+    }
 
     // Check if it's a Subtitle or Takeaway after stripping bullet marker
     if (/^(?:Sub-?title|Subtitle\s*Text):\s*/i.test(cleanBullet) && !subtitle) {
@@ -1041,7 +1048,7 @@ export function parseSlides(htmlContent, rawText = "") {
   // -------------------------------------------------------------
   // Strategy 5: Raw Text Block Splitting
   // -------------------------------------------------------------
-  let splitRegex = /(?:^|\n)(?=(?:#{1,2}\s*Slide\s*\d+|Slide\s*\d+[:\-]|(?:\d+[\.\)]\s*(?:\*\*)?Slide\s*\d+)))/gi;
+  let splitRegex = /(?:^|\n)(?=(?:#{1,6}\s*(?:Slide\s*\d+|[^\n]+)|(?:Slide|SLIDE)\s*\d+(?:\s*[:\-–—]|\s*\n)|(?:\d+[\.\)]\s*(?:\*\*)?Slide\s*\d+)))/gi;
   if (!/(?:Slide\s*\d+|#+\s*Slide\s*\d+)/i.test(textContent)) {
     if ((textContent.match(/(?:^|\n)##\s+/g) || []).length >= 2) {
       splitRegex = /(?:^|\n)(?=##\s+)/g;
@@ -1054,8 +1061,10 @@ export function parseSlides(htmlContent, rawText = "") {
     .map(b => b.trim())
     .filter(b => {
       if (b.length < 5) return false;
+      // Skip preamble / presentation metadata cards if they precede Slide 1
+      if (/^(?:presentation\s+deck\s+ready|\d+\s+slides)/i.test(b) && !b.includes("Slide 1")) return false;
       // Skip conversational intro preambles like "Here is a comparison..." if they precede real headings
-      if (/^(?:here\s+is\s+|below\s+is\s+|sure|certainly|i've\s+prepared)/i.test(b) && !b.includes("\n#") && !b.includes("\n•")) {
+      if (/^(?:here\s+is\s+|below\s+is\s+|sure|certainly|i've\s+prepared)/i.test(b) && !b.includes("\n#") && !b.includes("\n•") && !b.includes("Slide 1")) {
         return false;
       }
       return true;
@@ -1066,7 +1075,15 @@ export function parseSlides(htmlContent, rawText = "") {
     blocks.forEach((block, idx) => {
       const lines = block.split("\n").map(l => l.trim()).filter(Boolean);
       if (lines.length > 0) {
-        const rawTitle = lines[0]
+        let titleLine = lines[0];
+        let contentStartIndex = 1;
+        // If line 0 is just "Slide X" (or "Slide X:" with nothing else), take line 1 as the title!
+        if (/^Slide\s*\d+[:\-–—]?$/i.test(lines[0]) && lines.length > 1) {
+          titleLine = lines[1];
+          contentStartIndex = 2;
+        }
+
+        const rawTitle = titleLine
           .replace(/^[#*\s:]+/, "")
           .replace(/^\d+\.\s*/, "")
           .replace(/^Slide\s*\d+[:\-]?\s*/i, "")
@@ -1074,8 +1091,8 @@ export function parseSlides(htmlContent, rawText = "") {
 
         const title = cleanSlideTitle(rawTitle, idx + 1);
         const blockMdTable = parseMarkdownTable(block);
-        const nonTableLines = lines.slice(1).filter(l => !l.startsWith("|") && !l.endsWith("|"));
-        const parsed = extractSlideMetadataAndBullets(lines.slice(1));
+        const nonTableLines = lines.slice(contentStartIndex).filter(l => !l.startsWith("|") && !l.endsWith("|"));
+        const parsed = extractSlideMetadataAndBullets(lines.slice(contentStartIndex));
         const parsedNonTable = extractSlideMetadataAndBullets(nonTableLines);
 
         let blockVisualType = null;
@@ -1216,7 +1233,7 @@ export function parseSlides(htmlContent, rawText = "") {
 
   if (lines.length > 0) {
     const candidateTitle = cleanSlideTitle(lines[0], 1);
-    if (candidateTitle && !isConversationalPreamble(lines[0])) {
+    if (candidateTitle && !isConversationalPreamble(lines[0]) && !/^[-•*]/.test(lines[0])) {
       singleTitle = candidateTitle;
       contentLines = lines.slice(1);
     } else {
@@ -1440,7 +1457,6 @@ export function isConversationalPreamble(line) {
   if (/^(?:i\s+(?:can|have|will|am\s+happy\s+to)|let\s+me|happy\s+to|glad\s+to|feel\s+free|here\s+(?:is|are)|below\s+(?:is|are)|sure|certainly|of\s+course|as\s+requested|optimized|revised|concise|punchy|in\s+summary|to\s+make)/i.test(l)) return true;
   if (l.includes("help you with that") || l.includes("image you requested") || l.includes("image of a") || l.includes("here is the image") || l.includes("created an image") || l.includes("generated an image")) return true;
   if (l.includes("optimized for a presentation") || l.includes("version optimized") || l.includes("concise and punchy version") || l.includes("minimalist layout") || l.includes("presentation slide")) return true;
-  if (/^[-•*]/.test(l)) return true; // Starts with bullet
   return false;
 }
 
