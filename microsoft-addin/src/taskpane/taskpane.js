@@ -354,6 +354,7 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
       container.innerHTML = `
         <button class="quick-chip" id="chipSummarize" style="background-color:#e0f2fe; color:#0369a1; border-color:#bae6fd;">📊 Summarize Slides</button>
         <button class="quick-chip" id="chipGenImage" style="background-color:#fdf2f8; color:#be185d; border-color:#fbcfe8; font-weight:600;">🎨 Create Image</button>
+        <button class="quick-chip" id="chipCreateChart" style="background-color:#f0fdf4; color:#15803d; border-color:#bbf7d0; font-weight:600;">📈 Create Chart</button>
         <button class="quick-chip" id="chipRisks" style="background-color:#fef3c7; color:#b45309; border-color:#fde68a;">⚠️ Key Risks</button>
         <button class="quick-chip" id="chipRewrite" style="background-color:#f3e8ff; color:#7e22ce; border-color:#e9d5ff;">🪄 Rewrite Slide</button>
         <button class="quick-chip" id="chipDocToDeck" style="background-color:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600;">📄 Doc to Deck</button>
@@ -367,6 +368,11 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
       const cGenImage = document.getElementById("chipGenImage");
       if (cGenImage) {
         cGenImage.onclick = () => handleCreateImageClick();
+      }
+
+      const cCreateChart = document.getElementById("chipCreateChart");
+      if (cCreateChart) {
+        cCreateChart.onclick = () => handleCreateChartClick();
       }
 
       const cRisks = document.getElementById("chipRisks");
@@ -399,6 +405,7 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
         <button class="quick-chip" id="chipDocToDeck" style="background-color:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600;">📄 Doc to Deck</button>
         <button class="quick-chip" id="chipSummarize" style="background-color:#e0f2fe; color:#0369a1; border-color:#bae6fd;">📊 Summarize Slides</button>
         <button class="quick-chip" id="chipGenImage" style="background-color:#fdf2f8; color:#be185d; border-color:#fbcfe8; font-weight:600;">🎨 Create Image</button>
+        <button class="quick-chip" id="chipCreateChart" style="background-color:#f0fdf4; color:#15803d; border-color:#bbf7d0; font-weight:600;">📈 Create Chart</button>
       `;
 
       const cDocToDeck = document.getElementById("chipDocToDeck");
@@ -415,6 +422,11 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
       const cGenImage = document.getElementById("chipGenImage");
       if (cGenImage) {
         cGenImage.onclick = () => handleCreateImageClick();
+      }
+
+      const cCreateChart = document.getElementById("chipCreateChart");
+      if (cCreateChart) {
+        cCreateChart.onclick = () => handleCreateChartClick();
       }
     }
   } else if (hostName === "Excel") {
@@ -661,27 +673,20 @@ async function runSelectionPrompt(instruction) {
 async function handleCreateImageClick() {
   const loadingText = document.getElementById("loading");
   if (loadingText) {
-    loadingText.innerText = "⚡ Checking slide selection...";
+    loadingText.innerText = "⚡ Checking selection...";
     loadingText.style.display = "block";
   }
 
-  let selectedContext = "";
-  let selectionLabel = "";
+  let selectedText = "";
+  let slideCount = 0;
 
   try {
     if (hostAdapter && typeof hostAdapter.getSelectedText === "function") {
-      selectedContext = await hostAdapter.getSelectedText();
+      selectedText = (await hostAdapter.getSelectedText())?.trim() || "";
     }
-
-    if (selectedContext && selectedContext.trim().length > 0) {
-      selectedContext = selectedContext.trim();
-      selectionLabel = "selected content";
-    } else if (hostAdapter && typeof hostAdapter.getSelectedSlidesText === "function") {
+    if (hostAdapter && typeof hostAdapter.getSelectedSlidesText === "function") {
       const slides = await hostAdapter.getSelectedSlidesText();
-      if (slides && slides.length > 0) {
-        selectionLabel = slides.length === 1 ? `Slide ${slides[0].slideNumber || 1}` : `${slides.length} selected slides`;
-        selectedContext = slides.map(s => `[Slide ${s.slideNumber || 1}]:\n${s.text}`).join("\n\n---\n\n");
-      }
+      if (slides) slideCount = slides.length;
     }
   } catch (err) {
     console.warn("Could not read selection for image generation:", err);
@@ -689,17 +694,47 @@ async function handleCreateImageClick() {
     if (loadingText) loadingText.style.display = "none";
   }
 
-  if (selectedContext && selectedContext.length > 0) {
-    const prompt = `Create a high-quality, professional image visual illustration representing the following content from ${selectionLabel}:\n\n"""\n${selectedContext}\n"""\n\nGenerate an impactful, visually stunning illustration for this presentation topic.`;
-    const snippet = selectedContext.replace(/\s+/g, " ").trim().substring(0, 75);
-    const displayUserBubble = `🎨 Generate image for ${selectionLabel}:\n"${snippet}${selectedContext.length > 75 ? '...' : ''}"`;
+  // 1. If text is selected AND not multiple slides: generate image for that selected content
+  if (selectedText && selectedText.length > 0 && slideCount <= 1) {
+    const prompt = `Create a high-quality, professional image visual illustration representing the following selected content:\n\n"""\n${selectedText}\n"""\n\nGenerate an impactful, visually stunning illustration for this presentation topic.`;
+    const snippet = selectedText.replace(/\s+/g, " ").trim().substring(0, 75);
+    const displayUserBubble = `🎨 Generate image for selected text:\n"${snippet}${selectedText.length > 75 ? '...' : ''}"`;
     await executeGeminiWorkflow(prompt, displayUserBubble);
-  } else {
-    appendBubble(
-      "🎨 **Create Image**: No slide or text was selected.\n\nWhat would you like an image of? Type a description below or select text/slides in PowerPoint and click **Create Image** again.",
-      "assistant"
-    );
-    const promptInput = document.getElementById("prompt");
+    return;
+  }
+
+  // 2. If selected content is blank/null OR multiple slides are selected: ask the user what the image should be created for
+  const reasonText = slideCount > 1
+    ? `${slideCount} slides are currently selected.`
+    : `No specific text is currently selected.`;
+
+  const html = `
+    <div>
+      <div style="font-weight:600; color:#be185d; margin-bottom:4px;">🎨 Create Image</div>
+      <div style="font-size:12px; margin-bottom:6px;">${reasonText} What should the image be created for?</div>
+      <div style="font-size:11px; color:#605e5c; margin-bottom:8px;">Choose a suggested concept below or describe what you want in the input box:</div>
+      <div style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:4px;">
+        <button class="quick-chip img-opt-btn" style="cursor:pointer; background:#fdf2f8; color:#be185d; border-color:#fbcfe8;">🏬 Retail Storefront</button>
+        <button class="quick-chip img-opt-btn" style="cursor:pointer; background:#fdf2f8; color:#be185d; border-color:#fbcfe8;">📦 Supply Chain Logistics</button>
+        <button class="quick-chip img-opt-btn" style="cursor:pointer; background:#fdf2f8; color:#be185d; border-color:#fbcfe8;">👥 Executive Strategy Team</button>
+        <button class="quick-chip img-opt-btn" style="cursor:pointer; background:#fdf2f8; color:#be185d; border-color:#fbcfe8;">🌱 Corporate Sustainability</button>
+      </div>
+    </div>
+  `;
+
+  appendInteractiveBubble(html, (bubble) => {
+    const optButtons = bubble.querySelectorAll(".img-opt-btn");
+    optButtons.forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const concept = btn.innerText.replace(/^[^\w]+/, "").trim();
+        optButtons.forEach((b) => (b.disabled = true));
+        const prompt = `Create a high-quality, professional image visual illustration of: ${concept}. Generate an impactful, visually stunning illustration for a PowerPoint presentation.`;
+        const displayBubble = `🎨 Generate image: "${concept}"`;
+        await executeGeminiWorkflow(prompt, displayBubble);
+      });
+    });
+
+    const promptInput = document.getElementById("promptText");
     if (promptInput) {
       promptInput.value = "Create an image of ";
       promptInput.focus();
@@ -707,7 +742,179 @@ async function handleCreateImageClick() {
         promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
       }
     }
+  });
+}
+
+// Dedicated Chart Creation Action from Selection or User Guidance
+async function handleCreateChartClick() {
+  const loadingText = document.getElementById("loading");
+  if (loadingText) {
+    loadingText.innerText = "⚡ Checking selection for chart...";
+    loadingText.style.display = "block";
   }
+
+  let selectedText = "";
+  let slideCount = 0;
+
+  try {
+    if (hostAdapter && typeof hostAdapter.getSelectedText === "function") {
+      selectedText = (await hostAdapter.getSelectedText())?.trim() || "";
+    }
+    if (hostAdapter && typeof hostAdapter.getSelectedSlidesText === "function") {
+      const slides = await hostAdapter.getSelectedSlidesText();
+      if (slides) slideCount = slides.length;
+    }
+  } catch (err) {
+    console.warn("Could not read selection for chart:", err);
+  } finally {
+    if (loadingText) loadingText.style.display = "none";
+  }
+
+  // Case 1: Specific text IS selected (and not multiple slides)
+  // Requirement: "If the text is selected, ask the user what type of chart and pass both to streamassist"
+  if (selectedText && selectedText.length > 0 && slideCount <= 1) {
+    const preview = selectedText.replace(/\s+/g, " ").trim().substring(0, 80);
+    const html = `
+      <div>
+        <div style="font-weight:600; color:#15803d; margin-bottom:4px;">📈 Create Chart for Selected Content</div>
+        <div style="font-size:11.5px; color:#605e5c; margin-bottom:8px; font-style:italic;">"${preview}${selectedText.length > 80 ? '...' : ''}"</div>
+        <div style="font-size:12px; margin-bottom:8px;">What type of chart would you like to create?</div>
+        <div style="display:flex; flex-wrap:wrap; gap:6px;">
+          <button class="quick-chip chart-opt-btn" data-type="doughnut" style="background:#eff6fc; color:#0369a1; border-color:#bae6fd; font-weight:600; cursor:pointer;">🍩 Doughnut / Pie</button>
+          <button class="quick-chip chart-opt-btn" data-type="bar" style="background:#f0fdf4; color:#15803d; border-color:#bbf7d0; font-weight:600; cursor:pointer;">📊 Bar Chart</button>
+          <button class="quick-chip chart-opt-btn" data-type="column" style="background:#fef3c7; color:#b45309; border-color:#fde68a; font-weight:600; cursor:pointer;">📶 Column Chart</button>
+          <button class="quick-chip chart-opt-btn" data-type="line" style="background:#f3e8ff; color:#7e22ce; border-color:#e9d5ff; font-weight:600; cursor:pointer;">📈 Line Chart</button>
+        </div>
+      </div>
+    `;
+
+    appendInteractiveBubble(html, (bubble) => {
+      const buttons = bubble.querySelectorAll(".chart-opt-btn");
+      buttons.forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const chartType = btn.getAttribute("data-type") || "bar";
+          buttons.forEach((b) => (b.disabled = true));
+          btn.style.borderColor = "#15803d";
+          btn.style.backgroundColor = "#dcfce7";
+
+          const prompt = `Create a high-resolution ${chartType} chart for PowerPoint visualizing the following selected data and context:
+"""
+${selectedText}
+"""
+
+Requirements:
+1. Output a structured JSON code block with the exact chart specification:
+\`\`\`json
+{
+  "chartType": "${chartType}",
+  "title": "<High-Impact Chart Title>",
+  "data": [
+    { "label": "<Category/Metric>", "value": <NumericValue> }
+  ]
+}
+\`\`\`
+2. Include 2 concise, executive takeaway bullet points analyzing the data under the chart.`;
+
+          const displayBubble = `📈 [Create Chart] Generating ${chartType} chart from selected text...`;
+          await executeGeminiWorkflow(prompt, displayBubble);
+        });
+      });
+    });
+    return;
+  }
+
+  // Case 2: No text is selected OR multiple slides are selected
+  // Requirement: "If no text is selected or multiple slides selected, ask the user what type of chart (you can provide some options) and also ask about what."
+  const notice = slideCount > 1
+    ? `${slideCount} slides are currently selected.`
+    : `No specific text is currently selected.`;
+
+  const html = `
+    <div>
+      <div style="font-weight:600; color:#15803d; margin-bottom:4px;">📈 Create Chart</div>
+      <div style="font-size:11.5px; color:#605e5c; margin-bottom:8px;">${notice} What type of chart would you like to create, and what data or topic should it visualize?</div>
+      
+      <div style="font-weight:600; font-size:11.5px; margin-bottom:4px; color:#323130;">1. Select Chart Type:</div>
+      <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
+        <button class="quick-chip chart-type-btn" data-type="doughnut" style="background:#eff6fc; color:#0369a1; border-color:#bae6fd; font-weight:600; cursor:pointer;">🍩 Doughnut / Pie</button>
+        <button class="quick-chip chart-type-btn" data-type="bar" style="background:#f0fdf4; color:#15803d; border-color:#bbf7d0; font-weight:600; cursor:pointer;">📊 Bar Chart</button>
+        <button class="quick-chip chart-type-btn" data-type="column" style="background:#fef3c7; color:#b45309; border-color:#fde68a; font-weight:600; cursor:pointer;">📶 Column Chart</button>
+        <button class="quick-chip chart-type-btn" data-type="line" style="background:#f3e8ff; color:#7e22ce; border-color:#e9d5ff; font-weight:600; cursor:pointer;">📈 Line Chart</button>
+      </div>
+
+      <div style="font-weight:600; font-size:11.5px; margin-bottom:4px; color:#323130;">2. What should it visualize?</div>
+      <div style="font-size:11px; color:#605e5c; margin-bottom:6px;">Choose a topic below or type your custom topic in the input box:</div>
+      <div style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:4px;">
+        <button class="quick-chip chart-topic-btn" style="cursor:pointer;">🛒 Retail Market Share</button>
+        <button class="quick-chip chart-topic-btn" style="cursor:pointer;">💰 Quarterly Revenue Growth</button>
+        <button class="quick-chip chart-topic-btn" style="cursor:pointer;">📉 Expense & Cost Breakdown</button>
+        <button class="quick-chip chart-topic-btn" style="cursor:pointer;">⚡ Regional Performance</button>
+      </div>
+    </div>
+  `;
+
+  appendInteractiveBubble(html, (bubble) => {
+    let currentType = "bar";
+    const typeButtons = bubble.querySelectorAll(".chart-type-btn");
+    const topicButtons = bubble.querySelectorAll(".chart-topic-btn");
+
+    typeButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        currentType = btn.getAttribute("data-type") || "bar";
+        typeButtons.forEach((b) => {
+          b.style.borderColor = "";
+          b.style.fontWeight = "600";
+          b.style.backgroundColor = "";
+        });
+        btn.style.borderColor = "#15803d";
+        btn.style.backgroundColor = "#dcfce7";
+
+        const promptInput = document.getElementById("promptText");
+        if (promptInput) {
+          promptInput.value = `Create a ${currentType} chart of `;
+          promptInput.focus();
+          if (promptInput.setSelectionRange) {
+            promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
+          }
+        }
+      });
+    });
+
+    topicButtons.forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const topic = btn.innerText.replace(/^[^\w]+/, "").trim();
+        typeButtons.forEach((b) => (b.disabled = true));
+        topicButtons.forEach((b) => (b.disabled = true));
+
+        const prompt = `Create a high-resolution ${currentType} chart for PowerPoint visualizing: ${topic}.
+
+Requirements:
+1. Output a structured JSON code block with the exact chart specification:
+\`\`\`json
+{
+  "chartType": "${currentType}",
+  "title": "${topic}",
+  "data": [
+    { "label": "<Category>", "value": <NumericValue> }
+  ]
+}
+\`\`\`
+2. Include 2 concise, executive takeaway bullet points analyzing the data under the chart.`;
+
+        const displayBubble = `📈 [Create Chart] Generating ${currentType} chart for "${topic}"...`;
+        await executeGeminiWorkflow(prompt, displayBubble);
+      });
+    });
+
+    const promptInput = document.getElementById("promptText");
+    if (promptInput) {
+      promptInput.value = `Create a ${currentType} chart of `;
+      promptInput.focus();
+      if (promptInput.setSelectionRange) {
+        promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
+      }
+    }
+  });
 }
 
 async function runDocIntelligencePrompt(instruction) {
@@ -824,6 +1031,25 @@ async function callGeminiProxy(customPrompt = null) {
   if (!userText && !selectedText) {
     appendBubble(`Please type a prompt or select content in ${hostAdapter.name} first.`, "system");
     return;
+  }
+
+  // Intercept generic Image or Chart requests in PowerPoint to prompt user interactively
+  if (userText && hostAdapter.name === "PowerPoint") {
+    const trimmedLower = userText.trim().toLowerCase();
+    const isGenericImage = /^(?:please\s+)?(?:generate|create|make|insert|add)\s+(?:an?\s+)?image\s*\.?$/i.test(trimmedLower);
+    const isGenericChart = /^(?:please\s+)?(?:generate|create|make|insert|add)\s+(?:an?\s+)?(?:chart|graph|plot)\s*\.?$/i.test(trimmedLower);
+
+    if (isGenericImage) {
+      if (promptInput) promptInput.value = "";
+      await handleCreateImageClick();
+      return;
+    }
+
+    if (isGenericChart) {
+      if (promptInput) promptInput.value = "";
+      await handleCreateChartClick();
+      return;
+    }
   }
 
   let fullPrompt = "";
@@ -995,6 +1221,20 @@ function appendBubble(text, type) {
   bubble.innerText = text;
   historyDiv.appendChild(bubble);
   historyDiv.scrollTop = historyDiv.scrollHeight;
+}
+
+function appendInteractiveBubble(htmlContent, onMountCallback = null) {
+  const historyDiv = document.getElementById("chatHistory");
+  if (!historyDiv) return null;
+  const bubble = document.createElement("div");
+  bubble.className = "chat-bubble assistant";
+  bubble.innerHTML = htmlContent;
+  historyDiv.appendChild(bubble);
+  if (typeof onMountCallback === "function") {
+    onMountCallback(bubble);
+  }
+  historyDiv.scrollTop = historyDiv.scrollHeight;
+  return bubble;
 }
 
 function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
