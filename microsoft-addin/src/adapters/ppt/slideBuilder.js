@@ -199,6 +199,57 @@ function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90) {
 }
 
 /**
+ * Parses markdown bold and bullet markers from text, returning cleanText and bold character ranges.
+ */
+export function parseMarkdownFormatting(rawContent) {
+  if (!rawContent) return { cleanText: "", parsedParagraphs: [] };
+
+  const lines = String(rawContent).split(/\r?\n/);
+  const cleanLines = [];
+  const parsedParagraphs = [];
+
+  for (const rawLine of lines) {
+    if (!rawLine.trim()) {
+      cleanLines.push("");
+      parsedParagraphs.push({ cleanText: "", boldRanges: [] });
+      continue;
+    }
+
+    let cleanText = "";
+    const boldRanges = [];
+
+    // Match **bold**, __bold__, or text
+    const mdRegex = /(\*\*(.*?)\*\*|__([^_]+)__|[^*_]+|[*_])/g;
+    let match;
+    while ((match = mdRegex.exec(rawLine)) !== null) {
+      if (match[2] !== undefined) {
+        // **bold**
+        const boldText = match[2];
+        const start = cleanText.length;
+        cleanText += boldText;
+        boldRanges.push({ start, length: boldText.length });
+      } else if (match[3] !== undefined) {
+        // __bold__
+        const boldText = match[3];
+        const start = cleanText.length;
+        cleanText += boldText;
+        boldRanges.push({ start, length: boldText.length });
+      } else if (match[0]) {
+        cleanText += match[0];
+      }
+    }
+
+    cleanLines.push(cleanText);
+    parsedParagraphs.push({ cleanText, boldRanges });
+  }
+
+  return {
+    cleanText: cleanLines.join("\n"),
+    parsedParagraphs
+  };
+}
+
+/**
  * Creates a single slide in PowerPoint with title, body bullets, native table, or optional images.
  */
 async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
@@ -280,8 +331,8 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
       // Table slide: render ONLY the table! No overlapping bullets or takeaway boxes.
       populateSlideTable(newSlide, tableData, slideNum, contentTop);
     } else {
-      // Standard clean body bullets
-      const cleanBullets = bodyTextContent.replace(/\*\*/g, "").replace(/__/g, "");
+      // Standard clean body bullets with markdown formatting
+      const { cleanText: cleanBullets, parsedParagraphs } = parseMarkdownFormatting(bodyTextContent);
       const bodyBox = newSlide.shapes.addTextBox(cleanBullets, {
         left: 50,
         top: contentTop,
@@ -290,6 +341,30 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
       });
       bodyBox.textFrame.textRange.font.size = 18;
       bodyBox.textFrame.wordWrap = true;
+
+      // Apply bold styling to lead-in phrases
+      if (parsedParagraphs && parsedParagraphs.some(p => p.boldRanges && p.boldRanges.length > 0)) {
+        try {
+          const paras = bodyBox.textFrame.textRange.paragraphs;
+          paras.load("items/text");
+          await context.sync();
+          if (paras.items) {
+            for (let pIdx = 0; pIdx < paras.items.length && pIdx < parsedParagraphs.length; pIdx++) {
+              const pItem = paras.items[pIdx];
+              const pData = parsedParagraphs[pIdx];
+              const pLen = (pItem.text || "").length;
+              for (const b of (pData.boldRanges || [])) {
+                if (b.start >= 0 && b.length > 0 && (b.start + b.length) <= pLen) {
+                  try {
+                    const sub = pItem.getSubstring(b.start, b.length);
+                    sub.font.bold = true;
+                  } catch (_) {}
+                }
+              }
+            }
+          }
+        } catch (_) {}
+      }
 
       // Add Image if available (only on non-table slides)
       if (hasImages) {
@@ -315,6 +390,109 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
     // 6. Commit all shapes in single batch
     await context.sync();
     logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}${hasTable ? 'Native Table' : 'Bullets'}.`);
+  });
+}
+
+/**
+ * Inserts content (image, visual, table, or text) directly onto the user's currently active slide.
+ */
+export async function insertOnCurrentSlide(slideStructures, options = {}) {
+  if (typeof PowerPoint === "undefined" || !PowerPoint.run) {
+    throw new Error("PowerPoint Office.js runtime is not available.");
+  }
+
+  if (!slideStructures || slideStructures.length === 0) {
+    throw new Error("No slide structures found to insert.");
+  }
+
+  logToPPTConsole(`=== Starting Insert on Current Slide ===`);
+
+  // 1. Pre-process and compress images
+  for (const slide of slideStructures) {
+    slide.compressedImages = [];
+    const rawImages = slide.base64Images || [];
+    for (const rawImg of rawImages) {
+      try {
+        const comp = await compressImageForPowerPoint(rawImg);
+        if (comp && comp.length > 50) {
+          slide.compressedImages.push(comp);
+        }
+      } catch (cErr) {
+        logToPPTConsole(`Image compression notice: ${cErr.message}`);
+      }
+    }
+  }
+
+  // 2. Identify active slide and insert
+  await PowerPoint.run(async (context) => {
+    let activeSlide = null;
+    try {
+      if (context.presentation.getSelectedSlides) {
+        const selected = context.presentation.getSelectedSlides();
+        selected.load("items");
+        await context.sync();
+        if (selected.items && selected.items.length > 0) {
+          activeSlide = selected.items[0];
+        }
+      }
+    } catch (_) {}
+
+    if (!activeSlide) {
+      const slides = context.presentation.slides;
+      slides.load("items");
+      await context.sync();
+      if (slides.items && slides.items.length > 0) {
+        activeSlide = slides.items[0];
+      }
+    }
+
+    if (!activeSlide) {
+      throw new Error("No slide available in presentation to insert content onto.");
+    }
+
+    const slideData = slideStructures[0];
+    const imagesToInsert = (slideData.compressedImages && slideData.compressedImages.length > 0)
+      ? slideData.compressedImages
+      : (slideData.base64Images || []);
+    const hasImages = imagesToInsert.length > 0;
+    const tableData = slideData.tableData || null;
+    const hasTable = Boolean(tableData && tableData.rows && tableData.rows.length > 0);
+
+    // 1. If images are present, insert them centered or in side layout
+    if (hasImages) {
+      for (const rawImg of imagesToInsert) {
+        const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
+        if (clean.length > 50) {
+          activeSlide.shapes.addImage(clean, {
+            left: 200,
+            top: 70,
+            width: 560,
+            height: 380
+          });
+          logToPPTConsole(`Inserted image onto current slide.`);
+        }
+      }
+    } else if (hasTable) {
+      // 2. If table is present, insert table
+      populateSlideTable(activeSlide, tableData, 1, 90);
+      logToPPTConsole(`Inserted table onto current slide.`);
+    } else {
+      // 3. Otherwise insert text box
+      const bodyTextContent = slideData.body || "• Executive slide content";
+      const { cleanText: cleanBullets } = parseMarkdownFormatting(bodyTextContent);
+      const bodyBox = activeSlide.shapes.addTextBox(cleanBullets, {
+        left: 50,
+        top: 90,
+        width: 860,
+        height: 360
+      });
+      bodyBox.textFrame.textRange.font.size = 18;
+      bodyBox.textFrame.wordWrap = true;
+      logToPPTConsole(`Inserted text box onto current slide.`);
+    }
+
+    await context.sync();
+    logToPPTConsole(`🎉 Successfully inserted content onto current slide!`);
   });
 }
 

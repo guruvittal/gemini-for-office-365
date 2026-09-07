@@ -357,6 +357,7 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
       container.innerHTML = `
         <button class="quick-chip" id="chipSummarize" style="background-color:#e0f2fe; color:#0369a1; border-color:#bae6fd;">📊 Summarize Slides</button>
         <button class="quick-chip" id="chipExecVisual" style="background-color:#ecfdf5; color:#047857; border-color:#a7f3d0; font-weight:600;">✨ Insert Executive Visual</button>
+        <button class="quick-chip" id="chipGenImage" style="background-color:#fdf2f8; color:#be185d; border-color:#fbcfe8; font-weight:600;">🎨 Create Image</button>
         <button class="quick-chip" id="chipRisks" style="background-color:#fef3c7; color:#b45309; border-color:#fde68a;">⚠️ Key Risks</button>
         <button class="quick-chip" id="chipRewrite" style="background-color:#f3e8ff; color:#7e22ce; border-color:#e9d5ff;">🪄 Rewrite Slide</button>
         <button class="quick-chip" id="chipDocToDeck" style="background-color:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600;">📄 Doc to Deck</button>
@@ -369,6 +370,13 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
 
       const cExecVisual = document.getElementById("chipExecVisual");
       if (cExecVisual) cExecVisual.onclick = () => openExecutiveVisualModal();
+
+      const cGenImage = document.getElementById("chipGenImage");
+      if (cGenImage) {
+        cGenImage.onclick = () => {
+          runSelectionPrompt("Generate a professional high-quality corporate visual image illustration representing this content.");
+        };
+      }
 
       const cRisks = document.getElementById("chipRisks");
       if (cRisks) cRisks.onclick = () => runPowerPointSlideAction("risks");
@@ -400,6 +408,7 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
         <button class="quick-chip" id="chipDocToDeck" style="background-color:#eef2ff; color:#4338ca; border-color:#c7d2fe; font-weight:600;">📄 Doc to Deck</button>
         <button class="quick-chip" id="chipExecVisual" style="background-color:#ecfdf5; color:#047857; border-color:#a7f3d0; font-weight:600;">✨ Insert Executive Visual</button>
         <button class="quick-chip" id="chipSummarize" style="background-color:#e0f2fe; color:#0369a1; border-color:#bae6fd;">📊 Summarize Slides</button>
+        <button class="quick-chip" id="chipGenImage" style="background-color:#fdf2f8; color:#be185d; border-color:#fbcfe8; font-weight:600;">🎨 Create Image</button>
       `;
 
       const cDocToDeck = document.getElementById("chipDocToDeck");
@@ -415,6 +424,17 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
 
       const cSum = document.getElementById("chipSummarize");
       if (cSum) cSum.onclick = () => runPowerPointSlideAction("takeaways");
+
+      const cGenImage = document.getElementById("chipGenImage");
+      if (cGenImage) {
+        cGenImage.onclick = () => {
+          const promptInput = document.getElementById("prompt");
+          if (promptInput) {
+            promptInput.value = "Create an image of ";
+            promptInput.focus();
+          }
+        };
+      }
     }
   } else if (hostName === "Excel") {
     if (isSelected) {
@@ -1115,16 +1135,28 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
     await performDocumentInsertion(textDiv.innerHTML, text, "replace_draft");
   };
 
-  // 2. Insert as New Slide Button
+  // 2. Insert on Current Slide Button (PowerPoint only)
+  let insertCurrentBtn = null;
+  if (isPPT) {
+    insertCurrentBtn = document.createElement("button");
+    insertCurrentBtn.className = "action-btn insert-current";
+    insertCurrentBtn.innerHTML = `📌 Insert on Current Slide`;
+    insertCurrentBtn.title = "Insert generated content or image directly onto the currently active slide";
+    insertCurrentBtn.onclick = async () => {
+      await performDocumentInsertion(textDiv.innerHTML, text, "insert_current_slide");
+    };
+  }
+
+  // 3. Insert as New Slide(s) Button
   const insertBtn = document.createElement("button");
   insertBtn.className = "action-btn insert";
-  insertBtn.innerHTML = isPPT ? `➕ Insert into Slides` : (isExcel ? `➕ Insert into Sheet` : `➕ Insert at Cursor`);
-  insertBtn.title = isPPT ? "Create new presentation slides" : "Insert at current cursor location";
+  insertBtn.innerHTML = isPPT ? `➕ Insert as New Slide(s)` : (isExcel ? `➕ Insert into Sheet` : `➕ Insert at Cursor`);
+  insertBtn.title = isPPT ? "Create new presentation slides at the end of the deck" : "Insert at current cursor location";
   insertBtn.onclick = async () => {
     await performDocumentInsertion(textDiv.innerHTML, text, "insert_cursor");
   };
 
-  // 3. Copy Button
+  // 4. Copy Button
   const copyBtn = document.createElement("button");
   copyBtn.className = "action-btn copy";
   copyBtn.innerHTML = `📋 Copy`;
@@ -1140,6 +1172,7 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
   };
 
   primaryActions.appendChild(replaceBtn);
+  if (insertCurrentBtn) primaryActions.appendChild(insertCurrentBtn);
   primaryActions.appendChild(insertBtn);
   primaryActions.appendChild(copyBtn);
   actionsContainer.appendChild(primaryActions);
@@ -1193,6 +1226,8 @@ async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {
     if (hostAdapter?.name === 'PowerPoint') {
       if (mode === 'replace_draft') {
         msg = "⚡ Replacing slide content...";
+      } else if (mode === 'insert_current_slide') {
+        msg = "⚡ Inserting onto current slide...";
       } else {
         msg = "⚡ Creating PowerPoint slides...";
       }
@@ -1205,7 +1240,7 @@ async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {
     const isPPT = hostAdapter?.name === "PowerPoint";
     if (isPPT) {
       await hostAdapter.insertContent(htmlContent, rawText, {
-        mode: mode === "replace_draft" ? "replace" : "insert"
+        mode: mode === "replace_draft" ? "replace" : (mode === "insert_current_slide" ? "insert_current" : "insert")
       });
     } else {
       await hostAdapter.insertContent(htmlContent, mode);
@@ -1213,7 +1248,7 @@ async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {
     const debugStatus = document.getElementById("debugStatus");
     if (debugStatus) {
       const host = hostAdapter?.name || 'Office';
-      let actionLabel = mode === 'replace_draft' ? 'Replaced' : 'Inserted';
+      let actionLabel = mode === 'replace_draft' ? 'Replaced' : (mode === 'insert_current_slide' ? 'Inserted on Slide' : 'Inserted');
       debugStatus.innerText = `Updated in ${host} (${actionLabel})`;
     }
   } catch (err) {

@@ -59,6 +59,16 @@ Supported chartType values: "pie", "doughnut", "bar", "column", "line". Use exac
     return `${userPrompt}\n\n${rules}`;
   }
 
+  // Rule set for image generation
+  if (lowerPrompt.includes("image") || lowerPrompt.includes("picture") || lowerPrompt.includes("illustration") || lowerPrompt.includes("drawing") || lowerPrompt.includes("visual art")) {
+    const rules = `
+CRITICAL INSTRUCTIONS FOR IMAGE GENERATION:
+1. Generate a professional high-quality corporate visual image illustration representing this concept.
+2. DO NOT output conversational preamble, pleasantries, or conclusions.
+`;
+    return `${userPrompt}\n\n${rules}`;
+  }
+
   // Rule set for Executive Summary (strictly 1 slide only)
   if (lowerPrompt.includes("summarize") || lowerPrompt.includes("executive summary") || lowerPrompt.includes("slide summary") || lowerPrompt.includes("key takeaway")) {
     const rules = `
