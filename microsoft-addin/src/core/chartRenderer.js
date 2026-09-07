@@ -580,8 +580,14 @@ export function renderChartHtml(text) {
   if (dataUri) {
     const chartTitle = spec.title || 'Generated Chart';
     const alt = spec.title ? `${spec.title} (${spec.chartType} chart)` : 'Generated Chart';
-    return `<div class="rendered-chart-container" data-chart-title="${escapeHtmlAttr(chartTitle)}" style="margin:18px 0; text-align:center;">
-      <img src="${dataUri}" alt="${alt}" style="max-width:100%; border-radius:8px; border:1px solid #d2e3fc; box-shadow:0 3px 12px rgba(0,0,0,0.07);" />
+    return `<div class="rendered-chart-container office-visual-image-card" data-chart-title="${escapeHtmlAttr(chartTitle)}" style="margin:18px 0; text-align:center; background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:10px; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="position:relative; display:inline-block; max-width:100%;">
+        <img src="${dataUri}" alt="${alt}" class="office-preview-img" style="max-width:100%; border-radius:6px; display:block; cursor:pointer;" title="Click to zoom / review chart" />
+        <button type="button" class="img-zoom-btn" title="Zoom and review chart" style="position:absolute; bottom:8px; right:8px; background:rgba(15,23,42,0.85); color:#ffffff; border:none; border-radius:4px; padding:5px 9px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px; backdrop-filter:blur(4px); box-shadow:0 2px 4px rgba(0,0,0,0.3); z-index:10;">🔍 Zoom</button>
+      </div>
+      <div style="margin-top:8px; display:flex; justify-content:center; gap:6px;">
+        <button type="button" class="img-action-btn-zoom" style="background:#0078d4; color:#ffffff; border:none; border-radius:4px; padding:5px 12px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">🔍 Zoom & Review</button>
+      </div>
     </div>`;
   }
 

@@ -74,16 +74,18 @@ Office.onReady(async (info) => {
   const chatHistoryDiv = document.getElementById("chatHistory");
   if (chatHistoryDiv) {
     chatHistoryDiv.addEventListener("click", (e) => {
-      const zoomBtn = e.target.closest(".img-zoom-btn, .img-action-btn-zoom");
-      const imgEl = e.target.closest(".office-preview-img, .office-visual-image-card img, .office-visual-image-container img");
+      const zoomBtn = e.target.closest(".img-zoom-btn, .img-action-btn-zoom, .action-btn.zoom");
+      const clickedImg = e.target.tagName === "IMG" ? e.target : e.target.closest("img");
       if (zoomBtn) {
-        const card = zoomBtn.closest(".office-visual-image-card, .office-visual-image-container");
+        e.stopPropagation();
+        const card = zoomBtn.closest(".office-visual-image-card, .rendered-chart-container, .chat-bubble, div");
         const img = card ? card.querySelector("img") : null;
         if (img && img.src) {
           openImageZoomModal(img.src, img.alt);
         }
-      } else if (imgEl && imgEl.src) {
-        openImageZoomModal(imgEl.src, imgEl.alt);
+      } else if (clickedImg && clickedImg.src) {
+        e.stopPropagation();
+        openImageZoomModal(clickedImg.src, clickedImg.alt);
       }
     });
   }
@@ -1481,6 +1483,60 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
   textDiv.innerHTML = formattedHtml;
   bubble.appendChild(textDiv);
 
+  // DOM SWEEP: Ensure EVERY <img> element in the assistant response has zoom controls and click-to-zoom
+  const renderedImages = textDiv.querySelectorAll("img");
+  renderedImages.forEach((img) => {
+    img.classList.add("office-preview-img");
+    img.style.cursor = "pointer";
+    img.title = "Click to zoom / review image";
+
+    // Direct click on the image itself ALWAYS opens zoom modal
+    img.onclick = (e) => {
+      e.stopPropagation();
+      openImageZoomModal(img.src, img.alt);
+    };
+
+    // If img parent doesn't have an overlay zoom button:
+    const parentContainer = img.parentElement;
+    if (parentContainer && !parentContainer.querySelector(".img-zoom-btn")) {
+      if (getComputedStyle(parentContainer).position === "static") {
+        parentContainer.style.position = "relative";
+      }
+      const zoomOverlay = document.createElement("button");
+      zoomOverlay.type = "button";
+      zoomOverlay.className = "img-zoom-btn";
+      zoomOverlay.title = "Zoom and review image";
+      zoomOverlay.innerHTML = "🔍 Zoom";
+      zoomOverlay.onclick = (e) => {
+        e.stopPropagation();
+        openImageZoomModal(img.src, img.alt);
+      };
+      parentContainer.appendChild(zoomOverlay);
+    }
+
+    // If there is no bottom "Zoom & Review" action button in the card or immediate container:
+    const card = img.closest(".office-visual-image-card, .rendered-chart-container, .chat-bubble");
+    if (card && !card.querySelector(".img-action-btn-zoom")) {
+      const zoomReviewBar = document.createElement("div");
+      zoomReviewBar.style.cssText = "margin:8px 0; display:flex; justify-content:center; gap:6px;";
+      const zoomReviewBtn = document.createElement("button");
+      zoomReviewBtn.type = "button";
+      zoomReviewBtn.className = "img-action-btn-zoom";
+      zoomReviewBtn.innerHTML = "🔍 Zoom & Review";
+      zoomReviewBtn.onclick = (e) => {
+        e.stopPropagation();
+        openImageZoomModal(img.src, img.alt);
+      };
+      zoomReviewBar.appendChild(zoomReviewBtn);
+
+      if (img.parentElement && img.parentElement.parentNode) {
+        img.parentElement.parentNode.insertBefore(zoomReviewBar, img.parentElement.nextSibling);
+      } else {
+        card.appendChild(zoomReviewBar);
+      }
+    }
+  });
+
   // Feature 2 & Multi-turn: Action Toolbar & Refinement Chips
   const actionsContainer = document.createElement("div");
   actionsContainer.className = "response-actions-container";
@@ -1539,10 +1595,26 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
     }
   };
 
+  // 5. Zoom Visual Button (if response contains any images)
+  let zoomToolbarBtn = null;
+  if (renderedImages && renderedImages.length > 0) {
+    zoomToolbarBtn = document.createElement("button");
+    zoomToolbarBtn.className = "action-btn zoom";
+    zoomToolbarBtn.innerHTML = `🔍 Zoom Visual`;
+    zoomToolbarBtn.title = "Enlarge and review generated visual before inserting";
+    zoomToolbarBtn.onclick = () => {
+      const firstImg = renderedImages[0];
+      if (firstImg) {
+        openImageZoomModal(firstImg.src, firstImg.alt);
+      }
+    };
+  }
+
   primaryActions.appendChild(replaceBtn);
   if (insertCurrentBtn) primaryActions.appendChild(insertCurrentBtn);
   primaryActions.appendChild(insertBtn);
   primaryActions.appendChild(copyBtn);
+  if (zoomToolbarBtn) primaryActions.appendChild(zoomToolbarBtn);
   actionsContainer.appendChild(primaryActions);
 
   // Refinement Chips: Quick 1-Click Multi-Turn Prompts

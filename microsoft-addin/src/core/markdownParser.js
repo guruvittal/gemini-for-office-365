@@ -120,20 +120,39 @@ export function parseMarkdown(text, options = {}) {
 
   // 2. Pre-extract existing HTML <img> or <div style="..."><img ...></div> blocks
   sanitized = sanitized.replace(/<div[^>]*>[\s\S]*?<img[^>]+>[\s\S]*?<\/div>/gi, (match) => {
+    if (match.includes("office-visual-image-card") || match.includes("img-zoom-btn")) {
+      const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
+      visualTokens.push(match);
+      return `\n\n${token}\n\n`;
+    }
     const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
-    visualTokens.push(match);
+    const wrapped = `<div class="office-visual-image-card" style="margin:14px 0; text-align:center; background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:10px; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="position:relative; display:inline-block; max-width:100%;">
+        ${match}
+        <button type="button" class="img-zoom-btn" title="Zoom and review image" style="position:absolute; bottom:8px; right:8px; background:rgba(15,23,42,0.85); color:#ffffff; border:none; border-radius:4px; padding:5px 9px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px; backdrop-filter:blur(4px); box-shadow:0 2px 4px rgba(0,0,0,0.3); z-index:10;">🔍 Zoom</button>
+      </div>
+      <div style="margin-top:8px; display:flex; justify-content:center; gap:6px;">
+        <button type="button" class="img-action-btn-zoom" style="background:#0078d4; color:#ffffff; border:none; border-radius:4px; padding:5px 12px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">🔍 Zoom & Review</button>
+      </div>
+    </div>`;
+    visualTokens.push(wrapped);
     return `\n\n${token}\n\n`;
   });
 
   sanitized = sanitized.replace(/<img[^>]+>/gi, (match) => {
+    const imgSrcMatch = match.match(/src=["']([^"']+)["']/i);
+    const src = imgSrcMatch ? imgSrcMatch[1] : "";
+    const altMatch = match.match(/alt=["']([^"']*)["']/i);
+    const alt = altMatch ? altMatch[1] : "Generated Visual";
+
     const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
-    const wrapped = `<div class="office-visual-image-card" style="margin:14px 0; text-align:center; background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:8px; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+    const wrapped = `<div class="office-visual-image-card" style="margin:14px 0; text-align:center; background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:10px; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
       <div style="position:relative; display:inline-block; max-width:100%;">
-        ${match}
-        <button type="button" class="img-zoom-btn" title="Zoom and review image" style="position:absolute; bottom:8px; right:8px; background:rgba(15,23,42,0.8); color:#ffffff; border:none; border-radius:4px; padding:4px 8px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px; backdrop-filter:blur(4px); box-shadow:0 2px 4px rgba(0,0,0,0.3);">🔍 Zoom</button>
+        <img src="${src}" alt="${alt}" class="office-preview-img" style="max-width:100%; max-height:260px; border-radius:6px; display:block; cursor:pointer;" title="Click to zoom / review image" />
+        <button type="button" class="img-zoom-btn" title="Zoom and review image" style="position:absolute; bottom:8px; right:8px; background:rgba(15,23,42,0.85); color:#ffffff; border:none; border-radius:4px; padding:5px 9px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px; backdrop-filter:blur(4px); box-shadow:0 2px 4px rgba(0,0,0,0.3); z-index:10;">🔍 Zoom</button>
       </div>
-      <div style="margin-top:6px; display:flex; justify-content:center; gap:6px;">
-        <button type="button" class="img-action-btn-zoom" style="background:#0078d4; color:#ffffff; border:none; border-radius:4px; padding:4px 10px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">🔍 Zoom & Review</button>
+      <div style="margin-top:8px; display:flex; justify-content:center; gap:6px;">
+        <button type="button" class="img-action-btn-zoom" style="background:#0078d4; color:#ffffff; border:none; border-radius:4px; padding:5px 12px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">🔍 Zoom & Review</button>
       </div>
     </div>`;
     visualTokens.push(wrapped);
