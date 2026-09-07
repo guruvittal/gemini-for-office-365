@@ -69,22 +69,24 @@ CRITICAL INSTRUCTIONS FOR IMAGE GENERATION:
     return `${userPrompt}\n\n${rules}`;
   }
 
-  // Rule set for Executive Summary (strictly 1 slide only)
+  // Rule set for Executive Summary (up to 2 dedicated slides: Slide 1 table, Slide 2 takeaways)
   if (lowerPrompt.includes("summarize") || lowerPrompt.includes("executive summary") || lowerPrompt.includes("slide summary") || lowerPrompt.includes("key takeaway")) {
     const rules = `
 CRITICAL INSTRUCTIONS FOR EXECUTIVE SUMMARY GENERATION:
-1. Provide EXACTLY ONE single slide. NEVER generate multiple slides or multiple '##' slide headings under any circumstances.
-2. Structure with exactly one slide title: "## 📊 Executive Slide Summary".
-3. STRICT CLOSED-BOOK GROUNDING CONTRACT:
+1. Provide a professional Executive Summary with consistent 2-slide structure if both a table and takeaway bullets exist:
+   - Slide 1: "## 📊 Executive Slide Summary" containing the high-level context and structured Markdown Table (| Metric / Focus Area | FY Progress Status | Target Benchmark |) summarizing key data directly from the slides.
+   - Slide 2: "## 📊 Executive Summary: Key Takeaways" containing the dedicated executive bullet points with bold lead-in phrases synthesizing the core findings.
+   - If there is a table, all bullet points after the table belong strictly on the second slide.
+2. STRICT CLOSED-BOOK GROUNDING CONTRACT:
    - You are operating in 100% STRICT CLOSED-BOOK MODE based SOLELY on the provided slide context.
    - You must synthesize information ONLY AND EXCLUSIVELY from the text and data present in the selected slides.
    - NEVER extrapolate, bring in external industry knowledge, or introduce topics, facts, or assumptions that do not appear in the selected slides.
    - If a concept, fact, or metric is not explicitly stated in the selected slides, DO NOT mention it.
-4. Visual Chart: If the summary contains quantitative breakdown, comparisons, or metrics directly stated in the slides, output a structured JSON code block with the exact data metrics (chartType: "doughnut", title: "...", data: [...]) so our client presentation engine can render a crisp, high-resolution chart.
-5. Content layout:
+3. Visual Chart: If the summary contains quantitative breakdown, comparisons, or metrics directly stated in the slides, output a structured JSON code block with the exact data metrics (chartType: "doughnut", title: "...", data: [...]) so our client presentation engine can render a crisp, high-resolution chart.
+4. Content layout:
    - If the slides contain structured comparisons or metrics, provide a clean Markdown Table (| Category | Metric | Share / Value |) summarizing data directly from the slides.
-   - Followed by 2 to 3 concise, high-impact executive takeaway bullets with bold lead-in phrases based solely on the slide content.
-6. DO NOT output conversational preamble, pleasantries, or additional slides.
+   - Place all executive takeaway bullets (2 to 4 concise bullets with bold lead-ins) under the second slide heading ("## 📊 Executive Summary: Key Takeaways").
+5. DO NOT output conversational preamble or pleasantries.
 `;
     return `${userPrompt}\n\n${rules}`;
   }

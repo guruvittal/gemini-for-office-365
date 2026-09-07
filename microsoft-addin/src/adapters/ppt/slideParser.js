@@ -21,15 +21,15 @@ export function filterDuplicateTableBullets(bullets, tableData) {
     return bullets;
   }
 
-  const tableKeywords = new Set();
+  const exactTableCells = new Set();
   (tableData.headers || []).forEach(h => {
     const norm = String(h).toLowerCase().trim();
-    if (norm.length > 2) tableKeywords.add(norm);
+    if (norm.length > 2) exactTableCells.add(norm);
   });
   tableData.rows.forEach(row => {
     row.forEach(cell => {
       const norm = String(cell).toLowerCase().trim();
-      if (norm.length > 2) tableKeywords.add(norm);
+      if (norm.length > 2) exactTableCells.add(norm);
     });
   });
 
@@ -37,16 +37,14 @@ export function filterDuplicateTableBullets(bullets, tableData) {
     const raw = String(b).trim();
     if (!raw) return false;
     // Remove if it has pipe separators (markdown table remnants or synthetic bullets)
-    if (raw.includes(" | ") || raw.includes("|")) return false;
-    // Remove if it has table field labels
-    if (/\b(?:Share\s*%|Status|Metric|Detail|Implication)\s*:/i.test(raw)) return false;
+    if (raw.includes(" | ") || raw.startsWith("|") || raw.endsWith("|")) return false;
+    // Remove if it is purely table formatting or dashes
+    if (/^[-—\s|:]+$/.test(raw)) return false;
 
-    // Remove if the bullet's core text heavily mirrors a table cell
+    // Remove only if the bullet is an exact verbatim duplicate of a table header or cell
     const cleanNorm = raw.toLowerCase().replace(/[*_`•\-–—]/g, "").trim();
-    for (const kw of tableKeywords) {
-      if (cleanNorm === kw || (kw.length > 8 && cleanNorm.includes(kw) && /\d+%|\d+\b/.test(cleanNorm))) {
-        return false;
-      }
+    if (exactTableCells.has(cleanNorm)) {
+      return false;
     }
     return true;
   });
@@ -383,6 +381,10 @@ function getSlideHeaderElements(tempDiv) {
 export function parseSlides(htmlContent, rawText = "", options = {}) {
   if (!htmlContent && !rawText) return [];
 
+  let highResChartSrc = "";
+  const rawDomImages = [];
+  let remainingText = "";
+
   const tempDiv = document.createElement("div");
   tempDiv.innerHTML = htmlContent || rawText;
 
@@ -390,13 +392,16 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
   const uiCallouts = tempDiv.querySelectorAll("button, .img-zoom-btn, .img-action-btn-zoom, .action-btn, [class*='zoom'], blockquote, .note, .ppt-deck-preview-container, .response-actions-container, [style*='background-color:#f0f6ff']");
   uiCallouts.forEach(n => n.remove());
 
+  remainingText = (tempDiv.innerText || tempDiv.textContent || "").replace(/🔍|Zoom|Review|Visual/gi, "").trim();
+
   // Extract all images upfront from HTML DOM, markdown images, and data URIs
   const highResChartEl = tempDiv.querySelector(".rendered-chart-container img");
-  const highResChartSrc = highResChartEl ? (highResChartEl.src || highResChartEl.getAttribute("src") || "") : "";
+  highResChartSrc = highResChartEl ? (highResChartEl.src || highResChartEl.getAttribute("src") || "") : "";
 
-  const rawDomImages = Array.from(tempDiv.querySelectorAll("img"))
+  const domImgs = Array.from(tempDiv.querySelectorAll("img"))
     .map(img => img.src || img.getAttribute("src") || "")
     .filter(s => s && s.length > 50);
+  rawDomImages.push(...domImgs);
 
   const combinedSearch = ((htmlContent || '') + ' ' + (rawText || ''));
   const hasDistinctNonChartImageIntent = /(?:photo|photograph|portrait|illustration|logo|camera|scenery|picture of|image of a)/i.test(combinedSearch);
@@ -432,9 +437,11 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
     }
   }
 
-  // Handle explicit or detected image-only insertion (e.g. from Zoom modal or standalone visual)
-  const remainingText = (tempDiv.innerText || "").replace(/🔍|Zoom|Review|Visual/gi, "").trim();
-  const isImageOnly = options?.imageOnly || (allImages.length > 0 && !rawText.includes("##") && remainingText.length < 5);
+  // Handle explicit or detected image-only insertion (e.g. from Zoom modal, image card, or image generation prompt)
+  const lastPrompt = typeof window !== "undefined" ? (window.__lastUserPrompt || "") : "";
+  const isImageRequestPrompt = /(?:generate|create|make|draw|show|render|insert|add)\s+(?:an?\s+)?(?:image|picture|photo|visual|illustration|graphic)/i.test(lastPrompt) ||
+                               /(?:image|picture|photo|visual|illustration)\s+(?:of|for|showing|depicting)/i.test(lastPrompt);
+  const isImageOnly = options?.imageOnly || (allImages.length > 0 && isImageRequestPrompt) || (allImages.length > 0 && !rawText.includes("##") && remainingText.length < 5);
   if (isImageOnly && allImages.length > 0) {
     return [{
       slideNumber: 1,
@@ -1306,6 +1313,52 @@ function finalizeSlides(slides, allImages = [], rawText = "") {
 
   let finalSlides = consolidateExecutiveSummarySlides(slides, allImages);
 
+  // Universal Executive Presentation Rule:
+  // "If there is a table, all the bullet points after the table go to the second slide"
+  const expandedSlides = [];
+  for (const s of finalSlides) {
+    if (s.tableData && s.tableData.rows && s.tableData.rows.length > 0) {
+      const rawBullets = (s.additionalBody || s.body || "")
+        .split(/\r?\n\r?\n+/)
+        .map(b => b.trim())
+        .filter(b => b && b !== "• Executive slide content" && !b.startsWith("|") && !b.startsWith("---"));
+      const filteredBullets = filterDuplicateTableBullets(rawBullets, s.tableData);
+
+      if (filteredBullets.length > 0) {
+        // Slide 1: Main Content & Table ONLY
+        const tableSlide = {
+          ...s,
+          body: "",
+          additionalBody: "",
+          tableData: s.tableData
+        };
+        expandedSlides.push(tableSlide);
+
+        // Slide 2: Dedicated Key Takeaways & Bullets
+        let secondTitle = (s.title || "Executive Summary").replace(/^#+\s*/, "").trim();
+        if (!secondTitle.toLowerCase().includes("takeaway") && !secondTitle.toLowerCase().includes("key")) {
+          secondTitle = secondTitle.replace(/summary/i, "Summary: Key Takeaways");
+          if (!secondTitle.includes("Takeaways")) {
+            secondTitle += " - Key Takeaways";
+          }
+        }
+        const bulletSlide = {
+          ...s,
+          title: secondTitle,
+          subtitle: s.subtitle || "Strategic takeaways and operational details",
+          tableData: null,
+          body: filteredBullets.join("\n\n"),
+          additionalBody: filteredBullets.join("\n\n"),
+          base64Images: []
+        };
+        expandedSlides.push(bulletSlide);
+        continue;
+      }
+    }
+    expandedSlides.push(s);
+  }
+  finalSlides = expandedSlides;
+
   const wordToNumber = {
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
     "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10
@@ -1329,7 +1382,11 @@ function finalizeSlides(slides, allImages = [], rawText = "") {
   }
 
   if (requestedCount && requestedCount > 0 && finalSlides.length > requestedCount) {
-    finalSlides = finalSlides.slice(0, requestedCount);
+    // If user requested 1 slide or summary, but table + bullets split produced 2 slides, preserve both!
+    const isTableAndBulletsPair = (requestedCount === 1 && finalSlides.length === 2 && finalSlides[0].tableData && !finalSlides[1].tableData);
+    if (!isTableAndBulletsPair) {
+      finalSlides = finalSlides.slice(0, requestedCount);
+    }
   }
 
   // On multi-slide decks, sanitize Slide 1 (Title slide) to strictly contain Title, Subtitle, and Executive Summary
@@ -1463,6 +1520,36 @@ function consolidateExecutiveSummarySlides(slides, allImages = []) {
       uniqueBullets.length = 0;
       uniqueBullets.push(...filtered);
     }
+
+    if (uniqueBullets.length > 0) {
+      // 2-Slide Executive Architecture:
+      // Slide 1: Main Content & Table ONLY
+      const slide1 = {
+        ...merged,
+        body: "",
+        additionalBody: "",
+        tableData: merged.tableData
+      };
+
+      // Slide 2: Dedicated Key Takeaways & Bullet Points
+      let secondTitle = (merged.title || "Executive Summary").replace(/^#+\s*/, "").trim();
+      if (!secondTitle.toLowerCase().includes("takeaway") && !secondTitle.toLowerCase().includes("key")) {
+        secondTitle = secondTitle.replace(/summary/i, "Summary: Key Takeaways");
+        if (!secondTitle.includes("Takeaways")) {
+          secondTitle += " - Key Takeaways";
+        }
+      }
+      const slide2 = {
+        ...merged,
+        title: secondTitle,
+        subtitle: merged.subtitle || "Strategic insights and operational takeaways",
+        tableData: null,
+        body: uniqueBullets.join("\n\n").trim(),
+        additionalBody: uniqueBullets.join("\n\n").trim(),
+        base64Images: []
+      };
+      return [slide1, slide2];
+    }
   }
 
   merged.body = uniqueBullets.join("\n\n").trim() || "• Executive slide content";
@@ -1501,10 +1588,14 @@ export function isConversationalPreamble(line) {
 export function extractCleanBulletPoints(htmlContent, rawText = "") {
   let text = (rawText || htmlContent || "").trim();
   if (text.includes("<") && text.includes(">")) {
-    const tmp = document.createElement("div");
-    tmp.innerHTML = text;
-    tmp.querySelectorAll("blockquote, .note, .ppt-deck-preview-container, .response-actions-container").forEach(el => el.remove());
-    text = (tmp.textContent || tmp.innerText || "").trim();
+    if (typeof document !== "undefined" && document.createElement) {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = text;
+      tmp.querySelectorAll("blockquote, .note, .ppt-deck-preview-container, .response-actions-container").forEach(el => el.remove());
+      text = (tmp.textContent || tmp.innerText || "").trim();
+    } else {
+      text = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    }
   }
 
   const sanitized = sanitizeAiResponse(text);

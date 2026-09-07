@@ -74,6 +74,25 @@ Office.onReady(async (info) => {
   const chatHistoryDiv = document.getElementById("chatHistory");
   if (chatHistoryDiv) {
     chatHistoryDiv.addEventListener("click", (e) => {
+      const insertNewBtn = e.target.closest(".img-action-btn-insert-new");
+      const insertCurrentBtn = e.target.closest(".img-action-btn-insert-current");
+      if (insertNewBtn) {
+        e.stopPropagation();
+        const src = insertNewBtn.getAttribute("data-img-src");
+        if (src) {
+          performDocumentInsertion(`<img src="${src}" />`, `![Image](${src})`, "insert_cursor", { imageOnly: true });
+        }
+        return;
+      }
+      if (insertCurrentBtn) {
+        e.stopPropagation();
+        const src = insertCurrentBtn.getAttribute("data-img-src");
+        if (src) {
+          performDocumentInsertion(`<img src="${src}" />`, `![Image](${src})`, "insert_current_slide", { imageOnly: true });
+        }
+        return;
+      }
+
       const zoomBtn = e.target.closest(".img-zoom-btn, .img-action-btn-zoom");
       const clickedImg = e.target.tagName === "IMG" ? e.target : e.target.closest("img");
       if (zoomBtn) {
@@ -1073,17 +1092,17 @@ async function runPowerPointSlideAction(actionType) {
       break;
     case "summarize":
     case "takeaways":
-      taskInstruction = `Based strictly on the content from the ${slideLabel} provided below, create EXACTLY ONE executive summary slide.
+      taskInstruction = `Based strictly on the content from the ${slideLabel} provided below, create an executive summary presentation (up to 2 slides).
 CRITICAL CLOSED-BOOK GROUNDING CONTRACT:
 1. STRICT BOUNDARY: You are operating in 100% CLOSED-BOOK MODE. You must synthesize information ONLY AND EXCLUSIVELY from the text and data explicitly present in the selected slides below.
 2. ZERO EXTERNAL KNOWLEDGE / ZERO HALLUCINATIONS: Do NOT introduce outside industry context, external market facts, assumptions, or topics that are not explicitly stated in the selected slides below. If a point or metric is not directly written in the provided slide text, omit it completely.
-3. Structure the slide as follows:
-   - Slide Title: "## 📊 Executive Slide Summary"
-   - If the slides contain structured comparisons or quantitative metrics, include a clean Markdown Table summarizing those exact facts from the slides.
-   - Followed by 2 to 3 concise, high-impact executive takeaway bullets with bold lead-in phrases based solely on the slide content.
-4. CRITICAL CONSTRAINT: You must output ONLY ONE SINGLE SLIDE. Do NOT generate multiple slides or conversational preamble.`;
+3. STRUCTURE & FORMAT (Consistent presentation format):
+   - Slide 1: "## 📊 Executive Slide Summary" with the main structured Markdown Table (| Metric / Focus Area | FY Progress Status | Target Benchmark |) summarizing key data directly from the slides.
+   - Slide 2: "## 📊 Executive Summary: Key Takeaways" dedicated to the bullet points with bold lead-in phrases elaborating on the key takeaways from the slides.
+   - If there is a table, all bullet points after the table go strictly on the second slide.
+4. DO NOT output conversational preamble.`;
       if (!displayBubble) {
-        displayBubble = `📊 [Summarize Slides] Generating executive summary slide from ${slideLabel}...`;
+        displayBubble = `📊 [Summarize Slides] Generating executive summary from ${slideLabel}...`;
       }
       break;
     case "action_items":
@@ -1641,14 +1660,26 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
   const isPPT = hostName === "PowerPoint";
   const isExcel = hostName === "Excel";
 
+  // Check if this response was generated from an image prompt or contains rendered visuals
+  const isImageRequest = hasDistinctNonChartImageIntent ||
+                         /(?:generate|create|make|draw|show|render|provide|insert|add)\s+(?:an?\s+)?(?:image|picture|photo|visual|illustration|graphic|infographic)/i.test(promptLower) ||
+                         /(?:image|picture|photo|visual|illustration)\s+(?:of|for|showing|depicting)/i.test(promptLower);
+
+  const shouldInsertImageOnly = renderedImages.length > 0 && (isImageRequest || (!fullText.includes("##") && textDiv.innerText.trim().length < 60));
+
   // 1. In-Place Replace Button
   const hasSelection = isPPT && currentSelectedText && currentSelectedText.trim().length > 0;
   const replaceBtn = document.createElement("button");
   replaceBtn.className = "action-btn replace";
-  replaceBtn.innerHTML = isPPT ? (hasSelection ? `🔄 Replace in Slide` : `🔄 Replace Slide`) : (isExcel ? `🔄 Replace in Sheet` : `🔄 Replace in Doc`);
-  replaceBtn.title = isPPT ? (hasSelection ? "Replace selected text in slide" : "Replace active slide content") : "Replace active draft or selection in Word";
+  replaceBtn.innerHTML = shouldInsertImageOnly ? (isPPT ? `🔄 Replace with Image` : `🔄 Replace Image`) : (isPPT ? (hasSelection ? `🔄 Replace in Slide` : `🔄 Replace Slide`) : (isExcel ? `🔄 Replace in Sheet` : `🔄 Replace in Doc`));
+  replaceBtn.title = shouldInsertImageOnly ? "Replace active slide/document with image" : (isPPT ? (hasSelection ? "Replace selected text in slide" : "Replace active slide content") : "Replace active draft or selection in Word");
   replaceBtn.onclick = async () => {
-    await performDocumentInsertion(textDiv.innerHTML, fullText, "replace_draft");
+    if (shouldInsertImageOnly) {
+      const img = renderedImages[0];
+      await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "replace_draft", { imageOnly: true });
+    } else {
+      await performDocumentInsertion(textDiv.innerHTML, fullText, "replace_draft");
+    }
   };
 
   // 2. Insert on Current Slide Button (PowerPoint only)
@@ -1656,20 +1687,30 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
   if (isPPT) {
     insertCurrentBtn = document.createElement("button");
     insertCurrentBtn.className = "action-btn insert-current";
-    insertCurrentBtn.innerHTML = `📌 Insert on Current Slide`;
-    insertCurrentBtn.title = "Insert generated content or image directly onto the currently active slide";
+    insertCurrentBtn.innerHTML = shouldInsertImageOnly ? `📌 Insert Image on Slide` : `📌 Insert on Current Slide`;
+    insertCurrentBtn.title = shouldInsertImageOnly ? "Insert image directly onto current slide" : "Insert generated content or image directly onto the currently active slide";
     insertCurrentBtn.onclick = async () => {
-      await performDocumentInsertion(textDiv.innerHTML, fullText, "insert_current_slide");
+      if (shouldInsertImageOnly) {
+        const img = renderedImages[0];
+        await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "insert_current_slide", { imageOnly: true });
+      } else {
+        await performDocumentInsertion(textDiv.innerHTML, fullText, "insert_current_slide");
+      }
     };
   }
 
   // 3. Insert as New Slide(s) Button
   const insertBtn = document.createElement("button");
   insertBtn.className = "action-btn insert";
-  insertBtn.innerHTML = isPPT ? `➕ Insert as New Slide(s)` : (isExcel ? `➕ Insert into Sheet` : `➕ Insert at Cursor`);
-  insertBtn.title = isPPT ? "Create new presentation slides at the end of the deck" : "Insert at current cursor location";
+  insertBtn.innerHTML = shouldInsertImageOnly ? (isPPT ? `➕ Insert Image as New Slide` : `➕ Insert Image`) : (isPPT ? `➕ Insert as New Slide(s)` : (isExcel ? `➕ Insert into Sheet` : `➕ Insert at Cursor`));
+  insertBtn.title = shouldInsertImageOnly ? "Insert image into presentation" : (isPPT ? "Create new presentation slides at the end of the deck" : "Insert at current cursor location");
   insertBtn.onclick = async () => {
-    await performDocumentInsertion(textDiv.innerHTML, fullText, "insert_cursor");
+    if (shouldInsertImageOnly) {
+      const img = renderedImages[0];
+      await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "insert_cursor", { imageOnly: true });
+    } else {
+      await performDocumentInsertion(textDiv.innerHTML, fullText, "insert_cursor");
+    }
   };
 
   // 4. Copy Button
@@ -1694,35 +1735,34 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
   actionsContainer.appendChild(primaryActions);
 
   // Refinement Chips: Quick 1-Click Multi-Turn Prompts
-  const chipsLabel = document.createElement("div");
-  chipsLabel.className = "refinement-chips-label";
-  chipsLabel.innerText = "Refine Draft:";
-  actionsContainer.appendChild(chipsLabel);
-
   const refinementChips = document.createElement("div");
-  refinementChips.className = "refinement-chips";
+  refinementChips.className = "refinement-chips-container";
 
-  const chipsData = [
-    { label: "📉 Make Shorter", prompt: "Make the above response significantly more concise and punchy for executive reading. Provide exactly ONE finalized version with no conversational preamble or multiple options." },
-    { label: "📈 Expand Details", prompt: "Expand the above draft with more in-depth technical, operational, and architectural details." },
-    { label: "📊 Format as Table", prompt: "Convert the key findings and aspects of the above response into a structured markdown table." },
-    { label: "👔 Executive Tone", prompt: "Rewrite the above response with an authoritative, C-level executive tone." },
-    { label: "🔄 Try Again", prompt: "Regenerate the response with a fresh structure and alternative perspective." }
+  const chips = [
+    { label: "✍️ Professional Tone", prompt: "Please rewrite the above in an executive, formal, and highly professional corporate tone." },
+    { label: "✂️ Make More Concise", prompt: "Please tighten and condense the above output, keeping only the most essential executive points." },
+    { label: "📊 Add Metrics Table", prompt: "Please format the key data points and comparisons from above into a clean, structured table." },
+    { label: "⚠️ Analyze Key Risks", prompt: "Based on the above context, outline the top operational and strategic risks and proposed mitigations." },
+    { label: "🔄 Alternative Options", prompt: "Provide 2 to 3 distinct strategic alternatives or approaches based on this analysis." }
   ];
 
-  chipsData.forEach(item => {
-    const chip = document.createElement("button");
-    chip.className = "refinement-chip";
-    chip.innerText = item.label;
-    chip.onclick = async () => {
-      let chipPrompt = item.prompt;
-      if (hostAdapter?.name === "PowerPoint") {
-        const { enhancePromptForPowerPoint } = await import('../adapters/ppt/promptEnhancer.js');
-        chipPrompt = enhancePromptForPowerPoint(chipPrompt);
+  chips.forEach(chip => {
+    const chipBtn = document.createElement("button");
+    chipBtn.className = "refinement-chip";
+    chipBtn.innerText = chip.label;
+    chipBtn.title = `Follow-up: "${chip.prompt}"`;
+    chipBtn.onclick = () => {
+      const input = document.getElementById("prompt");
+      if (input) {
+        input.value = chip.prompt;
+        input.focus();
+        const runButton = document.getElementById("run");
+        if (runButton && !runButton.disabled) {
+          runButton.click();
+        }
       }
-      executeGeminiWorkflow(chipPrompt, `${item.label}: "${item.prompt.substring(0, 45)}..."`);
     };
-    refinementChips.appendChild(chip);
+    refinementChips.appendChild(chipBtn);
   });
 
   actionsContainer.appendChild(refinementChips);
@@ -1744,7 +1784,7 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
   });
 }
 
-async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {
+async function performDocumentInsertion(htmlContent, rawText, mode = "smart", options = {}) {
   const runButton = document.getElementById("run");
   const loadingText = document.getElementById("loading");
 
@@ -1752,7 +1792,9 @@ async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {
   if (loadingText) {
     let msg = "⚡ Updating document...";
     if (hostAdapter?.name === 'PowerPoint') {
-      if (mode === 'replace_draft') {
+      if (options?.imageOnly) {
+        msg = mode === 'insert_current_slide' ? "⚡ Inserting image onto slide..." : "⚡ Inserting image as slide...";
+      } else if (mode === 'replace_draft') {
         msg = "⚡ Replacing slide content...";
       } else if (mode === 'insert_current_slide') {
         msg = "⚡ Inserting onto current slide...";
@@ -1768,10 +1810,11 @@ async function performDocumentInsertion(htmlContent, rawText, mode = "smart") {
     const isPPT = hostAdapter?.name === "PowerPoint";
     if (isPPT) {
       await hostAdapter.insertContent(htmlContent, rawText, {
+        ...options,
         mode: mode === "replace_draft" ? "replace" : (mode === "insert_current_slide" ? "insert_current" : "insert")
       });
     } else {
-      await hostAdapter.insertContent(htmlContent, mode);
+      await hostAdapter.insertContent(htmlContent, mode, options);
     }
     const debugStatus = document.getElementById("debugStatus");
     if (debugStatus) {

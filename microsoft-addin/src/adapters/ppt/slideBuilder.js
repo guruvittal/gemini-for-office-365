@@ -495,40 +495,8 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
       }, slideNum);
 
       populateSlideTable(newSlide, tableData, slideNum, contentTop + 10, 500, 410);
-    } else if (hasTable && hasMeaningfulBody) {
-      // 5b-i. Table + Summary Bullets: Table on top, Bullets cleanly formatted below
-      const renderedTableHeight = populateSlideTable(newSlide, tableData, slideNum, contentTop, 50, 860, 180);
-      const bulletsTop = contentTop + (renderedTableHeight || 130) + 12;
-      const bulletsHeight = Math.max(120, 510 - bulletsTop);
-
-      const { cleanText: cleanBullets, parsedParagraphs } = parseMarkdownFormatting(bodyTextContent);
-      const bodyBox = newSlide.shapes.addTextBox(cleanBullets, {
-        left: 50,
-        top: bulletsTop,
-        width: 860,
-        height: bulletsHeight
-      });
-      bodyBox.textFrame.textRange.font.size = 14;
-      bodyBox.textFrame.wordWrap = true;
-
-      // Apply bold styling to lead-in phrases
-      if (parsedParagraphs && parsedParagraphs.some(p => p.boldRanges && p.boldRanges.length > 0)) {
-        try {
-          let charOffset = 0;
-          for (let pIdx = 0; pIdx < parsedParagraphs.length; pIdx++) {
-            const p = parsedParagraphs[pIdx];
-            for (const b of (p.boldRanges || [])) {
-              if (b.start >= 0 && b.length > 0) {
-                const sub = bodyBox.textFrame.textRange.getSubstring(charOffset + b.start, b.length);
-                sub.font.bold = true;
-              }
-            }
-            charOffset += p.cleanText.length + 1; // +1 for \n
-          }
-        } catch (_) {}
-      }
     } else if (hasTable) {
-      // 5b-ii. Table Only: Full width
+      // 5b. Table Presentation: Render full-width with optimal height so rows never collide
       populateSlideTable(newSlide, tableData, slideNum, contentTop, 50, 860);
     } else if (hasImages && hasMeaningfulBody) {
       // 5c. Bullets on Left, Image on Right
@@ -736,44 +704,28 @@ export async function insertOnCurrentSlide(slideStructures, options = {}) {
       }
       logToPPTConsole(`Inserted image onto current slide.`);
     }
-    // 4. Table + Bullets
-    else if (hasTable && hasMeaningfulBody) {
-      const renderedTableHeight = populateSlideTable(activeSlide, tableData, 1, 90, 50, 860, 180);
-      const bulletsTop = 90 + (renderedTableHeight || 130) + 12;
-      const bulletsHeight = Math.max(120, 510 - bulletsTop);
-
-      const { cleanText: cleanBullets, parsedParagraphs } = parseMarkdownFormatting(rawBody);
-      const bodyBox = activeSlide.shapes.addTextBox(cleanBullets, {
-        left: 50,
-        top: bulletsTop,
-        width: 860,
-        height: bulletsHeight
-      });
-      bodyBox.textFrame.textRange.font.size = 14;
-      bodyBox.textFrame.wordWrap = true;
-
-      // Apply bold styling to lead-in phrases
-      if (parsedParagraphs && parsedParagraphs.some(p => p.boldRanges && p.boldRanges.length > 0)) {
-        try {
-          let charOffset = 0;
-          for (let pIdx = 0; pIdx < parsedParagraphs.length; pIdx++) {
-            const p = parsedParagraphs[pIdx];
-            for (const b of (p.boldRanges || [])) {
-              if (b.start >= 0 && b.length > 0) {
-                const sub = bodyBox.textFrame.textRange.getSubstring(charOffset + b.start, b.length);
-                sub.font.bold = true;
-              }
-            }
-            charOffset += p.cleanText.length + 1; // +1 for \n
-          }
-        } catch (_) {}
-      }
-      logToPPTConsole(`Inserted table and summary bullets onto current slide.`);
-    }
-    // 5. Table only
+    // 4. Table presentation
     else if (hasTable) {
       populateSlideTable(activeSlide, tableData, 1, 90, 50, 860);
       logToPPTConsole(`Inserted table onto current slide.`);
+
+      // If there are following bullet points, put them on a dedicated second slide
+      if (hasMeaningfulBody) {
+        try {
+          const newTakeawaySlide = context.presentation.slides.add();
+          await context.sync();
+          const { cleanText: cleanBullets } = parseMarkdownFormatting(rawBody);
+          const bodyBox = newTakeawaySlide.shapes.addTextBox(cleanBullets, {
+            left: 50,
+            top: 90,
+            width: 860,
+            height: 380
+          });
+          bodyBox.textFrame.textRange.font.size = 18;
+          bodyBox.textFrame.wordWrap = true;
+          logToPPTConsole(`Inserted dedicated takeaways slide for bullets.`);
+        } catch (_) {}
+      }
     }
     // 4. Bullets only
     else {

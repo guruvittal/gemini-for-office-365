@@ -318,7 +318,8 @@ export class PPTAdapter {
       }
 
       // 1. If replacing and an active shape/text is selected, perform in-place text replacement in the shape
-      if (isReplace) {
+      // UNLESS options.imageOnly is true, where we want to insert/replace with the picture
+      if (isReplace && !options.imageOnly) {
         let shapeReplaced = false;
         try {
           await PowerPoint.run(async (context) => {

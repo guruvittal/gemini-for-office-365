@@ -136,8 +136,10 @@ export function parseMarkdown(text, options = {}) {
         ${match}
         <button type="button" class="img-zoom-btn" data-img-src="${src}" data-img-alt="${alt}" title="Zoom and review image" style="position:absolute; bottom:8px; right:8px; background:rgba(15,23,42,0.85); color:#ffffff; border:none; border-radius:4px; padding:5px 9px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px; backdrop-filter:blur(4px); box-shadow:0 2px 4px rgba(0,0,0,0.3); z-index:10;">🔍 Zoom</button>
       </div>
-      <div style="margin-top:8px; display:flex; justify-content:center; gap:6px;">
+      <div style="margin-top:8px; display:flex; justify-content:center; gap:6px; flex-wrap:wrap;">
         <button type="button" class="img-action-btn-zoom" data-img-src="${src}" data-img-alt="${alt}" style="background:#0078d4; color:#ffffff; border:none; border-radius:4px; padding:5px 12px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">🔍 Zoom & Review</button>
+        <button type="button" class="img-action-btn-insert-new" data-img-src="${src}" data-img-alt="${alt}" style="background:#107c41; color:#ffffff; border:none; border-radius:4px; padding:5px 10px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">➕ Insert as New Slide</button>
+        <button type="button" class="img-action-btn-insert-current" data-img-src="${src}" data-img-alt="${alt}" style="background:#5c2d91; color:#ffffff; border:none; border-radius:4px; padding:5px 10px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">📌 Insert on Slide</button>
       </div>
     </div>`;
     visualTokens.push(wrapped);
@@ -156,8 +158,10 @@ export function parseMarkdown(text, options = {}) {
         <img src="${src}" alt="${alt}" class="office-preview-img" style="max-width:100%; max-height:260px; border-radius:6px; display:block; cursor:pointer;" title="Click to zoom / review image" />
         <button type="button" class="img-zoom-btn" data-img-src="${src}" data-img-alt="${alt}" title="Zoom and review image" style="position:absolute; bottom:8px; right:8px; background:rgba(15,23,42,0.85); color:#ffffff; border:none; border-radius:4px; padding:5px 9px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px; backdrop-filter:blur(4px); box-shadow:0 2px 4px rgba(0,0,0,0.3); z-index:10;">🔍 Zoom</button>
       </div>
-      <div style="margin-top:8px; display:flex; justify-content:center; gap:6px;">
+      <div style="margin-top:8px; display:flex; justify-content:center; gap:6px; flex-wrap:wrap;">
         <button type="button" class="img-action-btn-zoom" data-img-src="${src}" data-img-alt="${alt}" style="background:#0078d4; color:#ffffff; border:none; border-radius:4px; padding:5px 12px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">🔍 Zoom & Review</button>
+        <button type="button" class="img-action-btn-insert-new" data-img-src="${src}" data-img-alt="${alt}" style="background:#107c41; color:#ffffff; border:none; border-radius:4px; padding:5px 10px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">➕ Insert as New Slide</button>
+        <button type="button" class="img-action-btn-insert-current" data-img-src="${src}" data-img-alt="${alt}" style="background:#5c2d91; color:#ffffff; border:none; border-radius:4px; padding:5px 10px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">📌 Insert on Slide</button>
       </div>
     </div>`;
     visualTokens.push(wrapped);
@@ -172,8 +176,10 @@ export function parseMarkdown(text, options = {}) {
         <img src="${url}" alt="${alt || 'Generated Image'}" class="office-preview-img" style="max-width:100%; max-height:260px; border-radius:6px; display:block; cursor:pointer;" title="Click to zoom / review image" />
         <button type="button" class="img-zoom-btn" data-img-src="${url}" data-img-alt="${alt || 'Generated Image'}" title="Zoom and review image" style="position:absolute; bottom:8px; right:8px; background:rgba(15,23,42,0.8); color:#ffffff; border:none; border-radius:4px; padding:4px 8px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px; backdrop-filter:blur(4px); box-shadow:0 2px 4px rgba(0,0,0,0.3);">🔍 Zoom</button>
       </div>
-      <div style="margin-top:6px; display:flex; justify-content:center; gap:6px;">
+      <div style="margin-top:6px; display:flex; justify-content:center; gap:6px; flex-wrap:wrap;">
         <button type="button" class="img-action-btn-zoom" data-img-src="${url}" data-img-alt="${alt || 'Generated Image'}" style="background:#0078d4; color:#ffffff; border:none; border-radius:4px; padding:4px 10px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">🔍 Zoom & Review</button>
+        <button type="button" class="img-action-btn-insert-new" data-img-src="${url}" data-img-alt="${alt || 'Generated Image'}" style="background:#107c41; color:#ffffff; border:none; border-radius:4px; padding:4px 10px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">➕ Insert as New Slide</button>
+        <button type="button" class="img-action-btn-insert-current" data-img-src="${url}" data-img-alt="${alt || 'Generated Image'}" style="background:#5c2d91; color:#ffffff; border:none; border-radius:4px; padding:4px 10px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">📌 Insert on Slide</button>
       </div>
     </div>`;
     visualTokens.push(imgHtml);
@@ -183,13 +189,15 @@ export function parseMarkdown(text, options = {}) {
   // 3b. Pre-extract any standalone data:image URIs that were output directly without markdown or HTML tags
   sanitized = sanitized.replace(/(?:^|\n)(data:image\/(?:png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]{100,})(?:\n|$)/gi, (match, dataUri) => {
     const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
-    const imgHtml = `<div class="office-visual-image-card" style="margin:14px 0; text-align:center; background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:8px; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+    const imgHtml = `<div class="office-visual-image-card" data-card-img-src="${dataUri}" style="margin:14px 0; text-align:center; background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:8px; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
       <div style="position:relative; display:inline-block; max-width:100%;">
         <img src="${dataUri}" alt="Generated Image" class="office-preview-img" style="max-width:100%; max-height:260px; border-radius:6px; display:block; cursor:pointer;" title="Click to zoom / review image" />
-        <button type="button" class="img-zoom-btn" title="Zoom and review image" style="position:absolute; bottom:8px; right:8px; background:rgba(15,23,42,0.8); color:#ffffff; border:none; border-radius:4px; padding:4px 8px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px; backdrop-filter:blur(4px); box-shadow:0 2px 4px rgba(0,0,0,0.3);">🔍 Zoom</button>
+        <button type="button" class="img-zoom-btn" data-img-src="${dataUri}" title="Zoom and review image" style="position:absolute; bottom:8px; right:8px; background:rgba(15,23,42,0.8); color:#ffffff; border:none; border-radius:4px; padding:4px 8px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px; backdrop-filter:blur(4px); box-shadow:0 2px 4px rgba(0,0,0,0.3);">🔍 Zoom</button>
       </div>
-      <div style="margin-top:6px; display:flex; justify-content:center; gap:6px;">
-        <button type="button" class="img-action-btn-zoom" style="background:#0078d4; color:#ffffff; border:none; border-radius:4px; padding:4px 10px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">🔍 Zoom & Review</button>
+      <div style="margin-top:6px; display:flex; justify-content:center; gap:6px; flex-wrap:wrap;">
+        <button type="button" class="img-action-btn-zoom" data-img-src="${dataUri}" style="background:#0078d4; color:#ffffff; border:none; border-radius:4px; padding:4px 10px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">🔍 Zoom & Review</button>
+        <button type="button" class="img-action-btn-insert-new" data-img-src="${dataUri}" style="background:#107c41; color:#ffffff; border:none; border-radius:4px; padding:4px 10px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">➕ Insert as New Slide</button>
+        <button type="button" class="img-action-btn-insert-current" data-img-src="${dataUri}" style="background:#5c2d91; color:#ffffff; border:none; border-radius:4px; padding:4px 10px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">📌 Insert on Slide</button>
       </div>
     </div>`;
     visualTokens.push(imgHtml);
