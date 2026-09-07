@@ -8,7 +8,7 @@
  */
 
 import { parseSlides, extractCleanBulletPoints } from './ppt/slideParser.js';
-import { buildPresentation, compressImageForPowerPoint, insertOnCurrentSlide } from './ppt/slideBuilder.js';
+import { buildPresentation, compressImageForPowerPoint } from './ppt/slideBuilder.js';
 import { initSlidePreviewObserver, injectPowerPointStyles } from './ppt/slidePreviewUI.js';
 import { initPromptEnhancer, enhancePromptForPowerPoint } from './ppt/promptEnhancer.js';
 import { initPowerPointDiagnostics } from './ppt/pptDiagnostics.js';
@@ -154,29 +154,11 @@ export class PPTAdapter {
     const debugStatus = document.getElementById("debugStatus");
     const loadingText = document.getElementById("loading");
     const isReplace = options.mode === "replace" || options.mode === "replace_draft";
-    const isInsertCurrent = options.mode === "insert_current" || options.mode === "insert_current_slide";
 
     try {
       window.__isGeneratingSlides = true;
       if (typeof PowerPoint === 'undefined') {
         throw new Error("PowerPoint Office.js environment is not available.");
-      }
-
-      // If user selected "Insert on Current Slide", insert onto active slide without wiping existing shapes
-      if (isInsertCurrent) {
-        if (debugStatus) debugStatus.innerText = "Inserting content onto current slide...";
-        if (loadingText) {
-          loadingText.innerText = "⚡ Inserting onto current slide...";
-          loadingText.style.display = "block";
-        }
-        const slideStructures = await this.parseSlidesFromHtml(htmlContent, rawText);
-        if (!slideStructures || slideStructures.length === 0) {
-          throw new Error("Slide parser returned 0 slide structures.");
-        }
-        await insertOnCurrentSlide(slideStructures, options);
-        if (debugStatus) debugStatus.innerText = "✅ Inserted on current slide!";
-        if (loadingText) loadingText.style.display = "none";
-        return slideStructures;
       }
 
       // 1. If replacing and an active shape/text is selected, perform in-place text replacement in the shape
