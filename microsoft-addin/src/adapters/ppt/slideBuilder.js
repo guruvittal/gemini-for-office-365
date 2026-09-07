@@ -158,7 +158,7 @@ async function getThemeBlankLayoutOptions() {
 /**
  * Populates a native Microsoft PowerPoint table using PowerPoint.js shapes.addTable().
  */
-function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90, tableLeft = 50, tableWidth = 860) {
+function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90, tableLeft = 50, tableWidth = 860, maxTableHeight = 380) {
   const headers = tableData.headers || [];
   const rows = tableData.rows || [];
   const colCount = Math.max(headers.length, ...rows.map(r => r.length), 1);
@@ -180,7 +180,7 @@ function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90, tableL
     tableValues.push(rowVals);
   }
 
-  const tableHeight = Math.min(380, Math.max(100, rowCount * 36));
+  const tableHeight = Math.min(maxTableHeight, Math.max(80, rowCount * 34));
 
   try {
     if (typeof newSlide.shapes.addTable === "function") {
@@ -195,7 +195,7 @@ function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90, tableL
         tableShape.table.format = PowerPoint.TableFormat.lightStyle1;
       } catch (_) {}
       logToPPTConsole(`Slide ${slideNum}: Added native table (${rowCount} rows x ${colCount} cols).`);
-      return;
+      return tableHeight;
     }
   } catch (err) {
     console.warn("[PPTBuilder] shapes.addTable with options failed, trying basic addTable:", err);
@@ -214,9 +214,11 @@ function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90, tableL
       }
     }
     logToPPTConsole(`Slide ${slideNum}: Added native table via getCell.`);
+    return tableHeight;
   } catch (fallbackErr) {
     console.error("[PPTBuilder] Native table shape creation failed:", fallbackErr);
     logToPPTConsole(`Slide ${slideNum}: ⚠️ Table shape notice: ${fallbackErr.message}`);
+    return tableHeight;
   }
 }
 
@@ -439,38 +441,51 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
 
     const newSlide = slides.getItemAt(slideCount - 1);
 
-    // 3. Add Title TextBox at Top
-    const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
-      left: 50,
-      top: 30,
-      width: 860,
-      height: 50
-    });
-    titleBox.textFrame.textRange.font.size = titleSize;
-    titleBox.textFrame.textRange.font.bold = true;
-    if (color) {
-      titleBox.textFrame.textRange.font.color = color;
-    }
+    const isImageOnlySlide = slideData.imageOnly || (!cleanTitle && hasImages && !hasMeaningfulBody && !hasTable);
 
-    // 4. Add Subtitle directly under Title if present
-    let contentTop = 85;
-    if (subtitle) {
-      const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
+    let contentTop = 40;
+    if (!isImageOnlySlide && cleanTitle) {
+      // 3. Add Title TextBox at Top
+      const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
         left: 50,
-        top: 80,
+        top: 30,
         width: 860,
-        height: 35
+        height: 50
       });
-      subtitleBox.textFrame.textRange.font.size = subtitleSize;
-      subtitleBox.textFrame.textRange.font.italic = true;
+      titleBox.textFrame.textRange.font.size = titleSize;
+      titleBox.textFrame.textRange.font.bold = true;
       if (color) {
-        subtitleBox.textFrame.textRange.font.color = color;
+        titleBox.textFrame.textRange.font.color = color;
       }
-      contentTop = 120;
+      contentTop = 85;
+
+      // 4. Add Subtitle directly under Title if present
+      if (subtitle) {
+        const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
+          left: 50,
+          top: 80,
+          width: 860,
+          height: 35
+        });
+        subtitleBox.textFrame.textRange.font.size = subtitleSize;
+        subtitleBox.textFrame.textRange.font.italic = true;
+        if (color) {
+          subtitleBox.textFrame.textRange.font.color = color;
+        }
+        contentTop = 120;
+      }
     }
 
-    // 5. Layout Rendering: Table + Image, Table Only, Image + Bullets, Image Only, or Bullets Only
-    if (hasTable && hasImages) {
+    // 5. Layout Rendering: Image Only, Table + Image, Table + Bullets, Table Only, Image + Bullets, or Bullets Only
+    if (isImageOnlySlide && hasImages) {
+      // 5-ImageOnly: Centered prominently across full slide with NO titles or placeholder boxes
+      imageInserted = insertPictureOnSlide(newSlide, imagesToInsert[0], {
+        left: 60,
+        top: 40,
+        width: 840,
+        height: 460
+      }, slideNum);
+    } else if (hasTable && hasImages) {
       // 5a. Side-by-side: Chart/Image on Left, Table on Right
       imageInserted = insertPictureOnSlide(newSlide, imagesToInsert[0], {
         left: 50,
@@ -480,8 +495,40 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
       }, slideNum);
 
       populateSlideTable(newSlide, tableData, slideNum, contentTop + 10, 500, 410);
+    } else if (hasTable && hasMeaningfulBody) {
+      // 5b-i. Table + Summary Bullets: Table on top, Bullets cleanly formatted below
+      const renderedTableHeight = populateSlideTable(newSlide, tableData, slideNum, contentTop, 50, 860, 180);
+      const bulletsTop = contentTop + (renderedTableHeight || 130) + 12;
+      const bulletsHeight = Math.max(120, 510 - bulletsTop);
+
+      const { cleanText: cleanBullets, parsedParagraphs } = parseMarkdownFormatting(bodyTextContent);
+      const bodyBox = newSlide.shapes.addTextBox(cleanBullets, {
+        left: 50,
+        top: bulletsTop,
+        width: 860,
+        height: bulletsHeight
+      });
+      bodyBox.textFrame.textRange.font.size = 14;
+      bodyBox.textFrame.wordWrap = true;
+
+      // Apply bold styling to lead-in phrases
+      if (parsedParagraphs && parsedParagraphs.some(p => p.boldRanges && p.boldRanges.length > 0)) {
+        try {
+          let charOffset = 0;
+          for (let pIdx = 0; pIdx < parsedParagraphs.length; pIdx++) {
+            const p = parsedParagraphs[pIdx];
+            for (const b of (p.boldRanges || [])) {
+              if (b.start >= 0 && b.length > 0) {
+                const sub = bodyBox.textFrame.textRange.getSubstring(charOffset + b.start, b.length);
+                sub.font.bold = true;
+              }
+            }
+            charOffset += p.cleanText.length + 1; // +1 for \n
+          }
+        } catch (_) {}
+      }
     } else if (hasTable) {
-      // 5b. Table Only: Full width
+      // 5b-ii. Table Only: Full width
       populateSlideTable(newSlide, tableData, slideNum, contentTop, 50, 860);
     } else if (hasImages && hasMeaningfulBody) {
       // 5c. Bullets on Left, Image on Right
@@ -644,13 +691,26 @@ export async function insertOnCurrentSlide(slideStructures, options = {}) {
       throw new Error("No slide available in presentation to insert content onto.");
     }
 
-    // 1. Chart/Image + Table
-    if (hasImages && hasTable) {
+    // 1. Image Only
+    if (hasImages && slideData.imageOnly) {
+      for (const rawImg of imagesToInsert) {
+        const added = insertPictureOnSlide(activeSlide, rawImg, {
+          left: 60,
+          top: 40,
+          width: 840,
+          height: 460
+        }, 1);
+        if (added) imageInserted = true;
+      }
+      logToPPTConsole(`Inserted full-size image centered onto current slide.`);
+    }
+    // 2. Chart/Image + Table
+    else if (hasImages && hasTable) {
       imageInserted = insertPictureOnSlide(activeSlide, imagesToInsert[0], { left: 50, top: 90, width: 430, height: 350 }, 1);
       populateSlideTable(activeSlide, tableData, 1, 90, 500, 410);
       logToPPTConsole(`Inserted chart and table onto current slide.`);
     }
-    // 2. Images present
+    // 3. Images present with bullets or single image
     else if (hasImages) {
       const imgWidth = hasMeaningfulBody ? 420 : 620;
       const imgLeft = hasMeaningfulBody ? 490 : 170;
@@ -676,7 +736,41 @@ export async function insertOnCurrentSlide(slideStructures, options = {}) {
       }
       logToPPTConsole(`Inserted image onto current slide.`);
     }
-    // 3. Table present
+    // 4. Table + Bullets
+    else if (hasTable && hasMeaningfulBody) {
+      const renderedTableHeight = populateSlideTable(activeSlide, tableData, 1, 90, 50, 860, 180);
+      const bulletsTop = 90 + (renderedTableHeight || 130) + 12;
+      const bulletsHeight = Math.max(120, 510 - bulletsTop);
+
+      const { cleanText: cleanBullets, parsedParagraphs } = parseMarkdownFormatting(rawBody);
+      const bodyBox = activeSlide.shapes.addTextBox(cleanBullets, {
+        left: 50,
+        top: bulletsTop,
+        width: 860,
+        height: bulletsHeight
+      });
+      bodyBox.textFrame.textRange.font.size = 14;
+      bodyBox.textFrame.wordWrap = true;
+
+      // Apply bold styling to lead-in phrases
+      if (parsedParagraphs && parsedParagraphs.some(p => p.boldRanges && p.boldRanges.length > 0)) {
+        try {
+          let charOffset = 0;
+          for (let pIdx = 0; pIdx < parsedParagraphs.length; pIdx++) {
+            const p = parsedParagraphs[pIdx];
+            for (const b of (p.boldRanges || [])) {
+              if (b.start >= 0 && b.length > 0) {
+                const sub = bodyBox.textFrame.textRange.getSubstring(charOffset + b.start, b.length);
+                sub.font.bold = true;
+              }
+            }
+            charOffset += p.cleanText.length + 1; // +1 for \n
+          }
+        } catch (_) {}
+      }
+      logToPPTConsole(`Inserted table and summary bullets onto current slide.`);
+    }
+    // 5. Table only
     else if (hasTable) {
       populateSlideTable(activeSlide, tableData, 1, 90, 50, 860);
       logToPPTConsole(`Inserted table onto current slide.`);

@@ -301,8 +301,8 @@ export class PPTAdapter {
   }
 
   // Parse HTML or Markdown content into executive slide structures
-  async parseSlidesFromHtml(htmlContent, rawText = "") {
-    return parseSlides(htmlContent, rawText);
+  async parseSlidesFromHtml(htmlContent, rawText = "", options = {}) {
+    return parseSlides(htmlContent, rawText, options);
   }
 
   // Insert AI content as executive PowerPoint slides with exact positioning & visuals
@@ -378,7 +378,7 @@ export class PPTAdapter {
           loadingText.innerText = "⚡ Inserting onto current slide...";
           loadingText.style.display = "block";
         }
-        const slideStructures = await this.parseSlidesFromHtml(htmlContent, rawText);
+        const slideStructures = await this.parseSlidesFromHtml(htmlContent, rawText, options);
         if (!slideStructures || slideStructures.length === 0) {
           throw new Error("Slide parser returned 0 slide structures.");
         }
@@ -390,7 +390,7 @@ export class PPTAdapter {
 
       // 2. Otherwise parse slide structures and build / replace slide(s)
       if (debugStatus) debugStatus.innerText = "Parsing presentation structure...";
-      const slideStructures = await this.parseSlidesFromHtml(htmlContent, rawText);
+      const slideStructures = await this.parseSlidesFromHtml(htmlContent, rawText, options);
 
       if (!slideStructures || slideStructures.length === 0) {
         throw new Error("Slide parser returned 0 slide structures.");

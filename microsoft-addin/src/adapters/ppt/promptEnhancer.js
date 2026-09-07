@@ -75,11 +75,15 @@ CRITICAL INSTRUCTIONS FOR IMAGE GENERATION:
 CRITICAL INSTRUCTIONS FOR EXECUTIVE SUMMARY GENERATION:
 1. Provide EXACTLY ONE single slide. NEVER generate multiple slides or multiple '##' slide headings under any circumstances.
 2. Structure with exactly one slide title: "## 📊 Executive Slide Summary".
-3. STRICT GROUNDING: Every bullet point, finding, metric, and theme in your summary MUST be synthesized directly from the provided slide context. Do NOT invent generic topics or hallucinate information not in the slides.
-4. Visual Chart: If the summary contains quantitative breakdown, comparisons, or metrics from the slides, output a structured JSON code block with the exact data metrics (chartType: "doughnut", title: "...", data: [...]) so our client presentation engine can render a crisp, high-resolution chart.
+3. STRICT CLOSED-BOOK GROUNDING CONTRACT:
+   - You are operating in 100% STRICT CLOSED-BOOK MODE based SOLELY on the provided slide context.
+   - You must synthesize information ONLY AND EXCLUSIVELY from the text and data present in the selected slides.
+   - NEVER extrapolate, bring in external industry knowledge, or introduce topics, facts, or assumptions that do not appear in the selected slides.
+   - If a concept, fact, or metric is not explicitly stated in the selected slides, DO NOT mention it.
+4. Visual Chart: If the summary contains quantitative breakdown, comparisons, or metrics directly stated in the slides, output a structured JSON code block with the exact data metrics (chartType: "doughnut", title: "...", data: [...]) so our client presentation engine can render a crisp, high-resolution chart.
 5. Content layout:
-   - Provide a clean Markdown Table (| Category | Metric | Share / Value |) summarizing quantitative data or metrics directly from the slides.
-   - Followed by 2 to 3 concise, high-impact executive takeaway bullets with bold lead-in phrases.
+   - If the slides contain structured comparisons or metrics, provide a clean Markdown Table (| Category | Metric | Share / Value |) summarizing data directly from the slides.
+   - Followed by 2 to 3 concise, high-impact executive takeaway bullets with bold lead-in phrases based solely on the slide content.
 6. DO NOT output conversational preamble, pleasantries, or additional slides.
 `;
     return `${userPrompt}\n\n${rules}`;

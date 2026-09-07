@@ -74,14 +74,22 @@ Office.onReady(async (info) => {
   const chatHistoryDiv = document.getElementById("chatHistory");
   if (chatHistoryDiv) {
     chatHistoryDiv.addEventListener("click", (e) => {
-      const zoomBtn = e.target.closest(".img-zoom-btn, .img-action-btn-zoom, .action-btn.zoom");
+      const zoomBtn = e.target.closest(".img-zoom-btn, .img-action-btn-zoom");
       const clickedImg = e.target.tagName === "IMG" ? e.target : e.target.closest("img");
       if (zoomBtn) {
         e.stopPropagation();
-        const card = zoomBtn.closest(".office-visual-image-card, .rendered-chart-container, .chat-bubble, div");
-        const img = card ? card.querySelector("img") : null;
-        if (img && img.src) {
-          openImageZoomModal(img.src, img.alt);
+        let src = zoomBtn.getAttribute("data-img-src");
+        let alt = zoomBtn.getAttribute("data-img-alt") || "Generated Visual";
+        if (!src) {
+          const card = zoomBtn.closest(".office-visual-image-card, .rendered-chart-container, .chat-bubble");
+          const img = card ? card.querySelector("img") : null;
+          if (img && img.src) {
+            src = img.src;
+            alt = img.alt || alt;
+          }
+        }
+        if (src) {
+          openImageZoomModal(src, alt);
         }
       } else if (clickedImg && clickedImg.src) {
         e.stopPropagation();
@@ -1066,13 +1074,14 @@ async function runPowerPointSlideAction(actionType) {
     case "summarize":
     case "takeaways":
       taskInstruction = `Based strictly on the content from the ${slideLabel} provided below, create EXACTLY ONE executive summary slide.
-CRITICAL GROUNDING REQUIREMENTS:
-1. Every bullet point, finding, metric, and theme in your summary MUST come directly from the slide content provided below. Do NOT make up unrelated generic topics or hallucinate information not present in the slides.
-2. Structure the slide as follows:
+CRITICAL CLOSED-BOOK GROUNDING CONTRACT:
+1. STRICT BOUNDARY: You are operating in 100% CLOSED-BOOK MODE. You must synthesize information ONLY AND EXCLUSIVELY from the text and data explicitly present in the selected slides below.
+2. ZERO EXTERNAL KNOWLEDGE / ZERO HALLUCINATIONS: Do NOT introduce outside industry context, external market facts, assumptions, or topics that are not explicitly stated in the selected slides below. If a point or metric is not directly written in the provided slide text, omit it completely.
+3. Structure the slide as follows:
    - Slide Title: "## 📊 Executive Slide Summary"
-   - Key Takeaways: 3 to 4 high-impact executive bullets with bold lead-in phrases summarizing the primary insights, metrics, and outcomes synthesized directly from the slides.
-   - If the slides contain quantitative metrics or data tables, include a clean Markdown Table (| Category | Metric | Value / Share |) reflecting those exact numbers.
-3. CRITICAL CONSTRAINT: You must output ONLY ONE SINGLE SLIDE. Do NOT generate multiple slides.`;
+   - If the slides contain structured comparisons or quantitative metrics, include a clean Markdown Table summarizing those exact facts from the slides.
+   - Followed by 2 to 3 concise, high-impact executive takeaway bullets with bold lead-in phrases based solely on the slide content.
+4. CRITICAL CONSTRAINT: You must output ONLY ONE SINGLE SLIDE. Do NOT generate multiple slides or conversational preamble.`;
       if (!displayBubble) {
         displayBubble = `📊 [Summarize Slides] Generating executive summary slide from ${slideLabel}...`;
       }
@@ -1085,7 +1094,7 @@ CRITICAL GROUNDING REQUIREMENTS:
 
   let fullPrompt = "";
   if (slideContext && slideContext.length > 5) {
-    fullPrompt = `CRITICAL SLIDE CONTEXT:\nThe following is the actual content extracted from the ${slideLabel}. You MUST base your summary strictly on this content:\n"""\n${slideContext.substring(0, 50000)}\n"""\n\nTask: ${taskInstruction}`;
+    fullPrompt = `CRITICAL SLIDE CONTEXT:\nThe following is the actual content extracted from the ${slideLabel}. You MUST base your summary strictly and exclusively on this content:\n"""\n${slideContext.substring(0, 50000)}\n"""\n\nTask: ${taskInstruction}`;
   } else {
     fullPrompt = taskInstruction;
   }
@@ -1338,10 +1347,17 @@ export function openImageZoomModal(imgSrc, altText = "Generated Visual") {
 
   modal.innerHTML = `
     <div class="image-zoom-header">
-      <span>🔍 Image Review & Zoom</span>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span>🔍 Image Review</span>
+        <div class="zoom-level-controls" style="display:inline-flex; gap:4px; background:rgba(255,255,255,0.15); border-radius:4px; padding:2px;">
+          <button type="button" class="zoom-ctrl-btn" id="zoomCtrlFit" title="Fit to window" style="background:none; border:none; color:#cbd5e1; font-size:11px; padding:2px 7px; border-radius:3px; cursor:pointer;">1x Fit</button>
+          <button type="button" class="zoom-ctrl-btn active" id="zoomCtrl2x" title="2x Enlarge" style="background:#0078d4; border:none; color:#ffffff; font-weight:bold; font-size:11px; padding:2px 7px; border-radius:3px; cursor:pointer;">2x Zoom</button>
+          <button type="button" class="zoom-ctrl-btn" id="zoomCtrl3x" title="3x Extra Large" style="background:none; border:none; color:#cbd5e1; font-size:11px; padding:2px 7px; border-radius:3px; cursor:pointer;">3x Max</button>
+        </div>
+      </div>
       <button class="image-zoom-close" id="closeZoomModalBtn" title="Close preview (Esc)">✕</button>
     </div>
-    <div class="image-zoom-body" id="zoomModalBody">
+    <div class="image-zoom-body zoom-2x" id="zoomModalBody">
       <img src="${imgSrc}" alt="${altText}" />
     </div>
     <div class="image-zoom-footer">
@@ -1357,6 +1373,63 @@ export function openImageZoomModal(imgSrc, altText = "Generated Visual") {
 
   modal.style.display = "flex";
 
+  const bodyEl = document.getElementById("zoomModalBody");
+  const btnFit = document.getElementById("zoomCtrlFit");
+  const btn2x = document.getElementById("zoomCtrl2x");
+  const btn3x = document.getElementById("zoomCtrl3x");
+
+  const setZoom = (level) => {
+    if (!bodyEl) return;
+    bodyEl.classList.remove("zoom-fit", "zoom-2x", "zoom-3x");
+    bodyEl.classList.add(`zoom-${level}`);
+    [btnFit, btn2x, btn3x].forEach(b => {
+      if (b) {
+        b.style.background = "none";
+        b.style.color = "#cbd5e1";
+        b.style.fontWeight = "normal";
+      }
+    });
+    const activeBtn = level === "fit" ? btnFit : (level === "2x" ? btn2x : btn3x);
+    if (activeBtn) {
+      activeBtn.style.background = "#0078d4";
+      activeBtn.style.color = "#ffffff";
+      activeBtn.style.fontWeight = "bold";
+    }
+  };
+
+  if (btnFit) btnFit.onclick = (e) => { e.stopPropagation(); setZoom("fit"); };
+  if (btn2x) btn2x.onclick = (e) => { e.stopPropagation(); setZoom("2x"); };
+  if (btn3x) btn3x.onclick = (e) => { e.stopPropagation(); setZoom("3x"); };
+
+  // Smooth drag-to-pan in enlarged review mode
+  let isDown = false;
+  let startX = 0;
+  let startY = 0;
+  let scrollLeft = 0;
+  let scrollTop = 0;
+  if (bodyEl) {
+    bodyEl.onmousedown = (e) => {
+      if (e.target.tagName === "BUTTON") return;
+      isDown = true;
+      startX = e.pageX - bodyEl.offsetLeft;
+      startY = e.pageY - bodyEl.offsetTop;
+      scrollLeft = bodyEl.scrollLeft;
+      scrollTop = bodyEl.scrollTop;
+    };
+    bodyEl.onmouseleave = () => { isDown = false; };
+    bodyEl.onmouseup = () => { isDown = false; };
+    bodyEl.onmousemove = (e) => {
+      if (!isDown) return;
+      e.preventDefault();
+      const x = e.pageX - bodyEl.offsetLeft;
+      const y = e.pageY - bodyEl.offsetTop;
+      const walkX = (x - startX) * 1.5;
+      const walkY = (y - startY) * 1.5;
+      bodyEl.scrollLeft = scrollLeft - walkX;
+      bodyEl.scrollTop = scrollTop - walkY;
+    };
+  }
+
   const closeModal = () => {
     modal.style.display = "none";
   };
@@ -1368,7 +1441,7 @@ export function openImageZoomModal(imgSrc, altText = "Generated Visual") {
   if (cancelBtn) cancelBtn.onclick = closeModal;
 
   modal.onclick = (e) => {
-    if (e.target === modal || e.target.id === "zoomModalBody") {
+    if (e.target === modal) {
       closeModal();
     }
   };
@@ -1388,7 +1461,10 @@ export function openImageZoomModal(imgSrc, altText = "Generated Visual") {
         insertCurrentBtn.innerText = "⏳ Inserting...";
         insertCurrentBtn.disabled = true;
         try {
-          await performDocumentInsertion(`<img src="${imgSrc}" />`, `![Generated Image](${imgSrc})`, "insert_current_slide");
+          await hostAdapter.insertContent(`<img src="${imgSrc}" />`, `![Visual](${imgSrc})`, {
+            mode: "insert_current",
+            imageOnly: true
+          });
           insertCurrentBtn.innerText = "✅ Inserted!";
           insertCurrentBtn.classList.add("success");
           setTimeout(() => { closeModal(); }, 1000);
@@ -1409,8 +1485,10 @@ export function openImageZoomModal(imgSrc, altText = "Generated Visual") {
         insertNewBtn.innerText = "⏳ Creating slide...";
         insertNewBtn.disabled = true;
         try {
-          const slideMd = `## 🖼️ Visual Presentation\n\n![Generated Image](${imgSrc})\n`;
-          await performDocumentInsertion(`<img src="${imgSrc}" />`, slideMd, "insert_cursor");
+          await hostAdapter.insertContent(`<img src="${imgSrc}" />`, `![Visual](${imgSrc})`, {
+            mode: "insert",
+            imageOnly: true
+          });
           insertNewBtn.innerText = "✅ Created!";
           insertNewBtn.classList.add("success");
           setTimeout(() => { closeModal(); }, 1000);
@@ -1514,14 +1592,28 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
       parentContainer.appendChild(zoomOverlay);
     }
 
-    // If there is no bottom "Zoom & Review" action button in the card or immediate container:
+    // Set data attributes and wire direct click handlers on any zoom buttons inside the card
     const card = img.closest(".office-visual-image-card, .rendered-chart-container, .chat-bubble");
+    if (card) {
+      card.querySelectorAll(".img-zoom-btn, .img-action-btn-zoom").forEach(btn => {
+        btn.setAttribute("data-img-src", img.src);
+        btn.setAttribute("data-img-alt", img.alt || "Generated Visual");
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          openImageZoomModal(img.src, img.alt);
+        };
+      });
+    }
+
+    // If there is no bottom "Zoom & Review" action button in the card or immediate container:
     if (card && !card.querySelector(".img-action-btn-zoom")) {
       const zoomReviewBar = document.createElement("div");
       zoomReviewBar.style.cssText = "margin:8px 0; display:flex; justify-content:center; gap:6px;";
       const zoomReviewBtn = document.createElement("button");
       zoomReviewBtn.type = "button";
       zoomReviewBtn.className = "img-action-btn-zoom";
+      zoomReviewBtn.setAttribute("data-img-src", img.src);
+      zoomReviewBtn.setAttribute("data-img-alt", img.alt || "Generated Visual");
       zoomReviewBtn.innerHTML = "🔍 Zoom & Review";
       zoomReviewBtn.onclick = (e) => {
         e.stopPropagation();
@@ -1595,26 +1687,10 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
     }
   };
 
-  // 5. Zoom Visual Button (if response contains any images)
-  let zoomToolbarBtn = null;
-  if (renderedImages && renderedImages.length > 0) {
-    zoomToolbarBtn = document.createElement("button");
-    zoomToolbarBtn.className = "action-btn zoom";
-    zoomToolbarBtn.innerHTML = `🔍 Zoom Visual`;
-    zoomToolbarBtn.title = "Enlarge and review generated visual before inserting";
-    zoomToolbarBtn.onclick = () => {
-      const firstImg = renderedImages[0];
-      if (firstImg) {
-        openImageZoomModal(firstImg.src, firstImg.alt);
-      }
-    };
-  }
-
   primaryActions.appendChild(replaceBtn);
   if (insertCurrentBtn) primaryActions.appendChild(insertCurrentBtn);
   primaryActions.appendChild(insertBtn);
   primaryActions.appendChild(copyBtn);
-  if (zoomToolbarBtn) primaryActions.appendChild(zoomToolbarBtn);
   actionsContainer.appendChild(primaryActions);
 
   // Refinement Chips: Quick 1-Click Multi-Turn Prompts

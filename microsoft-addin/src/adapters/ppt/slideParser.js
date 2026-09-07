@@ -380,11 +380,15 @@ function getSlideHeaderElements(tempDiv) {
  * Parses HTML or raw Markdown text into an array of slide objects:
  * [{ title: string, subtitle: string, body: string, color: string, titleSize: number, subtitleSize: number, base64Images: string[], slideNumber: number }]
  */
-export function parseSlides(htmlContent, rawText = "") {
+export function parseSlides(htmlContent, rawText = "", options = {}) {
   if (!htmlContent && !rawText) return [];
 
   const tempDiv = document.createElement("div");
   tempDiv.innerHTML = htmlContent || rawText;
+
+  // Clean UI buttons, zoom controls, citation callouts, action toolbars, and preview containers
+  const uiCallouts = tempDiv.querySelectorAll("button, .img-zoom-btn, .img-action-btn-zoom, .action-btn, [class*='zoom'], blockquote, .note, .ppt-deck-preview-container, .response-actions-container, [style*='background-color:#f0f6ff']");
+  uiCallouts.forEach(n => n.remove());
 
   // Extract all images upfront from HTML DOM, markdown images, and data URIs
   const highResChartEl = tempDiv.querySelector(".rendered-chart-container img");
@@ -428,9 +432,25 @@ export function parseSlides(htmlContent, rawText = "") {
     }
   }
 
-  // Clean citation callouts, action toolbars, and preview containers from slide body text
-  const noteCallouts = tempDiv.querySelectorAll("blockquote, .note, .ppt-deck-preview-container, .response-actions-container, [style*='background-color:#f0f6ff']");
-  noteCallouts.forEach(n => n.remove());
+  // Handle explicit or detected image-only insertion (e.g. from Zoom modal or standalone visual)
+  const remainingText = (tempDiv.innerText || "").replace(/🔍|Zoom|Review|Visual/gi, "").trim();
+  const isImageOnly = options?.imageOnly || (allImages.length > 0 && !rawText.includes("##") && remainingText.length < 5);
+  if (isImageOnly && allImages.length > 0) {
+    return [{
+      slideNumber: 1,
+      title: "",
+      subtitle: "",
+      visualConcept: "",
+      color: null,
+      titleSize: 36,
+      subtitleSize: 20,
+      body: "",
+      additionalBody: "",
+      tableData: null,
+      base64Images: allImages,
+      imageOnly: true
+    }];
+  }
 
   // -------------------------------------------------------------
   // Strategy 0: Executive Visual JSON (3-Column Metric Grid, Before/After)
