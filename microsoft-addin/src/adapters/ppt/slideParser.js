@@ -1313,9 +1313,10 @@ function finalizeSlides(slides, allImages = [], rawText = "") {
 
   let finalSlides = consolidateExecutiveSummarySlides(slides, allImages);
 
-  // Universal Executive Presentation Rule:
-  // "If there is a table, all the bullet points after the table go to the second slide"
-  const expandedSlides = [];
+  // Executive Presentation Rule:
+  // When a table is present, substantive bullet points beneath the table become slide notes (slide.notes)
+  // instead of creating an unwanted separate slide.
+  const processedSlides = [];
   for (const s of finalSlides) {
     if (s.tableData && s.tableData.rows && s.tableData.rows.length > 0) {
       const rawBullets = (s.additionalBody || s.body || "")
@@ -1324,40 +1325,20 @@ function finalizeSlides(slides, allImages = [], rawText = "") {
         .filter(b => b && b !== "• Executive slide content" && !b.startsWith("|") && !b.startsWith("---"));
       const filteredBullets = filterDuplicateTableBullets(rawBullets, s.tableData);
 
-      if (filteredBullets.length > 0) {
-        // Slide 1: Main Content & Table ONLY
-        const tableSlide = {
-          ...s,
-          body: "",
-          additionalBody: "",
-          tableData: s.tableData
-        };
-        expandedSlides.push(tableSlide);
-
-        // Slide 2: Dedicated Key Takeaways & Bullets
-        let secondTitle = (s.title || "Executive Summary").replace(/^#+\s*/, "").trim();
-        if (!secondTitle.toLowerCase().includes("takeaway") && !secondTitle.toLowerCase().includes("key")) {
-          secondTitle = secondTitle.replace(/summary/i, "Summary: Key Takeaways");
-          if (!secondTitle.includes("Takeaways")) {
-            secondTitle += " - Key Takeaways";
-          }
-        }
-        const bulletSlide = {
-          ...s,
-          title: secondTitle,
-          subtitle: s.subtitle || "Strategic takeaways and operational details",
-          tableData: null,
-          body: filteredBullets.join("\n\n"),
-          additionalBody: filteredBullets.join("\n\n"),
-          base64Images: []
-        };
-        expandedSlides.push(bulletSlide);
-        continue;
-      }
+      // Slide 1: Main Content & Table ONLY (clean canvas without overlapping text), takeaways saved into slide.notes
+      const tableSlide = {
+        ...s,
+        body: "",
+        additionalBody: "",
+        tableData: s.tableData,
+        notes: filteredBullets.length > 0 ? filteredBullets.join("\n\n") : (s.notes || "")
+      };
+      processedSlides.push(tableSlide);
+      continue;
     }
-    expandedSlides.push(s);
+    processedSlides.push(s);
   }
-  finalSlides = expandedSlides;
+  finalSlides = processedSlides;
 
   const wordToNumber = {
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
@@ -1382,11 +1363,7 @@ function finalizeSlides(slides, allImages = [], rawText = "") {
   }
 
   if (requestedCount && requestedCount > 0 && finalSlides.length > requestedCount) {
-    // If user requested 1 slide or summary, but table + bullets split produced 2 slides, preserve both!
-    const isTableAndBulletsPair = (requestedCount === 1 && finalSlides.length === 2 && finalSlides[0].tableData && !finalSlides[1].tableData);
-    if (!isTableAndBulletsPair) {
-      finalSlides = finalSlides.slice(0, requestedCount);
-    }
+    finalSlides = finalSlides.slice(0, requestedCount);
   }
 
   // On multi-slide decks, sanitize Slide 1 (Title slide) to strictly contain Title, Subtitle, and Executive Summary
@@ -1522,33 +1499,15 @@ function consolidateExecutiveSummarySlides(slides, allImages = []) {
     }
 
     if (uniqueBullets.length > 0) {
-      // 2-Slide Executive Architecture:
-      // Slide 1: Main Content & Table ONLY
+      // Single Executive Slide with Table ONLY; Key Takeaways attached as slide notes
       const slide1 = {
         ...merged,
         body: "",
         additionalBody: "",
-        tableData: merged.tableData
+        tableData: merged.tableData,
+        notes: uniqueBullets.join("\n\n").trim()
       };
-
-      // Slide 2: Dedicated Key Takeaways & Bullet Points
-      let secondTitle = (merged.title || "Executive Summary").replace(/^#+\s*/, "").trim();
-      if (!secondTitle.toLowerCase().includes("takeaway") && !secondTitle.toLowerCase().includes("key")) {
-        secondTitle = secondTitle.replace(/summary/i, "Summary: Key Takeaways");
-        if (!secondTitle.includes("Takeaways")) {
-          secondTitle += " - Key Takeaways";
-        }
-      }
-      const slide2 = {
-        ...merged,
-        title: secondTitle,
-        subtitle: merged.subtitle || "Strategic insights and operational takeaways",
-        tableData: null,
-        body: uniqueBullets.join("\n\n").trim(),
-        additionalBody: uniqueBullets.join("\n\n").trim(),
-        base64Images: []
-      };
-      return [slide1, slide2];
+      return [slide1];
     }
   }
 

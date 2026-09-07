@@ -441,6 +441,17 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
 
     const newSlide = slides.getItemAt(slideCount - 1);
 
+    // If slide notes exist, associate them with the slide tags metadata
+    if (slideData.notes && newSlide.tags) {
+      try {
+        const cleanNotes = String(slideData.notes).replace(/[\r\n]+/g, " | ").trim();
+        newSlide.tags.add("SpeakerNotes", cleanNotes.substring(0, 250));
+        logToPPTConsole(`Slide ${slideNum}: Attached SpeakerNotes tag metadata.`);
+      } catch (tErr) {
+        console.warn("[PPTBuilder] Notice setting slide tag:", tErr);
+      }
+    }
+
     const isImageOnlySlide = slideData.imageOnly || (!cleanTitle && hasImages && !hasMeaningfulBody && !hasTable);
 
     let contentTop = 40;

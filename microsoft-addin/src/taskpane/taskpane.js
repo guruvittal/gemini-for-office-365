@@ -1713,25 +1713,9 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
     }
   };
 
-  // 4. Copy Button
-  const copyBtn = document.createElement("button");
-  copyBtn.className = "action-btn copy";
-  copyBtn.innerHTML = `📋 Copy`;
-  copyBtn.title = "Copy to clipboard";
-  copyBtn.onclick = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      copyBtn.innerHTML = `✅ Copied!`;
-      setTimeout(() => { copyBtn.innerHTML = `📋 Copy`; }, 2000);
-    } catch (e) {
-      console.warn("Clipboard copy error:", e);
-    }
-  };
-
   primaryActions.appendChild(replaceBtn);
   if (insertCurrentBtn) primaryActions.appendChild(insertCurrentBtn);
   primaryActions.appendChild(insertBtn);
-  primaryActions.appendChild(copyBtn);
   actionsContainer.appendChild(primaryActions);
 
   // Refinement Chips: Quick 1-Click Multi-Turn Prompts

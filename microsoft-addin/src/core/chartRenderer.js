@@ -586,9 +586,7 @@ export function renderChartHtml(text) {
         <button type="button" class="img-zoom-btn" data-img-src="${dataUri}" data-img-alt="${alt}" title="Zoom and review chart" style="position:absolute; bottom:8px; right:8px; background:rgba(15,23,42,0.85); color:#ffffff; border:none; border-radius:4px; padding:5px 9px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px; backdrop-filter:blur(4px); box-shadow:0 2px 4px rgba(0,0,0,0.3); z-index:10;">🔍 Zoom</button>
       </div>
       <div style="margin-top:8px; display:flex; justify-content:center; gap:6px; flex-wrap:wrap;">
-        <button type="button" class="img-action-btn-zoom" data-img-src="${dataUri}" data-img-alt="${alt}" style="background:#0078d4; color:#ffffff; border:none; border-radius:4px; padding:5px 12px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">🔍 Zoom & Review</button>
-        <button type="button" class="img-action-btn-insert-new" data-img-src="${dataUri}" data-img-alt="${alt}" style="background:#107c41; color:#ffffff; border:none; border-radius:4px; padding:5px 10px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">➕ Insert as New Slide</button>
-        <button type="button" class="img-action-btn-insert-current" data-img-src="${dataUri}" data-img-alt="${alt}" style="background:#5c2d91; color:#ffffff; border:none; border-radius:4px; padding:5px 10px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">📌 Insert on Slide</button>
+        <button type="button" class="img-action-btn-zoom" data-img-src="${dataUri}" data-img-alt="${alt}" style="background:#0078d4; color:#ffffff; border:none; border-radius:4px; padding:5px 14px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">🔍 Zoom & Review</button>
       </div>
     </div>`;
   }
