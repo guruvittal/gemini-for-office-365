@@ -4,7 +4,8 @@
  * Standard Office.js Slide Generation:
  * - Uses official Microsoft pattern: slides.add() -> slides.getCount() -> slides.getItemAt(count - 1)
  * - Appends new slides to the end of the presentation without displacing existing slides
- * - Inserts textboxes with { left, top, width, height } geometry directly
+ * - Automatically neutralizes and deletes default placeholders ("Click to add title", "Click to add subtitle")
+ * - Strictly isolates tables: when a slide has a table, only the native table is rendered (no overlapping bullets)
  * - Renders native Title, Subtitle, Table / Bullets, and side-by-side visual images
  * - Zero artificial card backgrounds, zero borders, respecting native presentation theme
  * - Zero GetItem(id) COM calls to eliminate InvalidParam passed to GetItem(id) errors
@@ -126,10 +127,33 @@ async function createSingleSlide(slideData, slideNum) {
 
     const newSlide = slides.getItemAt(slideCount - 1);
 
-    // 3. Add Title TextBox at Top
+    // 3. Clear and delete default template placeholders ("Click to add title", "Click to add subtitle")
+    try {
+      newSlide.shapes.load("items");
+      await context.sync();
+
+      if (newSlide.shapes.items && newSlide.shapes.items.length > 0) {
+        for (let i = newSlide.shapes.items.length - 1; i >= 0; i--) {
+          const s = newSlide.shapes.items[i];
+          try {
+            if (s.textFrame && s.textFrame.textRange) {
+              s.textFrame.textRange.text = "";
+            }
+          } catch (_) {}
+          try {
+            s.delete();
+          } catch (_) {}
+        }
+        await context.sync();
+      }
+    } catch (cleanErr) {
+      console.warn("[PPTBuilder] Notice clearing placeholders:", cleanErr.message);
+    }
+
+    // 4. Add Title TextBox at Top
     const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
       left: 50,
-      top: 35,
+      top: 30,
       width: 860,
       height: 50
     });
@@ -139,11 +163,12 @@ async function createSingleSlide(slideData, slideNum) {
       titleBox.textFrame.textRange.font.color = color;
     }
 
-    // 4. Add Subtitle if exists directly under Title
+    // 5. Add Subtitle if exists directly under Title
+    let contentTop = 85;
     if (subtitle) {
       const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
         left: 50,
-        top: 90,
+        top: 80,
         width: 860,
         height: 35
       });
@@ -152,12 +177,12 @@ async function createSingleSlide(slideData, slideNum) {
       if (color) {
         subtitleBox.textFrame.textRange.font.color = color;
       }
+      contentTop = 120;
     }
 
-    const bodyTop = subtitle ? 135 : 95;
-
-    // 5. Render Table or Body Bullets
+    // 6. Render Native Table OR Body Bullets / Images
     if (hasTable) {
+      // Table Slide: Render ONLY the native table (zero overlapping bullets/takeaways)
       const numRows = tableData.rows.length + 1;
       const numCols = Math.max(
         tableData.headers ? tableData.headers.length : 0,
@@ -174,57 +199,47 @@ async function createSingleSlide(slideData, slideNum) {
         }
       }
 
+      const tableHeight = Math.min(380, Math.max(100, numRows * 36));
       const tableShape = newSlide.shapes.addTable(numRows, numCols, {
         left: 50,
-        top: bodyTop,
-        height: Math.min(320, numRows * 36),
+        top: contentTop,
+        width: 860,
+        height: tableHeight,
         values: tableValues
       });
 
       try {
         tableShape.table.format = PowerPoint.TableFormat.lightStyle1;
       } catch (_) {}
-
-      const takeaway = (slideData.takeaway || slideData.additionalBody || "").trim();
-      if (takeaway) {
-        const takeawayTop = Math.min(460, bodyTop + Math.min(320, numRows * 36) + 16);
-        const takeawayBox = newSlide.shapes.addTextBox(takeaway, {
-          left: 50,
-          top: takeawayTop,
-          width: 860,
-          height: 50
-        });
-        takeawayBox.textFrame.textRange.font.size = 14;
-        takeawayBox.textFrame.textRange.font.italic = true;
-      }
+      logToPPTConsole(`Slide ${slideNum}: Added native table (${numRows} rows x ${numCols} cols).`);
     } else {
       // Standard clean body bullets
       const cleanBullets = bodyTextContent.replace(/\*\*/g, "").replace(/__/g, "");
       const bodyBox = newSlide.shapes.addTextBox(cleanBullets, {
         left: 50,
-        top: bodyTop,
+        top: contentTop,
         width: hasImages ? 400 : 860,
         height: 360
       });
       bodyBox.textFrame.textRange.font.size = 18;
       bodyBox.textFrame.wordWrap = true;
-    }
 
-    // 6. Add Image if available (and not a table slide)
-    if (hasImages && !hasTable) {
-      for (const rawImg of imagesToInsert) {
-        const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
-        if (clean.length > 50) {
-          try {
-            newSlide.shapes.addImage(clean, {
-              left: 480,
-              top: bodyTop,
-              width: 380,
-              height: 300
-            });
-            logToPPTConsole(`Slide ${slideNum}: Attached image.`);
-          } catch (imgErr) {
-            logToPPTConsole(`Slide ${slideNum}: Image notice: ${imgErr.message}`);
+      // Add Image if available (only on non-table slides)
+      if (hasImages) {
+        for (const rawImg of imagesToInsert) {
+          const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
+          if (clean.length > 50) {
+            try {
+              newSlide.shapes.addImage(clean, {
+                left: 480,
+                top: contentTop,
+                width: 380,
+                height: 300
+              });
+              logToPPTConsole(`Slide ${slideNum}: Attached image.`);
+            } catch (imgErr) {
+              logToPPTConsole(`Slide ${slideNum}: Image notice: ${imgErr.message}`);
+            }
           }
         }
       }

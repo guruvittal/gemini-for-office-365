@@ -106,16 +106,17 @@ CRITICAL STRUCTURE CONTRACT FOR SLIDE GENERATION:${countConstraint}
 
 [CONTENT AREA - CHOOSE EXACTLY ONE VISUAL OR CONTENT FORMAT PER SLIDE]:
 - For narrative, strategy, vision, or background: 3 to 4 crisp executive bullet points with bold lead-ins (• **Key Theme**: Impactful description).
-- For quantitative data / financial metrics: An Executive Markdown Table with 3 to 4 columns (| Dimension | Metric | Strategic Impact |) followed by 2 concise takeaway bullets. (NEVER put a chart on a table slide!).
+- For quantitative data / financial metrics: An Executive Markdown Table with 3 to 4 columns (| Dimension | Metric | Strategic Impact |). Do NOT add extra bullets or takeaways on a table slide - the table itself represents the content. (NEVER put a chart on a table slide!).
 - For distribution / breakdown / share metrics: A structured JSON code block (\`\`\`json { "chartType": "doughnut|bar|pie", "title": "...", "data": [...] } \`\`\`) accompanied by 2-3 narrative bullet points. (NEVER put a table on a chart slide!).
-- For side-by-side or KPI comparisons: A structured visual JSON code block with "visualType": "metric_grid_3col" or "before_after".
+- For strategic priorities or key pillars: 3 to 4 crisp executive bullet points with bold lead-ins.
 
 3. CRITICAL VISUAL RULES:
 - PRESENTATION DIVERSITY (Decks with 3+ slides): NEVER make every slide a plain bullet slide! A high-performing executive presentation MUST use varied layouts across slides:
   * Slide 1: Executive introduction or strategic overview (clean title, subtitle, and 3 to 4 structured narrative bullets with bold lead-ins).
   * Data & Metrics Slide: At least 1 slide MUST feature an Executive Markdown Table (3-4 columns) showing core metrics, dimensions, and strategic impacts.
-  * Quantitative or Comparative Slide: At least 1 slide SHOULD feature a structured Metric Grid ("visualType": "metric_grid_3col") or a Data Chart.
-  * Remaining Slides: Strategic pillars, roadmap, or before/after comparisons.
+  * Optional Chart Slide: At most 1 slide can feature a Data Chart (\`\`\`json { "chartType": "doughnut|bar|pie" ... } \`\`\`).
+  * Remaining Slides: Strategic pillars, roadmap, or narrative bullets with bold lead-ins.
+- NEVER OUTPUT PSEUDO-TEXT LABELS: NEVER output labels like "Metric Grid", "Comparison Card", or raw placeholder text in the slide content.
 - EACH CHART MUST BE 100% UNIQUE: NEVER repeat or duplicate the same chart, metrics, or title across multiple slides. If a deck has 5 to 10 slides, at most 2 should contain a data chart, and each MUST cover a completely different topic and metric.
 - NEVER COMBINE A CHART AND A TABLE ON THE SAME SLIDE: A slide must feature EITHER a table OR a chart, NEVER both.
 - SLIDE 1 MUST BE AN INTRODUCTION SLIDE: Slide 1 should contain a clean title, subtitle, and 3 to 4 introductory narrative bullet points. Do NOT put charts or tables on Slide 1.

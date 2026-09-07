@@ -160,8 +160,7 @@ export function extractSlideMetadataAndBullets(rawLines) {
     }
 
     // Ignore raw visual markers leaked from pseudo-formatting
-    const strippedMarker = line.replace(/^[-•*]\s*/, '').trim();
-    if (/^(?:📊\s*Metric Grid|⚖️\s*Comparison|Metric Grid|Comparison Card)$/i.test(strippedMarker)) {
+    if (/metric\s*grid|comparison\s*card/i.test(line)) {
       continue;
     }
 
