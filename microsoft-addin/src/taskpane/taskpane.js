@@ -1089,7 +1089,7 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
 
   // Check if user requested distinct non-chart image content (e.g. photo, illustration, logo)
   const promptLower = (originalPrompt || "").toLowerCase();
-  const hasDistinctNonChartImageIntent = /(?:photo|photograph|portrait|illustration|logo|camera|scenery|picture of|image of a)/i.test(promptLower);
+  const hasDistinctNonChartImageIntent = /(?:image|picture|photo|photograph|portrait|illustration|drawing|cat|dog|logo|camera|scenery)/i.test(promptLower);
 
   let fullText = text;
   // If apiData has images:
@@ -1132,7 +1132,7 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
   replaceBtn.innerHTML = isPPT ? (hasSelection ? `🔄 Replace in Slide` : `🔄 Replace Slide`) : (isExcel ? `🔄 Replace in Sheet` : `🔄 Replace in Doc`);
   replaceBtn.title = isPPT ? (hasSelection ? "Replace selected text in slide" : "Replace active slide content") : "Replace active draft or selection in Word";
   replaceBtn.onclick = async () => {
-    await performDocumentInsertion(textDiv.innerHTML, text, "replace_draft");
+    await performDocumentInsertion(textDiv.innerHTML, fullText, "replace_draft");
   };
 
   // 2. Insert on Current Slide Button (PowerPoint only)
@@ -1143,7 +1143,7 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
     insertCurrentBtn.innerHTML = `📌 Insert on Current Slide`;
     insertCurrentBtn.title = "Insert generated content or image directly onto the currently active slide";
     insertCurrentBtn.onclick = async () => {
-      await performDocumentInsertion(textDiv.innerHTML, text, "insert_current_slide");
+      await performDocumentInsertion(textDiv.innerHTML, fullText, "insert_current_slide");
     };
   }
 
@@ -1153,7 +1153,7 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
   insertBtn.innerHTML = isPPT ? `➕ Insert as New Slide(s)` : (isExcel ? `➕ Insert into Sheet` : `➕ Insert at Cursor`);
   insertBtn.title = isPPT ? "Create new presentation slides at the end of the deck" : "Insert at current cursor location";
   insertBtn.onclick = async () => {
-    await performDocumentInsertion(textDiv.innerHTML, text, "insert_cursor");
+    await performDocumentInsertion(textDiv.innerHTML, fullText, "insert_cursor");
   };
 
   // 4. Copy Button

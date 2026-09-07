@@ -12,6 +12,8 @@
  * @author Sathya AG, Principal Architect, Google
  */
 
+import { isConversationalPreamble } from "./slideParser.js";
+
 function logToPPTConsole(msg, isError = false) {
   const prefix = isError ? "❌ [PPT] " : "ℹ️ [PPT] ";
   console.log(`${prefix}${msg}`);
@@ -139,7 +141,7 @@ async function getThemeBlankLayoutOptions() {
 /**
  * Populates a native Microsoft PowerPoint table using PowerPoint.js shapes.addTable().
  */
-function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90) {
+function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90, tableLeft = 50, tableWidth = 860) {
   const headers = tableData.headers || [];
   const rows = tableData.rows || [];
   const colCount = Math.max(headers.length, ...rows.map(r => r.length), 1);
@@ -166,9 +168,9 @@ function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90) {
   try {
     if (typeof newSlide.shapes.addTable === "function") {
       const tableShape = newSlide.shapes.addTable(rowCount, colCount, {
-        left: 50,
+        left: tableLeft,
         top: tableTop,
-        width: 860,
+        width: tableWidth,
         height: tableHeight,
         values: tableValues
       });
@@ -184,6 +186,9 @@ function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90) {
 
   try {
     const shape = newSlide.shapes.addTable(rowCount, colCount);
+    shape.left = tableLeft;
+    shape.top = tableTop;
+    shape.width = tableWidth;
     const table = shape.getTable();
     for (let r = 0; r < tableValues.length; r++) {
       for (let c = 0; c < colCount; c++) {
@@ -250,6 +255,60 @@ export function parseMarkdownFormatting(rawContent) {
 }
 
 /**
+ * Inserts a picture onto a slide using official Office.js PowerPoint shapes.addPicture().
+ * Includes fallback to data URI and geometric shape fill.
+ */
+export function insertPictureOnSlide(slide, rawImg, { left, top, width, height }, slideNum = 1) {
+  if (!rawImg) return false;
+  const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
+  if (clean.length <= 50) return false;
+
+  // 1. Primary: shapes.addPicture with clean base64
+  try {
+    if (typeof slide.shapes.addPicture === "function") {
+      slide.shapes.addPicture(clean, { left, top, width, height });
+      logToPPTConsole(`Slide ${slideNum}: Added picture via shapes.addPicture.`);
+      return true;
+    }
+  } catch (e) {
+    console.warn("[PPTBuilder] shapes.addPicture with clean base64 failed, trying data uri:", e);
+    try {
+      if (typeof slide.shapes.addPicture === "function") {
+        slide.shapes.addPicture(rawImg, { left, top, width, height });
+        logToPPTConsole(`Slide ${slideNum}: Added picture via data uri.`);
+        return true;
+      }
+    } catch (e2) {
+      console.warn("[PPTBuilder] shapes.addPicture data uri fallback failed:", e2);
+    }
+  }
+
+  // 2. Fallback: Geometric Shape with picture fill
+  try {
+    if (typeof slide.shapes.addGeometricShape === "function" && typeof PowerPoint !== "undefined" && PowerPoint.GeometricShapeType) {
+      const rect = slide.shapes.addGeometricShape(PowerPoint.GeometricShapeType.rectangle, {
+        left,
+        top,
+        width,
+        height
+      });
+      if (rect) {
+        if (rect.line) { try { rect.line.visible = false; } catch (_) {} }
+        if (rect.fill && typeof rect.fill.setPictureFromBase64 === "function") {
+          rect.fill.setPictureFromBase64(clean);
+          logToPPTConsole(`Slide ${slideNum}: Added picture via shape picture fill.`);
+          return true;
+        }
+      }
+    }
+  } catch (fillErr) {
+    console.warn("[PPTBuilder] Shape picture fill fallback failed:", fillErr);
+  }
+
+  return false;
+}
+
+/**
  * Creates a single slide in PowerPoint with title, body bullets, native table, or optional images.
  */
 async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
@@ -258,16 +317,17 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
   const titleSize = slideData.titleSize || 36;
   const subtitleSize = slideData.subtitleSize || 18;
   const color = slideData.color || null;
-  const bodyTextContent = slideData.body || "• Executive slide content";
+  const bodyTextContent = (slideData.body || "").trim();
+  const hasMeaningfulBody = bodyTextContent.length > 0 &&
+    bodyTextContent !== "• Executive slide content" &&
+    !isConversationalPreamble(bodyTextContent);
 
   const tableData = slideData.tableData || null;
   const hasTable = Boolean(tableData && tableData.rows && tableData.rows.length > 0);
 
-  const imagesToInsert = hasTable ? [] : (
-    (slideData.compressedImages && slideData.compressedImages.length > 0)
-      ? slideData.compressedImages
-      : (slideData.base64Images || [])
-  );
+  const imagesToInsert = (slideData.compressedImages && slideData.compressedImages.length > 0)
+    ? slideData.compressedImages
+    : (slideData.base64Images || []);
   const hasImages = imagesToInsert.length > 0;
 
   logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."`);
@@ -326,17 +386,27 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
       contentTop = 120;
     }
 
-    // 5. Render Native Table OR Body Bullets / Images
-    if (hasTable) {
-      // Table slide: render ONLY the table! No overlapping bullets or takeaway boxes.
-      populateSlideTable(newSlide, tableData, slideNum, contentTop);
-    } else {
-      // Standard clean body bullets with markdown formatting
+    // 5. Layout Rendering: Table + Image, Table Only, Image + Bullets, Image Only, or Bullets Only
+    if (hasTable && hasImages) {
+      // 5a. Side-by-side: Chart/Image on Left, Table on Right
+      insertPictureOnSlide(newSlide, imagesToInsert[0], {
+        left: 50,
+        top: contentTop + 10,
+        width: 430,
+        height: 350
+      }, slideNum);
+
+      populateSlideTable(newSlide, tableData, slideNum, contentTop + 10, 500, 410);
+    } else if (hasTable) {
+      // 5b. Table Only: Full width
+      populateSlideTable(newSlide, tableData, slideNum, contentTop, 50, 860);
+    } else if (hasImages && hasMeaningfulBody) {
+      // 5c. Bullets on Left, Image on Right
       const { cleanText: cleanBullets, parsedParagraphs } = parseMarkdownFormatting(bodyTextContent);
       const bodyBox = newSlide.shapes.addTextBox(cleanBullets, {
         left: 50,
         top: contentTop,
-        width: hasImages ? 400 : 860,
+        width: 420,
         height: 360
       });
       bodyBox.textFrame.textRange.font.size = 18;
@@ -366,24 +436,55 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
         } catch (_) {}
       }
 
-      // Add Image if available (only on non-table slides)
-      if (hasImages) {
-        for (const rawImg of imagesToInsert) {
-          const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
-          if (clean.length > 50) {
-            try {
-              newSlide.shapes.addImage(clean, {
-                left: 480,
-                top: contentTop,
-                width: 380,
-                height: 300
-              });
-              logToPPTConsole(`Slide ${slideNum}: Attached image.`);
-            } catch (imgErr) {
-              logToPPTConsole(`Slide ${slideNum}: Image notice: ${imgErr.message}`);
+      insertPictureOnSlide(newSlide, imagesToInsert[0], {
+        left: 490,
+        top: contentTop + 10,
+        width: 420,
+        height: 350
+      }, slideNum);
+    } else if (hasImages) {
+      // 5d. Image Only: Centered prominently, NO placeholder text box
+      insertPictureOnSlide(newSlide, imagesToInsert[0], {
+        left: 170,
+        top: contentTop + 10,
+        width: 620,
+        height: 370
+      }, slideNum);
+    } else {
+      // 5e. Bullets Only: Full width
+      const content = hasMeaningfulBody ? bodyTextContent : "• Executive slide content";
+      const { cleanText: cleanBullets, parsedParagraphs } = parseMarkdownFormatting(content);
+      const bodyBox = newSlide.shapes.addTextBox(cleanBullets, {
+        left: 50,
+        top: contentTop,
+        width: 860,
+        height: 360
+      });
+      bodyBox.textFrame.textRange.font.size = 18;
+      bodyBox.textFrame.wordWrap = true;
+
+      // Apply bold styling to lead-in phrases
+      if (parsedParagraphs && parsedParagraphs.some(p => p.boldRanges && p.boldRanges.length > 0)) {
+        try {
+          const paras = bodyBox.textFrame.textRange.paragraphs;
+          paras.load("items/text");
+          await context.sync();
+          if (paras.items) {
+            for (let pIdx = 0; pIdx < paras.items.length && pIdx < parsedParagraphs.length; pIdx++) {
+              const pItem = paras.items[pIdx];
+              const pData = parsedParagraphs[pIdx];
+              const pLen = (pItem.text || "").length;
+              for (const b of (pData.boldRanges || [])) {
+                if (b.start >= 0 && b.length > 0 && (b.start + b.length) <= pLen) {
+                  try {
+                    const sub = pItem.getSubstring(b.start, b.length);
+                    sub.font.bold = true;
+                  } catch (_) {}
+                }
+              }
             }
           }
-        }
+        } catch (_) {}
       }
     }
 
@@ -457,28 +558,51 @@ export async function insertOnCurrentSlide(slideStructures, options = {}) {
     const hasImages = imagesToInsert.length > 0;
     const tableData = slideData.tableData || null;
     const hasTable = Boolean(tableData && tableData.rows && tableData.rows.length > 0);
+    const rawBody = (slideData.body || "").trim();
+    const hasMeaningfulBody = rawBody.length > 0 &&
+      rawBody !== "• Executive slide content" &&
+      !rawBody.toLowerCase().startsWith("here is the image") &&
+      !isConversationalPreamble(rawBody);
 
-    // 1. If images are present, insert them centered or in side layout
-    if (hasImages) {
+    // 1. Chart/Image + Table
+    if (hasImages && hasTable) {
+      insertPictureOnSlide(activeSlide, imagesToInsert[0], { left: 50, top: 90, width: 430, height: 350 }, 1);
+      populateSlideTable(activeSlide, tableData, 1, 90, 500, 410);
+      logToPPTConsole(`Inserted chart and table onto current slide.`);
+    }
+    // 2. Images present
+    else if (hasImages) {
+      const imgWidth = hasMeaningfulBody ? 420 : 620;
+      const imgLeft = hasMeaningfulBody ? 490 : 170;
       for (const rawImg of imagesToInsert) {
-        const clean = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
-        if (clean.length > 50) {
-          activeSlide.shapes.addImage(clean, {
-            left: 200,
-            top: 70,
-            width: 560,
-            height: 380
-          });
-          logToPPTConsole(`Inserted image onto current slide.`);
-        }
+        insertPictureOnSlide(activeSlide, rawImg, {
+          left: imgLeft,
+          top: 80,
+          width: imgWidth,
+          height: 370
+        }, 1);
       }
-    } else if (hasTable) {
-      // 2. If table is present, insert table
-      populateSlideTable(activeSlide, tableData, 1, 90);
+      if (hasMeaningfulBody) {
+        const { cleanText: cleanBullets } = parseMarkdownFormatting(rawBody);
+        const bodyBox = activeSlide.shapes.addTextBox(cleanBullets, {
+          left: 50,
+          top: 90,
+          width: 420,
+          height: 360
+        });
+        bodyBox.textFrame.textRange.font.size = 14;
+        bodyBox.textFrame.wordWrap = true;
+      }
+      logToPPTConsole(`Inserted image onto current slide.`);
+    }
+    // 3. Table present
+    else if (hasTable) {
+      populateSlideTable(activeSlide, tableData, 1, 90, 50, 860);
       logToPPTConsole(`Inserted table onto current slide.`);
-    } else {
-      // 3. Otherwise insert text box
-      const bodyTextContent = slideData.body || "• Executive slide content";
+    }
+    // 4. Bullets only
+    else {
+      const bodyTextContent = hasMeaningfulBody ? rawBody : "• Executive slide content";
       const { cleanText: cleanBullets } = parseMarkdownFormatting(bodyTextContent);
       const bodyBox = activeSlide.shapes.addTextBox(cleanBullets, {
         left: 50,

@@ -719,14 +719,12 @@ export function parseSlides(htmlContent, rawText = "") {
         cleanAdditionalBody = filteredBullets.join("\n\n");
       }
 
-      // A slide with a table must never have images
+      // Slide visual images (chart or companion illustrations)
       let slideImgs = [];
-      if (!sectionTableData) {
-        if (sectionImgs.length > 0) {
-          slideImgs = sectionImgs;
-        } else if (allImages.length > 0 && headerEls.length === 1) {
-          slideImgs = allImages;
-        }
+      if (sectionImgs.length > 0) {
+        slideImgs = sectionImgs;
+      } else if (allImages.length > 0 && (headerEls.length === 1 || i === 0)) {
+        slideImgs = allImages;
       }
 
       slides.push({
@@ -1226,7 +1224,25 @@ export function parseSlides(htmlContent, rawText = "") {
     }
   }
 
+  // Filter out any conversational preamble lines from slide body content
+  contentLines = contentLines.filter(l => !isConversationalPreamble(l));
+
+  // If this slide has an image, derive a clean subject title if title is generic or preamble
+  if (allImages.length > 0) {
+    const combinedPromptContext = `${(typeof window !== "undefined" && window.__lastUserPrompt) || ""} ${fallbackRaw}`;
+    const subjectMatch = combinedPromptContext.match(/(?:image|picture|photo|photograph|portrait|illustration|drawing)\s+(?:of|showing|featuring|with)?\s+(?:a|an|the)?\s*([a-zA-Z0-9\s]+?)(?:\s+you\s+requested|[.:!\n]|$)/i);
+    if (subjectMatch && subjectMatch[1]) {
+      const subj = subjectMatch[1].trim();
+      if (subj.length > 1 && subj.length < 35 && !isConversationalPreamble(subj)) {
+        singleTitle = `🎨 ${subj.charAt(0).toUpperCase() + subj.slice(1)}`;
+      }
+    } else if (singleTitle === "🎯 Key Highlights" || isConversationalPreamble(singleTitle) || singleTitle.startsWith("Slide 1")) {
+      singleTitle = "🎨 Visual Concept";
+    }
+  }
+
   const parsed = extractSlideMetadataAndBullets(contentLines);
+  const slideBody = contentLines.length > 0 ? parsed.body : "";
 
   return finalizeSlides([{
     slideNumber: 1,
@@ -1237,7 +1253,7 @@ export function parseSlides(htmlContent, rawText = "") {
     color: parsed.color,
     titleSize: parsed.titleSize,
     subtitleSize: parsed.subtitleSize,
-    body: parsed.body,
+    body: slideBody,
     base64Images: allImages
   }], allImages, rawText);
 }
@@ -1283,13 +1299,7 @@ function finalizeSlides(slides, allImages = [], rawText = "") {
   finalSlides.forEach((s, idx) => {
     s.slideNumber = idx + 1;
 
-    // Rule 1: Table slides must NEVER have an image or chart (Executive Table standard)
-    if (s.tableData && s.tableData.rows && s.tableData.rows.length > 0) {
-      s.base64Images = [];
-      return;
-    }
-
-    // Rule 2: Deduplicate images across all slides in the deck
+    // Deduplicate images across all slides in the deck
     if (s.base64Images && s.base64Images.length > 0) {
       const uniqueImgs = [];
       for (const img of s.base64Images) {
@@ -1427,7 +1437,8 @@ export function sanitizeAiResponse(text) {
 export function isConversationalPreamble(line) {
   if (!line) return false;
   const l = line.toLowerCase().trim();
-  if (/^(?:here\s+(?:is|are)|below\s+(?:is|are)|sure|certainly|of\s+course|as\s+requested|optimized|revised|concise|punchy|in\s+summary|to\s+make)/i.test(l)) return true;
+  if (/^(?:i\s+(?:can|have|will|am\s+happy\s+to)|let\s+me|happy\s+to|glad\s+to|feel\s+free|here\s+(?:is|are)|below\s+(?:is|are)|sure|certainly|of\s+course|as\s+requested|optimized|revised|concise|punchy|in\s+summary|to\s+make)/i.test(l)) return true;
+  if (l.includes("help you with that") || l.includes("image you requested") || l.includes("image of a") || l.includes("here is the image") || l.includes("created an image") || l.includes("generated an image")) return true;
   if (l.includes("optimized for a presentation") || l.includes("version optimized") || l.includes("concise and punchy version") || l.includes("minimalist layout") || l.includes("presentation slide")) return true;
   if (/^[-•*]/.test(l)) return true; // Starts with bullet
   return false;
@@ -1464,8 +1475,8 @@ export function cleanSlideTitle(rawTitle, defaultNum = 1) {
     .replace(/^[#*\s:]+/, "")
     .replace(/^\d+[\.\)]\s*/, "")
     .replace(/^Slide\s*\d+[:\-–—]?\s*/i, "")
-    .replace(/^(?:of\s+course[.,]?\s*|sure[.,]?\s*|certainly[.,]?\s*|absolutely[.,]?\s*)/i, "")
-    .replace(/^(?:here\s+is\s+(?:a\s+)?(?:table|comparison|list|breakdown|summary)?\s+(?:of|comparing|for)?|below\s+is\s+(?:a\s+)?(?:table|comparison|list|breakdown|summary)?\s+(?:of|comparing|for)?)\s*/i, "")
+    .replace(/^(?:i\s+can\s+(?:certainly|definitely|gladly)?\s*help|happy\s+to\s+help|sure[.,]?\s*|certainly[.,]?\s*|absolutely[.,]?\s*|of\s+course[.,]?\s*)/i, "")
+    .replace(/^(?:here\s+is\s+(?:a\s+)?(?:table|comparison|list|breakdown|summary|the\s+image|an\s+image)?\s+(?:of|comparing|for)?|below\s+is\s+(?:a\s+)?(?:table|comparison|list|breakdown|summary|the\s+image|an\s+image)?\s+(?:of|comparing|for)?)\s*/i, "")
     .replace(/^(?:a\s+table\s+of|a\s+comparison\s+of|table\s+of|comparison\s+of)\s*/i, "")
     .replace(/[:.]+$/, "")
     .replace(/\*\*/g, "")
