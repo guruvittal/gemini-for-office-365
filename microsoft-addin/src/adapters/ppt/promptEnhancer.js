@@ -69,8 +69,33 @@ CRITICAL INSTRUCTIONS FOR IMAGE GENERATION:
     return `${userPrompt}\n\n${rules}`;
   }
 
-  // Rule set for Executive Summary (Single slide with table and takeaways/notes)
+  // Rule set for Executive Summary (Summarize Slides allows up to 5 slides with dedicated takeaways slide; other summaries remain single-slide)
   if (lowerPrompt.includes("summarize") || lowerPrompt.includes("executive summary") || lowerPrompt.includes("slide summary") || lowerPrompt.includes("key takeaway")) {
+    const isSummarizeSlides = (typeof window !== "undefined" && window.__isSummarizeSlidesAction) ||
+      lowerPrompt.includes("summarize slides") ||
+      lowerPrompt.includes("up to 5 slides") ||
+      lowerPrompt.includes("[summarize slides]");
+
+    if (isSummarizeSlides) {
+      const rules = `
+CRITICAL INSTRUCTIONS FOR SUMMARIZE SLIDES GENERATION (UP TO 5 SLIDES):
+1. Provide a comprehensive Executive Summary presentation across multiple slides (UP TO 5 SLIDES):
+   - You can create up to 5 slides to thoroughly cover the key information, data, metrics, comparisons, and strategic findings.
+   - Separate distinct topics, tables, and visual charts into their own slides (e.g. ## Slide 1: [Executive Overview / Main Metrics Table], ## Slide 2: [Category Breakdown / Visual Chart / Details Table], etc.).
+   - If there are multiple tables or data sets, place each table on its own appropriate slide.
+   - If a visual chart represents data, output a structured JSON code block with the exact data metrics (chartType: "doughnut" or "bar", title: "...", data: [...]) so our client presentation engine can render a crisp chart.
+   - Break down the key takeaways into a dedicated single slide titled "## 📊 Executive Summary: Key Takeaways" with impactful bullet points and bold lead-in phrases.
+   - Format each slide with a clear markdown header (## Slide 1: [Title], ## Slide 2: [Title], etc.) so each section generates its own slide.
+2. STRICT CLOSED-BOOK GROUNDING CONTRACT:
+   - You are operating in 100% STRICT CLOSED-BOOK MODE based SOLELY on the provided slide context.
+   - You must synthesize information ONLY AND EXCLUSIVELY from the text and data present in the selected slides.
+   - NEVER extrapolate, bring in external industry knowledge, or introduce topics, facts, or assumptions that do not appear in the selected slides.
+   - If a concept, fact, or metric is not explicitly stated in the selected slides, DO NOT mention it.
+3. DO NOT output conversational preamble or pleasantries.
+`;
+      return `${userPrompt}\n\n${rules}`;
+    }
+
     const rules = `
 CRITICAL INSTRUCTIONS FOR EXECUTIVE SUMMARY GENERATION:
 1. Provide a professional Executive Summary with EXACTLY ONE single slide:

@@ -119,7 +119,8 @@ export function injectPowerPointStyles() {
 export function enhanceBubbleWithSlideDeck(bubbleEl, htmlContent, rawText, adapter) {
   if (!bubbleEl || bubbleEl.querySelector(".ppt-deck-preview-container")) return;
 
-  const slides = parseSlides(htmlContent, rawText);
+  const isSummarizeSlides = bubbleEl.dataset?.isSummarizeSlides === "true" || (typeof window !== "undefined" && window.__isSummarizeSlidesAction);
+  const slides = parseSlides(htmlContent, rawText, { isSummarizeSlides });
   if (slides.length < 2) return;
 
   injectPowerPointStyles();

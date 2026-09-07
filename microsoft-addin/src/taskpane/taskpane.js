@@ -1056,21 +1056,23 @@ async function runPowerPointSlideAction(actionType) {
   let displayBubble = "";
 
   if (actionType === "summarize" || actionType === "takeaways") {
+    if (typeof window !== "undefined") window.__isSummarizeSlidesAction = true;
     if (slides && slides.length >= 2) {
       slideLabel = `${slides.length} highlighted slides`;
       slideContext = slides.map((s) => `[Highlighted Slide ${s.slideNumber}]:\n${s.text || "(No readable text)"}`).join("\n\n---\n\n");
-      displayBubble = `📊 [Summarize Slides] Generating executive summary slide from ${slides.length} highlighted slides...`;
+      displayBubble = `📊 [Summarize Slides] Generating executive summary presentation (up to 5 slides) from ${slides.length} highlighted slides...`;
     } else {
       appendBubble(
-        "ℹ️ **Summarize Slides**: Analyzing all slides across the entire presentation to generate a comprehensive deck summary...",
+        "ℹ️ **Summarize Slides**: Analyzing all slides across the entire presentation to generate a comprehensive deck summary (up to 5 slides)...",
         "assistant"
       );
       const fullDocText = await hostAdapter.getFullDocumentText();
       slideContext = fullDocText || (slides && slides.length === 1 ? `[Slide ${slides[0].slideNumber}]:\n${slides[0].text}` : "");
       slideLabel = "entire presentation deck";
-      displayBubble = `📊 [Summarize Slides] Summarizing entire presentation deck...`;
+      displayBubble = `📊 [Summarize Slides] Summarizing entire presentation deck (up to 5 slides)...`;
     }
   } else {
+    if (typeof window !== "undefined") window.__isSummarizeSlidesAction = false;
     if (slides && slides.length > 0) {
       slideLabel = slides.length === 1 ? `Slide ${slides[0].slideNumber || 1}` : `${slides.length} highlighted slides`;
       slideContext = slides.map((s) => `[Highlighted Slide ${s.slideNumber || 1}]:\n${s.text || "(No readable text)"}`).join("\n\n---\n\n");
@@ -1092,17 +1094,20 @@ async function runPowerPointSlideAction(actionType) {
       break;
     case "summarize":
     case "takeaways":
-      taskInstruction = `Based strictly on the content from the ${slideLabel} provided below, create an executive summary presentation (up to 2 slides).
+      taskInstruction = `Based strictly on the content from the ${slideLabel} provided below, create a comprehensive executive summary presentation (up to 5 slides).
 CRITICAL CLOSED-BOOK GROUNDING CONTRACT:
 1. STRICT BOUNDARY: You are operating in 100% CLOSED-BOOK MODE. You must synthesize information ONLY AND EXCLUSIVELY from the text and data explicitly present in the selected slides below.
 2. ZERO EXTERNAL KNOWLEDGE / ZERO HALLUCINATIONS: Do NOT introduce outside industry context, external market facts, assumptions, or topics that are not explicitly stated in the selected slides below. If a point or metric is not directly written in the provided slide text, omit it completely.
-3. STRUCTURE & FORMAT (Consistent presentation format):
-   - Slide 1: "## 📊 Executive Slide Summary" with the main structured Markdown Table (| Metric / Focus Area | FY Progress Status | Target Benchmark |) summarizing key data directly from the slides.
-   - Slide 2: "## 📊 Executive Summary: Key Takeaways" dedicated to the bullet points with bold lead-in phrases elaborating on the key takeaways from the slides.
-   - If there is a table, all bullet points after the table go strictly on the second slide.
+3. MULTI-SLIDE STRUCTURE & FORMAT (Up to 5 slides):
+   - You can create up to 5 slides to thoroughly cover the key information, data, metrics, comparisons, and strategic findings.
+   - Separate distinct topics, tables, and visual charts into their own slides (e.g. ## Slide 1: [Executive Overview / Main Metrics Table], ## Slide 2: [Category Breakdown / Visual Chart / Details Table], etc.).
+   - If there are multiple tables or data sets, place each table on its own appropriate slide.
+   - If a visual chart represents data, output a structured JSON code block with the exact data metrics (chartType: "doughnut" or "bar", title: "...", data: [...]) so our client presentation engine can render a crisp chart.
+   - Break down the key takeaways into a dedicated single slide titled "## 📊 Executive Summary: Key Takeaways" with impactful bullet points and bold lead-in phrases.
+   - Format each slide with a clear markdown header (## Slide 1: [Title], ## Slide 2: [Title], etc.) so each section generates its own slide.
 4. DO NOT output conversational preamble.`;
       if (!displayBubble) {
-        displayBubble = `📊 [Summarize Slides] Generating executive summary from ${slideLabel}...`;
+        displayBubble = `📊 [Summarize Slides] Generating executive summary presentation (up to 5 slides) from ${slideLabel}...`;
       }
       break;
     case "action_items":
@@ -1176,6 +1181,7 @@ async function callGeminiProxy(customPrompt = null) {
   
   if (typeof window !== "undefined") {
     window.__lastUserPrompt = userText || fullPrompt || "";
+    window.__isSummarizeSlidesAction = /^\s*(?:please\s+)?summarize\s+(?:the\s+)?(?:slides?|deck|presentation)\b/i.test(userText);
   }
 
   if (hostAdapter.name === "PowerPoint") {
@@ -1194,6 +1200,10 @@ function initDocToDeckFeature() {
   fileInput.addEventListener("change", async (event) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
+
+    if (typeof window !== "undefined") {
+      window.__isSummarizeSlidesAction = false;
+    }
 
     clearChatAndInput();
     const loadingText = document.getElementById("loading");
@@ -1311,7 +1321,11 @@ async function executeGeminiWorkflow(fullPrompt, displayUserBubble, attachments 
     }
 
     const aiResponse = data.result || "No content returned.";
-    appendAssistantBubble(aiResponse, data, displayUserBubble || fullPrompt);
+    const isSummarizeFlow = Boolean(
+      (typeof window !== "undefined" && window.__isSummarizeSlidesAction) ||
+      (displayUserBubble && displayUserBubble.includes("[Summarize Slides]"))
+    );
+    appendAssistantBubble(aiResponse, data, displayUserBubble || fullPrompt, { isSummarizeSlides: isSummarizeFlow });
 
   } catch (error) {
     appendBubble("Error: " + error.message, "system");
@@ -1544,11 +1558,18 @@ export function openImageZoomModal(imgSrc, altText = "Generated Visual") {
   }
 }
 
-function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
+function appendAssistantBubble(text, apiData = null, originalPrompt = "", bubbleOptions = {}) {
   const historyDiv = document.getElementById("chatHistory");
   if (!historyDiv) return;
   const bubble = document.createElement("div");
   bubble.className = "chat-bubble assistant";
+
+  const isSummarizeAction = Boolean(
+    bubbleOptions?.isSummarizeSlides ||
+    (typeof window !== "undefined" && window.__isSummarizeSlidesAction) ||
+    (originalPrompt && originalPrompt.toLowerCase().includes("[summarize slides]"))
+  );
+  bubble.dataset.isSummarizeSlides = isSummarizeAction ? "true" : "false";
 
   // Check if response contains structured chart JSON
   const hasStructuredChart = /```(?:json|chart|pie|bar|column|line|doughnut|donut)?\s*\{[\s\S]*?(?:chartType|chart_type|pie|bar|column|line|doughnut)[\s\S]*?```/i.test(text) ||
@@ -1666,6 +1687,7 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
                          /(?:image|picture|photo|visual|illustration)\s+(?:of|for|showing|depicting)/i.test(promptLower);
 
   const shouldInsertImageOnly = renderedImages.length > 0 && (isImageRequest || (!fullText.includes("##") && textDiv.innerText.trim().length < 60));
+  const isBubbleSummarize = bubble.dataset.isSummarizeSlides === "true";
 
   // 1. In-Place Replace Button
   const hasSelection = isPPT && currentSelectedText && currentSelectedText.trim().length > 0;
@@ -1676,9 +1698,9 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
   replaceBtn.onclick = async () => {
     if (shouldInsertImageOnly) {
       const img = renderedImages[0];
-      await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "replace_draft", { imageOnly: true });
+      await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "replace_draft", { imageOnly: true, isSummarizeSlides: isBubbleSummarize });
     } else {
-      await performDocumentInsertion(textDiv.innerHTML, fullText, "replace_draft");
+      await performDocumentInsertion(textDiv.innerHTML, fullText, "replace_draft", { isSummarizeSlides: isBubbleSummarize });
     }
   };
 
@@ -1692,9 +1714,9 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
     insertCurrentBtn.onclick = async () => {
       if (shouldInsertImageOnly) {
         const img = renderedImages[0];
-        await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "insert_current_slide", { imageOnly: true });
+        await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "insert_current_slide", { imageOnly: true, isSummarizeSlides: isBubbleSummarize });
       } else {
-        await performDocumentInsertion(textDiv.innerHTML, fullText, "insert_current_slide");
+        await performDocumentInsertion(textDiv.innerHTML, fullText, "insert_current_slide", { isSummarizeSlides: isBubbleSummarize });
       }
     };
   }
@@ -1707,9 +1729,9 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "") {
   insertBtn.onclick = async () => {
     if (shouldInsertImageOnly) {
       const img = renderedImages[0];
-      await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "insert_cursor", { imageOnly: true });
+      await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "insert_cursor", { imageOnly: true, isSummarizeSlides: isBubbleSummarize });
     } else {
-      await performDocumentInsertion(textDiv.innerHTML, fullText, "insert_cursor");
+      await performDocumentInsertion(textDiv.innerHTML, fullText, "insert_cursor", { isSummarizeSlides: isBubbleSummarize });
     }
   };
 

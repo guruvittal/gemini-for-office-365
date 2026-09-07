@@ -375,6 +375,134 @@ function getSlideHeaderElements(tempDiv) {
 }
 
 /**
+ * Parses Summarize Slides content into up to 5 distinct slides:
+ * - Table slides (clean canvas with native table)
+ * - Category breakdown with visual chart & secondary table
+ * - Dedicated Key Takeaways slide with strategic bullets
+ * Capped at 5 slides maximum.
+ */
+function parseSummarizeDeck(tempDiv, allImages = [], rawText = "", options = {}) {
+  const slides = [];
+  const tables = Array.from(tempDiv.querySelectorAll("table"));
+  const chartContainers = Array.from(tempDiv.querySelectorAll(".rendered-chart-container, [data-chart-title]"));
+  const bulletLists = Array.from(tempDiv.querySelectorAll("ul, ol"));
+
+  // If there are no tables and no bullet lists, fallback to standard parsing
+  if (tables.length === 0 && bulletLists.length === 0) {
+    return null;
+  }
+
+  // 1. Process Tables into slides
+  for (let i = 0; i < tables.length; i++) {
+    const tableEl = tables[i];
+    const tbl = extractTableContent(tableEl);
+    if (!tbl || tbl.dataRows.length === 0) continue;
+
+    let title = "";
+    let associatedImgs = [];
+    
+    // Check previous siblings for title and preceding chart
+    let prev = tableEl.previousElementSibling;
+    while (prev) {
+      if (prev.classList && prev.classList.contains("rendered-chart-container")) {
+        const cTitle = prev.getAttribute("data-chart-title");
+        if (cTitle && !title) title = cTitle;
+        const cImgs = Array.from(prev.querySelectorAll("img")).map(img => img.src || img.getAttribute("src") || "").filter(s => s && s.length > 50);
+        associatedImgs.push(...cImgs);
+      }
+      const txt = (prev.innerText || prev.textContent || "").trim();
+      if (txt && !txt.startsWith("Verified Sources") && !txt.includes("Zoom & Review") && !txt.includes("🔍") && !title) {
+        title = txt;
+        break;
+      }
+      prev = prev.previousElementSibling;
+    }
+
+    if (!title && tbl.headers.length > 0) {
+      title = i === 0 ? "Executive Slide Summary" : `${tbl.headers[0]} Breakdown`;
+    }
+
+    // If this table is the second table and no chart images were attached yet, but allImages has a chart
+    if (i === 1 && associatedImgs.length === 0 && allImages.length > 0) {
+      associatedImgs = [allImages[0]];
+    }
+
+    slides.push({
+      slideNumber: slides.length + 1,
+      title: cleanSlideTitle(title || `Summary Slide ${slides.length + 1}`, slides.length + 1),
+      subtitle: "",
+      visualConcept: "",
+      visualType: null,
+      visualData: null,
+      color: null,
+      titleSize: 36,
+      subtitleSize: 20,
+      body: "",
+      additionalBody: "",
+      tableData: {
+        headers: tbl.headers,
+        rows: tbl.dataRows
+      },
+      base64Images: associatedImgs
+    });
+  }
+
+  // 2. Process Key Takeaways into a dedicated single slide
+  const takeawayBullets = [];
+  bulletLists.forEach(listEl => {
+    const items = Array.from(listEl.querySelectorAll("li")).map(li => {
+      const txt = (li.innerText || li.textContent || "").trim();
+      return txt.startsWith("•") ? txt : `• ${txt}`;
+    }).filter(b => b.length > 10 && !b.startsWith("|"));
+    takeawayBullets.push(...items);
+  });
+
+  // If no <ul> was found, extract bullet lines from paragraphs
+  if (takeawayBullets.length === 0) {
+    const paras = Array.from(tempDiv.querySelectorAll("p, div")).map(p => (p.innerText || p.textContent || "").trim());
+    for (const p of paras) {
+      if (/^(?:•|[-*]|\*\*|\b[A-Z][a-zA-Z\s]+:)/.test(p) && p.length > 25 && !p.startsWith("|")) {
+        const clean = p.replace(/^[-*•]\s*/, "");
+        takeawayBullets.push(`• ${clean}`);
+      }
+    }
+  }
+
+  if (takeawayBullets.length > 0) {
+    let takeawayTitle = "Executive Summary: Key Takeaways";
+    const headings = Array.from(tempDiv.querySelectorAll("h1, h2, h3, h4, strong, b"));
+    for (const h of headings) {
+      const hText = (h.innerText || h.textContent || "").trim();
+      if (hText.toLowerCase().includes("takeaway") || hText.toLowerCase().includes("key takeaway")) {
+        takeawayTitle = cleanSlideTitle(hText, slides.length + 1);
+        break;
+      }
+    }
+
+    slides.push({
+      slideNumber: slides.length + 1,
+      title: takeawayTitle,
+      subtitle: "Strategic Highlights & Next Steps",
+      visualConcept: "",
+      visualType: null,
+      visualData: null,
+      color: null,
+      titleSize: 36,
+      subtitleSize: 20,
+      body: takeawayBullets.join("\n\n"),
+      additionalBody: takeawayBullets.join("\n\n"),
+      tableData: null,
+      base64Images: []
+    });
+  }
+
+  if (slides.length >= 2) {
+    return slides.slice(0, 5);
+  }
+  return null;
+}
+
+/**
  * Parses HTML or raw Markdown text into an array of slide objects:
  * [{ title: string, subtitle: string, body: string, color: string, titleSize: number, subtitleSize: number, base64Images: string[], slideNumber: number }]
  */
@@ -459,6 +587,20 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
     }];
   }
 
+  const isSummarizeSlides = Boolean(
+    options?.isSummarizeSlides ||
+    (typeof window !== "undefined" && window.__isSummarizeSlidesAction)
+  );
+
+  // If Summarize Slides mode is active, check if multiple sections (tables, chart, takeaways)
+  // are present. If so, parse into up to 5 comprehensive slides!
+  if (isSummarizeSlides) {
+    const summarizeDeck = parseSummarizeDeck(tempDiv, allImages, rawText, options);
+    if (summarizeDeck && summarizeDeck.length >= 2) {
+      return finalizeSlides(summarizeDeck, allImages, rawText, options);
+    }
+  }
+
   // -------------------------------------------------------------
   // Strategy 0: Executive Visual JSON (3-Column Metric Grid, Before/After)
   // -------------------------------------------------------------
@@ -509,7 +651,7 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
       visualData: visualPayload,
       body: formattedBody,
       base64Images: allImages
-    }], allImages, rawText);
+    }], allImages, rawText, options);
   }
 
   // -------------------------------------------------------------
@@ -780,7 +922,7 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
     }
 
     if (slides.length >= 1) {
-      return finalizeSlides(slides, allImages, rawText);
+      return finalizeSlides(slides, allImages, rawText, options);
     }
   }
 
@@ -889,7 +1031,7 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
     }
 
     if (tableSlides.length >= 2) {
-      return finalizeSlides(tableSlides, allImages, rawText);
+      return finalizeSlides(tableSlides, allImages, rawText, options);
     }
   }
 
@@ -951,7 +1093,7 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
   }
 
   if (outlineSlides.length >= 2) {
-    return finalizeSlides(outlineSlides, allImages, rawText);
+    return finalizeSlides(outlineSlides, allImages, rawText, options);
   }
 
   // -------------------------------------------------------------
@@ -1034,7 +1176,7 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
         additionalBody: cleanAdditionalBody,
         tableData: tableData,
         base64Images: allImages
-      }], allImages, rawText);
+      }], allImages, rawText, options);
     }
   }
 
@@ -1069,7 +1211,7 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
       additionalBody: cleanAdditionalBody,
       tableData: tableData,
       base64Images: allImages
-    }], allImages, rawText);
+    }], allImages, rawText, options);
   }
 
   // -------------------------------------------------------------
@@ -1241,7 +1383,7 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
       }
     });
 
-    if (textSlides.length >= 2) return finalizeSlides(textSlides, allImages, rawText);
+    if (textSlides.length >= 2) return finalizeSlides(textSlides, allImages, rawText, options);
   }
 
   // -------------------------------------------------------------
@@ -1299,7 +1441,7 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
     subtitleSize: parsed.subtitleSize,
     body: slideBody,
     base64Images: allImages
-  }], allImages, rawText);
+  }], allImages, rawText, options);
 }
 
 /**
@@ -1308,10 +1450,15 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
  * 2. Enforces explicit slide count capping if the user explicitly requested N slides (e.g. "create 5 slides").
  * 3. Normalizes slide numbering.
  */
-function finalizeSlides(slides, allImages = [], rawText = "") {
+function finalizeSlides(slides, allImages = [], rawText = "", options = {}) {
   if (!slides || slides.length === 0) return [];
 
-  let finalSlides = consolidateExecutiveSummarySlides(slides, allImages);
+  const isSummarizeSlides = Boolean(
+    options?.isSummarizeSlides ||
+    (typeof window !== "undefined" && window.__isSummarizeSlidesAction)
+  );
+
+  let finalSlides = isSummarizeSlides ? slides : consolidateExecutiveSummarySlides(slides, allImages, options);
 
   // Executive Presentation Rule:
   // When a table is present, substantive bullet points beneath the table become slide notes (slide.notes)
@@ -1325,7 +1472,7 @@ function finalizeSlides(slides, allImages = [], rawText = "") {
         .filter(b => b && b !== "• Executive slide content" && !b.startsWith("|") && !b.startsWith("---"));
       const filteredBullets = filterDuplicateTableBullets(rawBullets, s.tableData);
 
-      // Slide 1: Main Content & Table ONLY (clean canvas without overlapping text), takeaways saved into slide.notes
+      // Slide: Main Content & Table ONLY (clean canvas without overlapping text), takeaways saved into slide.notes
       const tableSlide = {
         ...s,
         body: "",
@@ -1334,11 +1481,51 @@ function finalizeSlides(slides, allImages = [], rawText = "") {
         notes: filteredBullets.length > 0 ? filteredBullets.join("\n\n") : (s.notes || "")
       };
       processedSlides.push(tableSlide);
+
+      // In Summarize Slides mode: if there are takeaways attached to the table slide, and no separate
+      // Key Takeaways slide exists yet, break down the key takeaways into their own dedicated slide!
+      if (isSummarizeSlides && filteredBullets.length > 0) {
+        const hasExistingTakeawaysSlide = finalSlides.some(other =>
+          other !== s && (
+            (other.title || "").toLowerCase().includes("takeaway") ||
+            (other.title || "").toLowerCase().includes("key takeaways")
+          )
+        );
+        if (!hasExistingTakeawaysSlide && processedSlides.length < 5) {
+          const takeawaySlide = {
+            slideNumber: processedSlides.length + 1,
+            title: "Executive Summary: Key Takeaways",
+            subtitle: "Strategic Highlights & Next Steps",
+            visualConcept: "",
+            visualType: null,
+            visualData: null,
+            color: null,
+            titleSize: 36,
+            subtitleSize: 20,
+            body: filteredBullets.join("\n\n"),
+            additionalBody: filteredBullets.join("\n\n"),
+            tableData: null,
+            base64Images: []
+          };
+          processedSlides.push(takeawaySlide);
+        }
+      }
       continue;
     }
     processedSlides.push(s);
   }
   finalSlides = processedSlides;
+
+  // In Summarize Slides mode: enforce up to 5 slides maximum and re-index slide numbers
+  if (isSummarizeSlides) {
+    if (finalSlides.length > 5) {
+      finalSlides = finalSlides.slice(0, 5);
+    }
+    finalSlides.forEach((s, idx) => {
+      s.slideNumber = idx + 1;
+    });
+    return finalSlides;
+  }
 
   const wordToNumber = {
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
@@ -1367,7 +1554,7 @@ function finalizeSlides(slides, allImages = [], rawText = "") {
   }
 
   // On multi-slide decks, sanitize Slide 1 (Title slide) to strictly contain Title, Subtitle, and Executive Summary
-  if (finalSlides.length >= 2 && finalSlides[0].body) {
+  if (!isSummarizeSlides && finalSlides.length >= 2 && finalSlides[0].body) {
     let body = finalSlides[0].body;
     // Strip "Deck Scope & Outline" and all subsequent lines
     body = body.replace(/(?:•\s*)?Deck Scope\s*&\s*Outline[\s\S]*$/i, "").trim();
@@ -1410,8 +1597,16 @@ function finalizeSlides(slides, allImages = [], rawText = "") {
  * Consolidates multi-section executive summary slides into a single executive slide,
  * preserving all subtitles, bullets, tables, takeaways, and generated images.
  */
-function consolidateExecutiveSummarySlides(slides, allImages = []) {
+function consolidateExecutiveSummarySlides(slides, allImages = [], options = {}) {
   if (!slides || slides.length === 0) return slides;
+
+  const isSummarizeSlides = Boolean(
+    options?.isSummarizeSlides ||
+    (typeof window !== "undefined" && window.__isSummarizeSlidesAction)
+  );
+
+  if (isSummarizeSlides) return slides;
+
   const firstTitle = (slides[0].title || "").toLowerCase();
   const isExecutiveSummary = slides.length > 1 && (
     firstTitle.includes("executive slide summary") ||
