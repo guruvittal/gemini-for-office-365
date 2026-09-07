@@ -373,9 +373,7 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
 
       const cGenImage = document.getElementById("chipGenImage");
       if (cGenImage) {
-        cGenImage.onclick = () => {
-          runSelectionPrompt("Generate a professional high-quality corporate visual image illustration representing this content.");
-        };
+        cGenImage.onclick = () => handleCreateImageClick();
       }
 
       const cRisks = document.getElementById("chipRisks");
@@ -427,13 +425,7 @@ function renderAdaptiveActionChips(isSelected = false, slideCount = 1, words = 0
 
       const cGenImage = document.getElementById("chipGenImage");
       if (cGenImage) {
-        cGenImage.onclick = () => {
-          const promptInput = document.getElementById("prompt");
-          if (promptInput) {
-            promptInput.value = "Create an image of ";
-            promptInput.focus();
-          }
-        };
+        cGenImage.onclick = () => handleCreateImageClick();
       }
     }
   } else if (hostName === "Excel") {
@@ -655,12 +647,13 @@ async function checkForInDocumentCommands(forceRun = false) {
 }
 
 async function runSelectionPrompt(instruction) {
-  if (!currentSelectedText) {
-    currentSelectedText = await hostAdapter.getSelectedText();
+  const freshText = await hostAdapter.getSelectedText();
+  if (freshText && freshText.trim().length > 0) {
+    currentSelectedText = freshText.trim();
   }
 
   if (!currentSelectedText) {
-    appendBubble(hostAdapter?.name === "PowerPoint" ? "Please select text or a shape on the slide first." : "Please highlight text in Word first.", "system");
+    appendBubble(hostAdapter?.name === "PowerPoint" ? "Please select text or a slide first." : "Please highlight text in Word first.", "system");
     return;
   }
 
@@ -673,6 +666,59 @@ async function runSelectionPrompt(instruction) {
   const displayUserBubble = `✨ ${instruction}\n📌 Context: "${currentSelectedText.substring(0, 70)}..."`;
 
   await executeGeminiWorkflow(fullPrompt, displayUserBubble);
+}
+
+// Dedicated Image Generation Action from Selection or User Query
+async function handleCreateImageClick() {
+  const loadingText = document.getElementById("loading");
+  if (loadingText) {
+    loadingText.innerText = "⚡ Checking slide selection...";
+    loadingText.style.display = "block";
+  }
+
+  let selectedContext = "";
+  let selectionLabel = "";
+
+  try {
+    if (hostAdapter && typeof hostAdapter.getSelectedText === "function") {
+      selectedContext = await hostAdapter.getSelectedText();
+    }
+
+    if (selectedContext && selectedContext.trim().length > 0) {
+      selectedContext = selectedContext.trim();
+      selectionLabel = "selected content";
+    } else if (hostAdapter && typeof hostAdapter.getSelectedSlidesText === "function") {
+      const slides = await hostAdapter.getSelectedSlidesText();
+      if (slides && slides.length > 0) {
+        selectionLabel = slides.length === 1 ? `Slide ${slides[0].slideNumber || 1}` : `${slides.length} selected slides`;
+        selectedContext = slides.map(s => `[Slide ${s.slideNumber || 1}]:\n${s.text}`).join("\n\n---\n\n");
+      }
+    }
+  } catch (err) {
+    console.warn("Could not read selection for image generation:", err);
+  } finally {
+    if (loadingText) loadingText.style.display = "none";
+  }
+
+  if (selectedContext && selectedContext.length > 0) {
+    const prompt = `Create a high-quality, professional image visual illustration representing the following content from ${selectionLabel}:\n\n"""\n${selectedContext}\n"""\n\nGenerate an impactful, visually stunning illustration for this presentation topic.`;
+    const snippet = selectedContext.replace(/\s+/g, " ").trim().substring(0, 75);
+    const displayUserBubble = `🎨 Generate image for ${selectionLabel}:\n"${snippet}${selectedContext.length > 75 ? '...' : ''}"`;
+    await executeGeminiWorkflow(prompt, displayUserBubble);
+  } else {
+    appendBubble(
+      "🎨 **Create Image**: No slide or text was selected.\n\nWhat would you like an image of? Type a description below or select text/slides in PowerPoint and click **Create Image** again.",
+      "assistant"
+    );
+    const promptInput = document.getElementById("prompt");
+    if (promptInput) {
+      promptInput.value = "Create an image of ";
+      promptInput.focus();
+      if (promptInput.setSelectionRange) {
+        promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
+      }
+    }
+  }
 }
 
 async function runDocIntelligencePrompt(instruction) {

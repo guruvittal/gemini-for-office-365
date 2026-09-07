@@ -605,6 +605,18 @@ export async function insertOnCurrentSlide(slideStructures, options = {}) {
     }
   }
 
+  const slideData = slideStructures[0];
+  const imagesToInsert = (slideData.compressedImages && slideData.compressedImages.length > 0)
+    ? slideData.compressedImages
+    : (slideData.base64Images || []);
+  const hasImages = imagesToInsert.length > 0;
+  const tableData = slideData.tableData || null;
+  const hasTable = Boolean(tableData && tableData.rows && tableData.rows.length > 0);
+  const rawBody = (slideData.body || "").trim();
+  const hasMeaningfulBody = isSubstantiveSlideBody(rawBody);
+
+  let imageInserted = false;
+
   // 2. Identify active slide and insert
   await PowerPoint.run(async (context) => {
     let activeSlide = null;
@@ -631,18 +643,6 @@ export async function insertOnCurrentSlide(slideStructures, options = {}) {
     if (!activeSlide) {
       throw new Error("No slide available in presentation to insert content onto.");
     }
-
-    const slideData = slideStructures[0];
-    const imagesToInsert = (slideData.compressedImages && slideData.compressedImages.length > 0)
-      ? slideData.compressedImages
-      : (slideData.base64Images || []);
-    const hasImages = imagesToInsert.length > 0;
-    const tableData = slideData.tableData || null;
-    const hasTable = Boolean(tableData && tableData.rows && tableData.rows.length > 0);
-    const rawBody = (slideData.body || "").trim();
-    const hasMeaningfulBody = isSubstantiveSlideBody(rawBody);
-
-    let imageInserted = false;
 
     // 1. Chart/Image + Table
     if (hasImages && hasTable) {

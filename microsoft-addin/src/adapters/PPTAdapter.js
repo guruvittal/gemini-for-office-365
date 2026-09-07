@@ -27,19 +27,137 @@ export class PPTAdapter {
     }
   }
 
-  // All automatic highlighting and selection functionality is completely disabled
-  // per user request to isolate and prevent PowerPoint Online selection jitters, slide jumps, and DLP popups.
+  // On-demand selection extraction (strictly user-triggered on button click, NO background event listeners)
   async getSelectedSlidesText() {
-    return [];
+    const selectedSlidesData = [];
+    try {
+      if (typeof PowerPoint !== 'undefined') {
+        await PowerPoint.run(async (context) => {
+          if (context.presentation.getSelectedSlides) {
+            const selectedSlides = context.presentation.getSelectedSlides();
+            selectedSlides.load("items");
+            await context.sync();
+
+            if (selectedSlides.items && selectedSlides.items.length > 0) {
+              for (let i = 0; i < selectedSlides.items.length; i++) {
+                const slide = selectedSlides.items[i];
+                const shapes = slide.shapes;
+                shapes.load("items");
+                await context.sync();
+
+                const textTrackers = [];
+                if (shapes.items) {
+                  for (const shape of shapes.items) {
+                    try {
+                      if (shape.textFrame) {
+                        const tr = shape.textFrame.textRange;
+                        tr.load("text");
+                        textTrackers.push(tr);
+                      }
+                    } catch (_) {}
+                  }
+                }
+
+                if (textTrackers.length > 0) {
+                  await context.sync();
+                  const lines = textTrackers
+                    .map(tr => (tr.text || "").trim())
+                    .filter(Boolean);
+                  if (lines.length > 0) {
+                    selectedSlidesData.push({
+                      slideNumber: i + 1,
+                      id: slide.id || `slide-${i + 1}`,
+                      text: lines.join("\n")
+                    });
+                  }
+                }
+              }
+            }
+          }
+        });
+      }
+    } catch (err) {
+      console.warn("PowerPoint getSelectedSlidesText warning:", err);
+    }
+    return selectedSlidesData;
   }
 
-  // Read currently highlighted shape or text frame on the active slide (disabled)
+  // Read currently highlighted shape or text frame on the active slide on demand
   async getSelectedShapeText() {
-    return "";
+    let selectedText = "";
+    try {
+      if (typeof PowerPoint !== 'undefined') {
+        await PowerPoint.run(async (context) => {
+          if (context.presentation.getSelectedShapes) {
+            const selection = context.presentation.getSelectedShapes();
+            selection.load("items");
+            await context.sync();
+
+            if (selection.items && selection.items.length > 0) {
+              const textTrackers = [];
+              for (const shape of selection.items) {
+                try {
+                  if (shape.textFrame) {
+                    const tr = shape.textFrame.textRange;
+                    tr.load("text");
+                    textTrackers.push(tr);
+                  }
+                } catch (_) {}
+              }
+              if (textTrackers.length > 0) {
+                await context.sync();
+                const texts = textTrackers
+                  .map(tr => (tr.text || "").trim())
+                  .filter(Boolean);
+                selectedText = texts.join("\n\n");
+              }
+            }
+          }
+        });
+      }
+    } catch (err) {
+      console.warn("PowerPoint getSelectedShapeText error:", err);
+    }
+    return selectedText;
   }
 
-  // Read currently highlighted slide(s) text or active shape selection (disabled)
+  // Read currently highlighted text or selected slide(s) text on demand
   async getSelectedText() {
+    // 1. Try Office Common getSelectedDataAsync first (fastest for user-highlighted text in any text box)
+    try {
+      if (typeof Office !== 'undefined' && Office.context?.document?.getSelectedDataAsync) {
+        const textFromCommonApi = await new Promise((resolve) => {
+          Office.context.document.getSelectedDataAsync(
+            Office.CoercionType.Text,
+            (result) => {
+              if (result && result.status === Office.AsyncResultStatus.Succeeded && typeof result.value === "string") {
+                resolve(result.value.trim());
+              } else {
+                resolve("");
+              }
+            }
+          );
+        });
+        if (textFromCommonApi && textFromCommonApi.length > 0) {
+          return textFromCommonApi;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Try selected shape(s) text
+    const shapeText = await this.getSelectedShapeText();
+    if (shapeText && shapeText.length > 0) {
+      return shapeText;
+    }
+
+    // 3. Try selected slide(s) text
+    const selectedSlides = await this.getSelectedSlidesText();
+    if (selectedSlides && selectedSlides.length > 0) {
+      return selectedSlides
+        .map(s => (selectedSlides.length > 1 ? `[Slide ${s.slideNumber}]:\n${s.text}` : s.text))
+        .join("\n\n---\n\n");
+    }
+
     return "";
   }
 
