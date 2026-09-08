@@ -198,9 +198,25 @@ export class PPTAdapter {
     try {
       if (typeof PowerPoint !== 'undefined') {
         await PowerPoint.run(async (context) => {
+          // 1. Try reading actively highlighted text range first (PowerPointApi 1.5+)
+          if (context.presentation && typeof context.presentation.getSelectedTextRangeOrNullObject === 'function') {
+            try {
+              const textRange = context.presentation.getSelectedTextRangeOrNullObject();
+              textRange.load("text");
+              await context.sync();
+              if (!textRange.isNullObject && textRange.text && textRange.text.trim().length > 0) {
+                selectedText = textRange.text.trim();
+                return;
+              }
+            } catch (trErr) {
+              // Ignore if no text range or not supported in this host version
+            }
+          }
+
+          // 2. Read selected shapes (text boxes, shapes, or tables)
           if (context.presentation.getSelectedShapes) {
             const selection = context.presentation.getSelectedShapes();
-            selection.load("items/type");
+            selection.load("items");
             await context.sync();
 
             if (selection.items && selection.items.length > 0) {
@@ -211,17 +227,20 @@ export class PPTAdapter {
                 try {
                   const type = shape.type;
                   const isTable = type === "Table" || 
-                                  (typeof PowerPoint !== "undefined" && PowerPoint.ShapeType && type === PowerPoint.ShapeType.table) || 
-                                  typeof shape.getTable === "function";
+                                  (typeof PowerPoint !== "undefined" && PowerPoint.ShapeType && type === PowerPoint.ShapeType.table);
 
-                  if (isTable && typeof shape.getTable === "function") {
-                    const table = shape.getTable();
-                    table.load("values");
-                    tableTrackers.push(table);
-                  } else if (shape.textFrame) {
-                    const tr = shape.textFrame.textRange;
-                    tr.load("text");
-                    textTrackers.push(tr);
+                  if (isTable) {
+                    if (typeof shape.getTable === "function") {
+                      const table = shape.getTable();
+                      table.load("values");
+                      tableTrackers.push(table);
+                    }
+                  } else {
+                    if (shape.textFrame) {
+                      const tr = shape.textFrame.textRange;
+                      tr.load("text");
+                      textTrackers.push(tr);
+                    }
                   }
                 } catch (_) {}
               }
@@ -270,7 +289,11 @@ export class PPTAdapter {
                   // Fallback per-shape isolated extraction
                   for (const shape of selection.items) {
                     try {
-                      if (typeof shape.getTable === "function") {
+                      const type = shape.type;
+                      const isTable = type === "Table" || 
+                                      (typeof PowerPoint !== "undefined" && PowerPoint.ShapeType && type === PowerPoint.ShapeType.table);
+
+                      if (isTable && typeof shape.getTable === "function") {
                         const table = shape.getTable();
                         table.load("values");
                         await context.sync();
