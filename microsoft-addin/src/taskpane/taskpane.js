@@ -222,15 +222,6 @@ Office.onReady(async (info) => {
     };
   }
 
-  // Disable all automatic document selection listeners unconditionally.
-  // Attaching DocumentSelectionChanged in Office Online (PowerPoint, Word, Excel) hooks pointer events
-  // across the iframe boundary, delaying mouseup and causing single clicks to act as drag gestures
-  // (dragging slide thumbnails, drawing marquee selection boxes) and triggering browser DLP popups.
-  try {
-    if (typeof Office !== 'undefined' && Office.context?.document?.removeHandlerAsync) {
-      Office.context.document.removeHandlerAsync(Office.EventType.DocumentSelectionChanged);
-    }
-  } catch (_) {}
   // Wire interactive sign-in click on user profile badge
   const userAuthBadge = document.getElementById("userAuthBadge");
   const userStatusDot = document.getElementById("userStatusDot");

@@ -231,37 +231,17 @@ export class PPTAdapter {
     return selectedText;
   }
 
-  // Read currently highlighted text or selected text shape on demand
+  // Read currently highlighted text or selected text shape on demand via PowerPoint.run
   async getSelectedText() {
-    // 1. Try Office Common getSelectedDataAsync first (fastest for user-highlighted text in any text box)
-    try {
-      if (typeof Office !== 'undefined' && Office.context?.document?.getSelectedDataAsync) {
-        const textFromCommonApi = await new Promise((resolve) => {
-          Office.context.document.getSelectedDataAsync(
-            Office.CoercionType.Text,
-            (result) => {
-              if (result && result.status === Office.AsyncResultStatus.Succeeded && typeof result.value === "string") {
-                resolve(result.value.trim());
-              } else {
-                resolve("");
-              }
-            }
-          );
-        });
-        if (textFromCommonApi && textFromCommonApi.length > 0) {
-          return textFromCommonApi;
-        }
-      }
-    } catch (_) {}
-
-    // 2. Try selected shape(s) text (when user clicked or selected a text box / shape)
+    // Read selected shape(s) text cleanly through PowerPoint Rich API
+    // Avoids Office.context.document.getSelectedDataAsync which triggers Chrome Enterprise SDP/DLP popups
     const shapeText = await this.getSelectedShapeText();
     if (shapeText && shapeText.trim().length > 0) {
       return shapeText.trim();
     }
 
-    // Return empty string if no specific text or text shape is selected
-    // (Slide text extraction is handled on demand by getSelectedSlidesText)
+    // Return empty string if no specific text shape is selected
+    // (Multi-slide text extraction is handled cleanly on demand by getSelectedSlidesText)
     return "";
   }
 
