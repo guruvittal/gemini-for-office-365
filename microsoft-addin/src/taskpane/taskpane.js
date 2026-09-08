@@ -925,8 +925,13 @@ Requirements:
         <button class="quick-chip chart-type-btn" data-type="line" style="background:#f3e8ff; color:#7e22ce; border-color:#e9d5ff; font-weight:600; cursor:pointer;">📈 Line Chart</button>
       </div>
 
-      <div style="font-weight:600; font-size:11.5px; margin-bottom:4px; color:#323130;">2. What should it visualize?</div>
-      <div style="font-size:11px; color:#605e5c; margin-bottom:6px;">Choose a topic below or type your custom topic in the input box:</div>
+      <div style="font-weight:600; font-size:11.5px; margin-bottom:4px; color:#323130;">2. Enter or Paste Data (e.g. from Table):</div>
+      <textarea class="chart-data-input" placeholder="Paste table rows, numbers, or describe metrics (e.g. 'Revenue: Q1 10M, Q2 15M, Q3 25M')..." style="width:100%; box-sizing:border-box; border:1px solid #c7e0f4; border-radius:4px; padding:6px; font-size:11.5px; font-family:inherit; resize:vertical; min-height:50px; margin-bottom:6px;"></textarea>
+      <div style="margin-bottom:10px;">
+        <button class="chart-generate-btn" style="background:#15803d; color:#ffffff; border:none; border-radius:4px; padding:5px 12px; font-size:11.5px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">✨ Generate Chart from Data</button>
+      </div>
+
+      <div style="font-weight:600; font-size:11.5px; margin-bottom:4px; color:#323130;">Or choose a quick topic:</div>
       <div style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:4px;">
         <button class="quick-chip chart-topic-btn" style="cursor:pointer;">🛒 Retail Market Share</button>
         <button class="quick-chip chart-topic-btn" style="cursor:pointer;">💰 Quarterly Revenue Growth</button>
@@ -940,6 +945,8 @@ Requirements:
     let currentType = "bar";
     const typeButtons = bubble.querySelectorAll(".chart-type-btn");
     const topicButtons = bubble.querySelectorAll(".chart-topic-btn");
+    const generateBtn = bubble.querySelector(".chart-generate-btn");
+    const dataInput = bubble.querySelector(".chart-data-input");
 
     typeButtons.forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -963,11 +970,48 @@ Requirements:
       });
     });
 
+    if (generateBtn && dataInput) {
+      generateBtn.addEventListener("click", async () => {
+        const dataText = dataInput.value.trim();
+        if (!dataText) {
+          dataInput.focus();
+          dataInput.style.borderColor = "#dc2626";
+          return;
+        }
+        typeButtons.forEach((b) => (b.disabled = true));
+        topicButtons.forEach((b) => (b.disabled = true));
+        generateBtn.disabled = true;
+
+        const prompt = `Create a high-resolution ${currentType} chart for PowerPoint visualizing the following data and metrics:
+${dataText}
+
+Requirements:
+1. Output a structured JSON code block with the exact chart specification:
+\`\`\`json
+{
+  "chartType": "${currentType}",
+  "title": "<Short Title (2-5 words max)>",
+  "data": [
+    { "label": "<Category>", "value": <NumericValue> }
+  ]
+}
+\`\`\`
+2. CRITICAL CONSTRAINT FOR TITLE:
+   - The chart title MUST be short and punchy (maximum 2 to 5 words).
+   - NEVER create long titles, never include parenthetical subtitles in the title, and never exceed 5 words!
+3. Include 2 concise, executive takeaway bullet points analyzing the data under the chart.`;
+
+        const displayBubble = `📈 [Create Chart] Generating ${currentType} chart from provided data...`;
+        await executeGeminiWorkflow(prompt, displayBubble);
+      });
+    }
+
     topicButtons.forEach((btn) => {
       btn.addEventListener("click", async () => {
         const topic = btn.innerText.replace(/^[^\w]+/, "").trim();
         typeButtons.forEach((b) => (b.disabled = true));
         topicButtons.forEach((b) => (b.disabled = true));
+        if (generateBtn) generateBtn.disabled = true;
 
         const prompt = `Create a high-resolution ${currentType} chart for PowerPoint visualizing: ${topic}.
 

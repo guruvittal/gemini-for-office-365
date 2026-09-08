@@ -118,8 +118,8 @@ export async function getOfficeAuthToken(forceRefresh = false) {
   try {
     console.log('Acquiring Microsoft Entra ID SSO token via Office.auth.getAccessToken()...');
     const token = await Office.auth.getAccessToken({
-      allowSignInPrompt: true,
-      allowConsentPrompt: true,
+      allowSignInPrompt: forceRefresh,
+      allowConsentPrompt: forceRefresh,
       forMSGraphAccess: false
     });
 
