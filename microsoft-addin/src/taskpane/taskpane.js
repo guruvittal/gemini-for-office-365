@@ -1165,22 +1165,25 @@ CRITICAL CLOSED-BOOK GROUNDING CONTRACT:
   await executeGeminiWorkflow(fullPrompt, displayBubble);
 }
 
-async function callGeminiProxy(customPrompt = null) {
+async function callGeminiProxy(customPrompt = null, ignoreSelection = false, customDisplayBubble = null) {
   const promptInput = document.getElementById("promptText");
   const userText = customPrompt || (promptInput ? promptInput.value.trim() : "");
 
-  let selectedText = await hostAdapter.getSelectedText();
-  if (!isSubstantiveText(selectedText)) {
-    selectedText = "";
+  let selectedText = "";
+  if (!ignoreSelection && hostAdapter) {
+    selectedText = await hostAdapter.getSelectedText();
+    if (!isSubstantiveText(selectedText)) {
+      selectedText = "";
+    }
   }
 
   if (!userText && !selectedText) {
-    appendBubble(`Please type a prompt or select content in ${hostAdapter.name} first.`, "system");
+    appendBubble(`Please type a prompt or select content in ${hostAdapter ? hostAdapter.name : 'Office'} first.`, "system");
     return;
   }
 
   // Intercept generic Image or Chart requests in PowerPoint to prompt user interactively
-  if (userText && hostAdapter.name === "PowerPoint") {
+  if (userText && hostAdapter && hostAdapter.name === "PowerPoint") {
     const trimmedLower = userText.trim().toLowerCase();
     const isGenericImage = /^(?:please\s+)?(?:generate|create|make|insert|add)\s+(?:an?\s+)?image\s*\.?$/i.test(trimmedLower);
     const isGenericChart = /^(?:please\s+)?(?:generate|create|make|insert|add)\s+(?:an?\s+)?(?:chart|graph|plot)\s*\.?$/i.test(trimmedLower);
@@ -1203,13 +1206,13 @@ async function callGeminiProxy(customPrompt = null) {
 
   if (selectedText && userText) {
     fullPrompt = `Selected Document Context:\n"${selectedText}"\n\nUser Instruction: ${userText}`;
-    displayUserBubble = `📌 Context: "${selectedText.substring(0, 70)}${selectedText.length > 70 ? '...' : ''}"\n\n${userText}`;
+    displayUserBubble = customDisplayBubble || `📌 Context: "${selectedText.substring(0, 70)}${selectedText.length > 70 ? '...' : ''}"\n\n${userText}`;
   } else if (selectedText && !userText) {
     fullPrompt = `Please analyze, summarize, or explain the following selected text:\n"${selectedText}"`;
     displayUserBubble = `📌 Selected Text:\n"${selectedText.substring(0, 90)}${selectedText.length > 90 ? '...' : ''}"`;
   } else {
     fullPrompt = userText;
-    displayUserBubble = userText;
+    displayUserBubble = customDisplayBubble || userText;
   }
 
   if (promptInput) promptInput.value = "";
@@ -1219,7 +1222,7 @@ async function callGeminiProxy(customPrompt = null) {
     window.__isSummarizeSlidesAction = /^\s*(?:please\s+)?summarize\s+(?:the\s+)?(?:slides?|deck|presentation)\b/i.test(userText);
   }
 
-  if (hostAdapter.name === "PowerPoint") {
+  if (hostAdapter && hostAdapter.name === "PowerPoint") {
     const { enhancePromptForPowerPoint } = await import('../adapters/ppt/promptEnhancer.js');
     fullPrompt = enhancePromptForPowerPoint(fullPrompt);
   }
@@ -1777,31 +1780,31 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "", bubble
 
   // Refinement Chips: Quick 1-Click Multi-Turn Prompts
   const refinementChips = document.createElement("div");
-  refinementChips.className = "refinement-chips-container";
+  refinementChips.className = "refinement-chips refinement-chips-container";
 
   const chips = [
     { label: "✍️ Professional Tone", prompt: "Please rewrite the above in an executive, formal, and highly professional corporate tone." },
-    { label: "✂️ Make More Concise", prompt: "Please tighten and condense the above output, keeping only the most essential executive points." },
-    { label: "📊 Add Metrics Table", prompt: "Please format the key data points and comparisons from above into a clean, structured table." },
-    { label: "⚠️ Analyze Key Risks", prompt: "Based on the above context, outline the top operational and strategic risks and proposed mitigations." },
+    { label: "✂️ Make More Concise", prompt: "Please shorten and condense the above output into a concise version, keeping only the most essential executive points." },
     { label: "🔄 Alternative Options", prompt: "Provide 2 to 3 distinct strategic alternatives or approaches based on this analysis." }
   ];
 
   chips.forEach(chip => {
     const chipBtn = document.createElement("button");
+    chipBtn.type = "button";
     chipBtn.className = "refinement-chip";
     chipBtn.innerText = chip.label;
     chipBtn.title = `Follow-up: "${chip.prompt}"`;
-    chipBtn.onclick = () => {
-      const input = document.getElementById("prompt");
-      if (input) {
-        input.value = chip.prompt;
-        input.focus();
-        const runButton = document.getElementById("run");
-        if (runButton && !runButton.disabled) {
-          runButton.click();
-        }
+    chipBtn.onclick = async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const runButton = document.getElementById("run");
+      if (runButton && runButton.disabled) return;
+
+      const promptInput = document.getElementById("promptText");
+      if (promptInput) {
+        promptInput.value = "";
       }
+      await callGeminiProxy(chip.prompt, true, chip.label);
     };
     refinementChips.appendChild(chipBtn);
   });
