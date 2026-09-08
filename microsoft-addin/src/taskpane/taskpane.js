@@ -1784,8 +1784,7 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "", bubble
 
   const chips = [
     { label: "✍️ Professional Tone", prompt: "Please rewrite the above in an executive, formal, and highly professional corporate tone." },
-    { label: "✂️ Make More Concise", prompt: "Please shorten and condense the above output into a concise version, keeping only the most essential executive points." },
-    { label: "🔄 Alternative Options", prompt: "Provide 2 to 3 distinct strategic alternatives or approaches based on this analysis." }
+    { label: "✂️ Make More Concise", prompt: "Please shorten and condense the above output into a concise version, keeping only the most essential executive points." }
   ];
 
   chips.forEach(chip => {
