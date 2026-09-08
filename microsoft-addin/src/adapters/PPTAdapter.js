@@ -192,7 +192,7 @@ export class PPTAdapter {
     return selectedSlidesData;
   }
 
-  // Read currently highlighted shape or text frame on the active slide on demand
+  // Read currently highlighted shape(s), text frame, or table on the active slide on demand
   async getSelectedShapeText() {
     let selectedText = "";
     try {
@@ -200,26 +200,109 @@ export class PPTAdapter {
         await PowerPoint.run(async (context) => {
           if (context.presentation.getSelectedShapes) {
             const selection = context.presentation.getSelectedShapes();
-            selection.load("items");
+            selection.load("items/type");
             await context.sync();
 
             if (selection.items && selection.items.length > 0) {
               const textTrackers = [];
+              const tableTrackers = [];
+
               for (const shape of selection.items) {
                 try {
-                  if (shape.textFrame) {
+                  const type = shape.type;
+                  const isTable = type === "Table" || 
+                                  (typeof PowerPoint !== "undefined" && PowerPoint.ShapeType && type === PowerPoint.ShapeType.table) || 
+                                  typeof shape.getTable === "function";
+
+                  if (isTable && typeof shape.getTable === "function") {
+                    const table = shape.getTable();
+                    table.load("values");
+                    tableTrackers.push(table);
+                  } else if (shape.textFrame) {
                     const tr = shape.textFrame.textRange;
                     tr.load("text");
                     textTrackers.push(tr);
                   }
                 } catch (_) {}
               }
-              if (textTrackers.length > 0) {
-                await context.sync();
-                const texts = textTrackers
-                  .map(tr => (tr.text || "").trim())
-                  .filter(Boolean);
-                selectedText = texts.join("\n\n");
+
+              if (textTrackers.length > 0 || tableTrackers.length > 0) {
+                let syncSuccess = false;
+                try {
+                  await context.sync();
+                  syncSuccess = true;
+                } catch (batchErr) {
+                  console.warn("[PPTAdapter] Batch shape sync failed in getSelectedShapeText, falling back to per-shape sync:", batchErr);
+                }
+
+                const texts = [];
+                if (syncSuccess) {
+                  for (const tr of textTrackers) {
+                    try {
+                      const val = (tr.text || "").trim();
+                      if (val) texts.push(val);
+                    } catch (_) {}
+                  }
+                  for (const tb of tableTrackers) {
+                    try {
+                      if (tb.values && Array.isArray(tb.values)) {
+                        const tableRows = [];
+                        for (let r = 0; r < tb.values.length; r++) {
+                          const row = tb.values[r];
+                          if (Array.isArray(row)) {
+                            const rowStr = row.map(c => String(c ?? "").trim()).join(" | ");
+                            if (rowStr.replace(/[|\s]/g, "")) {
+                              tableRows.push(`| ${rowStr} |`);
+                              if (r === 0 && tb.values.length > 1) {
+                                const sep = row.map(() => "---").join(" | ");
+                                tableRows.push(`| ${sep} |`);
+                              }
+                            }
+                          }
+                        }
+                        if (tableRows.length > 0) {
+                          texts.push(tableRows.join("\n"));
+                        }
+                      }
+                    } catch (_) {}
+                  }
+                } else {
+                  // Fallback per-shape isolated extraction
+                  for (const shape of selection.items) {
+                    try {
+                      if (typeof shape.getTable === "function") {
+                        const table = shape.getTable();
+                        table.load("values");
+                        await context.sync();
+                        if (table.values && Array.isArray(table.values)) {
+                          const tableRows = [];
+                          for (let r = 0; r < table.values.length; r++) {
+                            const row = table.values[r];
+                            if (Array.isArray(row)) {
+                              const rowStr = row.map(c => String(c ?? "").trim()).join(" | ");
+                              if (rowStr.replace(/[|\s]/g, "")) {
+                                tableRows.push(`| ${rowStr} |`);
+                                if (r === 0 && table.values.length > 1) {
+                                  const sep = row.map(() => "---").join(" | ");
+                                  tableRows.push(`| ${sep} |`);
+                                }
+                              }
+                            }
+                          }
+                          if (tableRows.length > 0) texts.push(tableRows.join("\n"));
+                        }
+                      } else if (shape.textFrame) {
+                        const tr = shape.textFrame.textRange;
+                        tr.load("text");
+                        await context.sync();
+                        const val = (tr.text || "").trim();
+                        if (val) texts.push(val);
+                      }
+                    } catch (_) {}
+                  }
+                }
+
+                selectedText = texts.join("\n\n").trim();
               }
             }
           }
