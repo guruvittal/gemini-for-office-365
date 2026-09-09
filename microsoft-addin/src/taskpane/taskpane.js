@@ -774,10 +774,19 @@ async function handleCreateImageClick() {
 
   // 1. If substantive text is selected AND not multiple slides: generate image for that selected content
   if (selectedText && selectedText.length > 0 && slideCount <= 1) {
-    const prompt = `Create a high-quality, professional image visual illustration representing the following selected content:\n\n"""\n${selectedText}\n"""\n\nGenerate an impactful, visually stunning illustration for this presentation topic.`;
+    const prompt = `Create a high-quality, professional image visual illustration representing the following selected content:
+
+"""
+${selectedText}
+"""
+
+CRITICAL INSTRUCTIONS:
+1. Trigger the native image generation tool directly to produce the visual image.
+2. DO NOT output raw JSON, visual_request schemas, or code blocks.
+3. Generate an impactful, visually stunning illustration for this presentation topic.`;
     const snippet = selectedText.replace(/\s+/g, " ").trim().substring(0, 75);
     const displayUserBubble = `🎨 Generate image for selected text:\n"${snippet}${selectedText.length > 75 ? '...' : ''}"`;
-    await executeGeminiWorkflow(prompt, displayUserBubble);
+    await executeGeminiWorkflow(prompt, displayUserBubble, null, { isolateSession: true });
     return;
   }
 
@@ -806,11 +815,13 @@ async function handleCreateImageClick() {
       btn.addEventListener("click", async () => {
         const concept = btn.innerText.replace(/^[^\w]+/, "").trim();
         optButtons.forEach((b) => (b.disabled = true));
-        const prompt = `Create a high-quality, professional image visual illustration of: ${concept}. Generate an impactful, visually stunning illustration for a PowerPoint presentation.
+        const prompt = `Create a high-quality, professional image visual illustration of: ${concept}.
 
-CRITICAL SCOPE CONTRACT: Generate EXACTLY ONE single slide containing this image. DO NOT regenerate, repeat, or expand upon previous presentation slides from earlier in this conversation under any circumstances.`;
+CRITICAL INSTRUCTIONS:
+1. Trigger the native image generation tool directly to produce the visual image.
+2. DO NOT output raw JSON, visual_request schemas, or code blocks.`;
         const displayBubble = `🎨 Generate image: "${concept}"`;
-        await executeGeminiWorkflow(prompt, displayBubble);
+        await executeGeminiWorkflow(prompt, displayBubble, null, { isolateSession: true });
       });
     });
 
@@ -1340,7 +1351,7 @@ PowerPoint Slide Deck Requirements:
   });
 }
 
-async function executeGeminiWorkflow(fullPrompt, displayUserBubble, attachments = null) {
+async function executeGeminiWorkflow(fullPrompt, displayUserBubble, attachments = null, options = {}) {
   const runButton = document.getElementById("run");
   const loadingText = document.getElementById("loading");
   const historyDiv = document.getElementById("chatHistory");
@@ -1354,7 +1365,45 @@ async function executeGeminiWorkflow(fullPrompt, displayUserBubble, attachments 
   try {
     appendBubble(displayUserBubble, "user");
 
-    const data = await askGeminiEnterprise(fullPrompt, chatHistoryState, currentSessionId, true, attachments);
+    // Detect if this is an explicit image creation intent
+    const isImageIntent = Boolean(
+      (options && options.isolateSession) ||
+      (displayUserBubble && displayUserBubble.includes("Generate image")) ||
+      (fullPrompt && /\b(create|generate|make|draw)\s+(an?\s+)?image\b/i.test(fullPrompt))
+    );
+
+    // If image generation, isolate from prior conversation session to prevent JSON formatting contagion
+    const sessionIdToUse = isImageIntent ? null : currentSessionId;
+    const historyToUse = isImageIntent ? [] : chatHistoryState;
+
+    let data = await askGeminiEnterprise(fullPrompt, historyToUse, sessionIdToUse, true, attachments);
+
+    // Fallback Safety Net: Check if model emitted a raw visual_request JSON block instead of calling Imagen
+    let aiResponse = data.result || "No content returned.";
+    if (aiResponse.includes('"visual_request"')) {
+      try {
+        const jsonMatch = aiResponse.match(/\{[\s\S]*?"visual_request"[\s\S]*?\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          const extractedPrompt = parsed?.visual_request?.prompt;
+          if (extractedPrompt && typeof extractedPrompt === "string") {
+            console.log("[ImageFallback] Detected visual_request schema. Automatically invoking image generator with extracted prompt:", extractedPrompt.slice(0, 80));
+            if (loadingText) {
+              loadingText.innerText = "🎨 Generating image from visual specification...";
+              loadingText.style.display = "block";
+            }
+            const fallbackPrompt = `Create a high-quality, professional image visual illustration of: ${extractedPrompt}`;
+            const fallbackData = await askGeminiEnterprise(fallbackPrompt, [], null, true);
+            if (fallbackData && (fallbackData.result || (fallbackData.images && fallbackData.images.length > 0))) {
+              data = fallbackData;
+              aiResponse = fallbackData.result || aiResponse;
+            }
+          }
+        }
+      } catch (fbErr) {
+        console.warn("[ImageFallback] Error handling visual_request fallback:", fbErr);
+      }
+    }
 
     if (data.sessionId) {
       currentSessionId = data.sessionId;
@@ -1363,7 +1412,6 @@ async function executeGeminiWorkflow(fullPrompt, displayUserBubble, attachments 
       chatHistoryState = data.history;
     }
 
-    const aiResponse = data.result || "No content returned.";
     const isSummarizeFlow = Boolean(
       (typeof window !== "undefined" && window.__isSummarizeSlidesAction) ||
       (displayUserBubble && displayUserBubble.includes("[Summarize Slides]"))

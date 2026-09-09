@@ -65,9 +65,9 @@ Supported chartType values: "pie", "doughnut", "bar", "column", "line". Use exac
   if (lowerPrompt.includes("image") || lowerPrompt.includes("picture") || lowerPrompt.includes("illustration") || lowerPrompt.includes("drawing") || lowerPrompt.includes("visual art")) {
     const rules = `
 CRITICAL INSTRUCTIONS FOR IMAGE GENERATION:
-1. CRITICAL SCOPE CONTRACT: Generate EXACTLY ONE single slide containing this image illustration. DO NOT generate, repeat, or expand upon previous presentation slides from earlier in this conversation under any circumstances.
-2. Generate a professional high-quality corporate visual image illustration representing this concept.
-3. DO NOT output conversational preamble, pleasantries, or conclusions.
+1. TRIGGER TOOL DIRECTLY: Invoke the native image generation tool (imageGenerationSpec) directly to produce and return the visual image.
+2. ABSOLUTELY NO JSON SCHEMAS OR TEXT SPECIFICATIONS: NEVER output raw JSON code blocks, JSON schemas, or "visual_request" objects in your response text. Output the generated image directly.
+3. DO NOT output conversational preamble, pleasantries, slide outline text, or image descriptions.
 `;
     return `${userPrompt}\n\n${rules}`;
   }
