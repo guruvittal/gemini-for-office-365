@@ -16,7 +16,7 @@ export function enhancePromptForPowerPoint(userPrompt) {
   if (lowerPrompt.includes("executive visual") || lowerPrompt.includes("metric grid") || lowerPrompt.includes("comparison card") || lowerPrompt.includes("before/after") || lowerPrompt.includes("before and after")) {
     const rules = `
 CRITICAL INSTRUCTIONS FOR EXECUTIVE VISUAL GENERATION:
-1. Provide EXACTLY ONE definitive visual design. NEVER output multiple options.
+1. CRITICAL SCOPE CONTRACT: Provide EXACTLY ONE definitive visual design on a SINGLE slide. DO NOT output multiple options, and DO NOT generate or repeat previous presentation slides from this conversation under any circumstances.
 2. DO NOT output conversational preamble, pleasantries, or conclusions.
 3. For Metric Grids, output a structured JSON code block with "visualType": "metric_grid_3col" containing "title", "subtitle", and an array of 3 "cards", each with "metric", "title", "subtitle", and "bullets".
 4. For Before/After Comparisons, output a structured JSON code block with "visualType": "before_after" containing "title", "subtitle", "before" ({ "title", "bullets" }), and "after" ({ "title", "bullets" }).
@@ -28,10 +28,11 @@ CRITICAL INSTRUCTIONS FOR EXECUTIVE VISUAL GENERATION:
   if (lowerPrompt.includes("shorten") || lowerPrompt.includes("smaller") || lowerPrompt.includes("concise") || lowerPrompt.includes("rewrite") || lowerPrompt.includes("punchy") || lowerPrompt.includes("fluff") || lowerPrompt.includes("trim")) {
     const rules = `
 CRITICAL INSTRUCTIONS FOR SLIDE EDITING:
-1. Provide EXACTLY ONE definitive, finalized version. NEVER provide multiple alternative options, variations, or choices (e.g. NEVER output "Option 1", "Option 2", or "Or, for an even more minimalist layout...").
-2. DO NOT output conversational preamble, introduction, or pleasantries (e.g. NEVER output "Here is a concise and punchy version...", "Sure!", "Here are your revised bullets:").
-3. DO NOT output conversational sign-offs or questions (e.g. "Let me know if you need changes").
-4. Output ONLY the finalized slide content. Format each point as a clean bullet point with a bold lead-in phrase:
+1. CRITICAL SCOPE CONTRACT: Output ONLY the finalized content for this single slide. DO NOT generate a multi-slide deck or repeat previous presentation slides from this conversation.
+2. Provide EXACTLY ONE definitive, finalized version. NEVER provide multiple alternative options, variations, or choices (e.g. NEVER output "Option 1", "Option 2", or "Or, for an even more minimalist layout...").
+3. DO NOT output conversational preamble, introduction, or pleasantries (e.g. NEVER output "Here is a concise and punchy version...", "Sure!", "Here are your revised bullets:").
+4. DO NOT output conversational sign-offs or questions (e.g. "Let me know if you need changes").
+5. Output ONLY the finalized slide content. Format each point as a clean bullet point with a bold lead-in phrase:
    • **Key Theme**: Crisp, high-impact description.
 `;
     return `${userPrompt}\n\n${rules}`;
@@ -41,7 +42,8 @@ CRITICAL INSTRUCTIONS FOR SLIDE EDITING:
   if (lowerPrompt.includes("chart") || lowerPrompt.includes("pie") || lowerPrompt.includes("bar") || lowerPrompt.includes("graph") || lowerPrompt.includes("visualization") || lowerPrompt.includes("visualize") || lowerPrompt.includes("plot") || lowerPrompt.includes("breakdown") || lowerPrompt.includes("doughnut") || lowerPrompt.includes("column")) {
     const rules = `
 CRITICAL INSTRUCTIONS FOR CHART GENERATION:
-1. Output a structured JSON code block with the exact data metrics:
+1. CRITICAL SCOPE CONTRACT: Generate EXACTLY ONE single slide containing this chart and its accompanying data/takeaways. DO NOT generate, repeat, or expand upon previous presentation slides from earlier in this conversation under any circumstances.
+2. Output a structured JSON code block with the exact data metrics:
 \`\`\`json
 {
   "chartType": "pie",
@@ -52,9 +54,9 @@ CRITICAL INSTRUCTIONS FOR CHART GENERATION:
 }
 \`\`\`
 Supported chartType values: "pie", "doughnut", "bar", "column", "line". Use exact numeric values (not strings).
-2. Also provide a clean Markdown Table with the data metrics (| Category | Metric | Share % |).
-3. Provide 2-3 executive bullet points with bold lead-ins highlighting strategic insights.
-4. DO NOT output conversational preamble or pleasantries.
+3. Also provide a clean Markdown Table with the data metrics (| Category | Metric | Share % |).
+4. Provide 2-3 executive bullet points with bold lead-ins highlighting strategic insights.
+5. DO NOT output conversational preamble or pleasantries.
 `;
     return `${userPrompt}\n\n${rules}`;
   }
@@ -63,8 +65,9 @@ Supported chartType values: "pie", "doughnut", "bar", "column", "line". Use exac
   if (lowerPrompt.includes("image") || lowerPrompt.includes("picture") || lowerPrompt.includes("illustration") || lowerPrompt.includes("drawing") || lowerPrompt.includes("visual art")) {
     const rules = `
 CRITICAL INSTRUCTIONS FOR IMAGE GENERATION:
-1. Generate a professional high-quality corporate visual image illustration representing this concept.
-2. DO NOT output conversational preamble, pleasantries, or conclusions.
+1. CRITICAL SCOPE CONTRACT: Generate EXACTLY ONE single slide containing this image illustration. DO NOT generate, repeat, or expand upon previous presentation slides from earlier in this conversation under any circumstances.
+2. Generate a professional high-quality corporate visual image illustration representing this concept.
+3. DO NOT output conversational preamble, pleasantries, or conclusions.
 `;
     return `${userPrompt}\n\n${rules}`;
   }

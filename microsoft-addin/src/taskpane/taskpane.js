@@ -806,7 +806,9 @@ async function handleCreateImageClick() {
       btn.addEventListener("click", async () => {
         const concept = btn.innerText.replace(/^[^\w]+/, "").trim();
         optButtons.forEach((b) => (b.disabled = true));
-        const prompt = `Create a high-quality, professional image visual illustration of: ${concept}. Generate an impactful, visually stunning illustration for a PowerPoint presentation.`;
+        const prompt = `Create a high-quality, professional image visual illustration of: ${concept}. Generate an impactful, visually stunning illustration for a PowerPoint presentation.
+
+CRITICAL SCOPE CONTRACT: Generate EXACTLY ONE single slide containing this image. DO NOT regenerate, repeat, or expand upon previous presentation slides from earlier in this conversation under any circumstances.`;
         const displayBubble = `🎨 Generate image: "${concept}"`;
         await executeGeminiWorkflow(prompt, displayBubble);
       });
@@ -896,7 +898,8 @@ Requirements:
 2. CRITICAL CONSTRAINT FOR TITLE:
    - The chart title MUST be short and punchy (maximum 2 to 5 words, e.g. "Coffee Output by State", "Q4 Revenue Share").
    - NEVER create long titles, never include parenthetical subtitles in the title, and never exceed 5 words!
-3. Include 2 concise, executive takeaway bullet points analyzing the data under the chart.`;
+3. Include 2 concise, executive takeaway bullet points analyzing the data under the chart.
+4. CRITICAL SCOPE CONTRACT: Output content for EXACTLY ONE single slide. DO NOT regenerate, repeat, or expand upon previous presentation slides from earlier in this conversation under any circumstances.`;
 
           const displayBubble = `📈 [Create Chart] Generating ${chartType} chart from selected text...`;
           await executeGeminiWorkflow(prompt, displayBubble);
@@ -999,7 +1002,8 @@ Requirements:
 2. CRITICAL CONSTRAINT FOR TITLE:
    - The chart title MUST be short and punchy (maximum 2 to 5 words).
    - NEVER create long titles, never include parenthetical subtitles in the title, and never exceed 5 words!
-3. Include 2 concise, executive takeaway bullet points analyzing the data under the chart.`;
+3. Include 2 concise, executive takeaway bullet points analyzing the data under the chart.
+4. CRITICAL SCOPE CONTRACT: Output content for EXACTLY ONE single slide. DO NOT regenerate, repeat, or expand upon previous presentation slides from earlier in this conversation under any circumstances.`;
 
         const displayBubble = `📈 [Create Chart] Generating ${currentType} chart from provided data...`;
         await executeGeminiWorkflow(prompt, displayBubble);
@@ -1029,7 +1033,8 @@ Requirements:
 2. CRITICAL CONSTRAINT FOR TITLE:
    - The chart title MUST be short and punchy (maximum 2 to 5 words).
    - NEVER create long titles, never include parenthetical subtitles in the title, and never exceed 5 words!
-3. Include 2 concise, executive takeaway bullet points analyzing the data under the chart.`;
+3. Include 2 concise, executive takeaway bullet points analyzing the data under the chart.
+4. CRITICAL SCOPE CONTRACT: Output content for EXACTLY ONE single slide. DO NOT regenerate, repeat, or expand upon previous presentation slides from earlier in this conversation under any circumstances.`;
 
         const displayBubble = `📈 [Create Chart] Generating ${currentType} chart for "${topic}"...`;
         await executeGeminiWorkflow(prompt, displayBubble);
