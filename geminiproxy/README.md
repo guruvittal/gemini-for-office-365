@@ -88,6 +88,7 @@ gcloud run deploy askgemini-proxy \
   --source . \
   --project YOUR_GCP_PROJECT_ID \
   --region us-central1 \
+  --memory 1Gi \
   --service-account gemini-office365-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com \
   --set-env-vars "\
 GE_GCP_PROJECT_ID=YOUR_PROJECT_ID,\
@@ -97,7 +98,6 @@ GE_GCP_LOCATION=global,\
 ALLOW_SERVICE_ACCOUNT_FALLBACK=false" \
   --no-allow-unauthenticated \
   --quiet
-```
 ```
 
 ---

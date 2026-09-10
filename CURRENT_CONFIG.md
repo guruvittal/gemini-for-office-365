@@ -39,6 +39,7 @@ This document captures the active runtime environment variables, service endpoin
 ### C. `askgemini-proxy`
 * **Service URL:** `https://askgemini-proxy-16933400417.us-central1.run.app`
 * **Region:** `us-central1`
+* **Memory Limit:** `1Gi` *(sized to prevent OOM on large streaming responses & multi-turn history)*
 * **Service Account:** `gemini-office365-sa@agentspace-452714.iam.gserviceaccount.com`
 
 | Variable Name | Value | Purpose |

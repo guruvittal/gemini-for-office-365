@@ -299,6 +299,7 @@ gcloud run deploy askgemini-proxy \
   --source . \
   --project YOUR_WIF_GCP_PROJECT_ID \
   --region us-central1 \
+  --memory 1Gi \
   --service-account gemini-office365-sa@YOUR_WIF_GCP_PROJECT_ID.iam.gserviceaccount.com \
   --allow-unauthenticated \
   --set-env-vars "\
@@ -379,6 +380,7 @@ gcloud run deploy askgemini-proxy \
   --source . \
   --project YOUR_GCP_PROJECT_ID \
   --region us-central1 \
+  --memory 1Gi \
   --service-account gemini-office365-sa@YOUR_GCP_PROJECT_ID.iam.gserviceaccount.com \
   --allow-unauthenticated \
   --set-env-vars "\
@@ -392,6 +394,9 @@ ENTERPRISE_ASSISTANT_ID=default_assistant,\
 ALLOW_SERVICE_ACCOUNT_FALLBACK=true" \
   --quiet
 ```
+
+> [!TIP]
+> **Memory Allocation (1Gi minimum):** `askgemini-proxy` manages in-memory multi-turn session histories and chunks large streaming responses from Discovery Engine. Sizing the container with `--memory 1Gi` ensures instances never exceed Cloud Run memory thresholds under concurrent or multi-turn workloads.
 
 > [!NOTE]
 > Note the live URL returned by Cloud Run (e.g., `https://askgemini-proxy-16933400417.us-central1.run.app`). You will use this in Step 2 as `DOWNSTREAM_BACKEND_URL`.
