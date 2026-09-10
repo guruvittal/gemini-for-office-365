@@ -358,11 +358,10 @@ export class PPTAdapter {
       if (typeof PowerPoint !== 'undefined') {
         await PowerPoint.run(async (context) => {
           const slides = context.presentation.slides;
-          slides.load("items/id");
           const countResult = slides.getCount();
           await context.sync();
 
-          const total = countResult.value || (slides.items ? slides.items.length : 0);
+          const total = countResult.value || 0;
           const slideTexts = [];
 
           for (let i = 0; i < total; i++) {
@@ -398,6 +397,10 @@ export class PPTAdapter {
     const isReplace = options.mode === "replace" || options.mode === "replace_draft";
 
     try {
+      if (window.__isGeneratingSlides) {
+        console.warn("[PPTAdapter] Slide generation already in progress. Ignoring duplicate trigger.");
+        return;
+      }
       window.__isGeneratingSlides = true;
       if (typeof PowerPoint === 'undefined') {
         throw new Error("PowerPoint Office.js environment is not available.");

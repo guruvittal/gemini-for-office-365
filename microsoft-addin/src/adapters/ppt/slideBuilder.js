@@ -125,10 +125,10 @@ async function getThemeBlankLayoutOptions() {
           continue;
         }
 
-        // 1. Look for a layout named "blank", "em branco", "en blanco", "vide", "leer"
+        // 1. Look for a layout named "blank", "em branco", "en blanco", "vide", "leer", "vuoto"
         let targetLayout = master.layouts.items.find(l => {
           const n = (l.name || "").toLowerCase();
-          return n.includes("blank") || n.includes("branco") || n.includes("blanco") || n.includes("vide") || n.includes("leer");
+          return n.includes("blank") || n.includes("branco") || n.includes("blanco") || n.includes("vide") || n.includes("leer") || n.includes("vuoto");
         });
 
         // 2. Fallback: look for "empty" or "clean"
@@ -137,6 +137,11 @@ async function getThemeBlankLayoutOptions() {
             const n = (l.name || "").toLowerCase();
             return n.includes("empty") || n.includes("clean");
           });
+        }
+
+        // 3. Fallback: layout 6 is standard Blank layout in PowerPoint templates
+        if (!targetLayout && master.layouts.items.length > 6) {
+          targetLayout = master.layouts.items[6];
         }
 
         if (targetLayout) {
@@ -472,21 +477,8 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
   logToPPTConsole(`Slide ${slideNum}: Preparing "${cleanTitle.substring(0, 32)}..."`);
 
   let imageInserted = false;
-  await PowerPoint.run(async (context) => {
-    const slides = context.presentation.slides;
 
-    // 1. Add new slide directly to presentation
-    slides.add();
-    await context.sync();
-
-    // 2. In Office.js, slides.add() returns void; fetch newly added slide at tail by index
-    const countResult = slides.getCount();
-    await context.sync();
-    const slideCount = countResult.value;
-    const newSlide = slides.getItemAt(slideCount - 1);
-
-    logToPPTConsole(`Slide ${slideNum}: Initialized new slide canvas at index ${slideCount - 1}.`);
-
+  const buildSlideInContext = async (context, newSlide) => {
     // If slide notes exist, associate them with the slide tags metadata
     if (slideData.notes && newSlide.tags) {
       try {
@@ -640,7 +632,39 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
     // 5. Commit all shapes in single batch
     await context.sync();
     logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}${hasTable ? 'Native Table' : 'Bullets'}.`);
-  });
+  };
+
+  let slideCreated = false;
+  // Attempt with theme blank layout if available (eliminates default title/subtitle placeholder watermarks cleanly)
+  if (layoutOptions && layoutOptions.slideMasterId && layoutOptions.layoutId) {
+    try {
+      await PowerPoint.run(async (context) => {
+        const slides = context.presentation.slides;
+        const countResult = slides.getCount();
+        slides.add(layoutOptions);
+        await context.sync();
+        const newSlide = slides.getItemAt(countResult.value);
+        logToPPTConsole(`Slide ${slideNum}: Initialized blank layout canvas at index ${countResult.value}.`);
+        await buildSlideInContext(context, newSlide);
+      });
+      slideCreated = true;
+    } catch (lErr) {
+      console.warn(`[PPTBuilder] Blank layout add failed, falling back to standard add:`, lErr);
+    }
+  }
+
+  // Standard fallback if blank layout was not available or failed
+  if (!slideCreated) {
+    await PowerPoint.run(async (context) => {
+      const slides = context.presentation.slides;
+      const countResult = slides.getCount();
+      slides.add();
+      await context.sync();
+      const newSlide = slides.getItemAt(countResult.value);
+      logToPPTConsole(`Slide ${slideNum}: Initialized standard slide canvas at index ${countResult.value}.`);
+      await buildSlideInContext(context, newSlide);
+    });
+  }
 
   // Universal Fallback: If shape picture insertion failed, inject via Office Common API
   if (hasImages && !imageInserted && imagesToInsert.length > 0) {
@@ -713,10 +737,10 @@ export async function insertOnCurrentSlide(slideStructures, options = {}) {
 
     if (!activeSlide) {
       const slides = context.presentation.slides;
-      slides.load("items");
+      const countRes = slides.getCount();
       await context.sync();
-      if (slides.items && slides.items.length > 0) {
-        activeSlide = slides.items[0];
+      if (countRes.value > 0) {
+        activeSlide = slides.getItemAt(0);
       }
     }
 
@@ -777,11 +801,10 @@ export async function insertOnCurrentSlide(slideStructures, options = {}) {
       // If there are following bullet points, put them on a dedicated second slide
       if (hasMeaningfulBody) {
         try {
+          const takeawayCountResult = context.presentation.slides.getCount();
           context.presentation.slides.add();
           await context.sync();
-          const takeawayCountResult = context.presentation.slides.getCount();
-          await context.sync();
-          const newTakeawaySlide = context.presentation.slides.getItemAt(takeawayCountResult.value - 1);
+          const newTakeawaySlide = context.presentation.slides.getItemAt(takeawayCountResult.value);
           const { cleanText: cleanBullets } = parseMarkdownFormatting(rawBody);
           const bodyBox = newTakeawaySlide.shapes.addTextBox(cleanBullets, {
             left: 50,
@@ -849,7 +872,18 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
   const totalSlides = slideStructures.length;
   logToPPTConsole(`=== Starting Generation of ${totalSlides} Slide(s) ===`);
 
-  // 1. Pre-process images
+  // 1. Discover Theme Blank Layout ONCE upfront to eliminate placeholder boxes cleanly
+  let layoutOptions = null;
+  try {
+    layoutOptions = await getThemeBlankLayoutOptions();
+    if (layoutOptions) {
+      logToPPTConsole(`ℹ️ Theme Blank Layout found (using clean slide master layout).`);
+    }
+  } catch (lErr) {
+    console.warn("[PPTBuilder] Notice discovering theme layout:", lErr);
+  }
+
+  // 2. Pre-process images
   for (let idx = 0; idx < slideStructures.length; idx++) {
     const slide = slideStructures[idx];
     slide.compressedImages = [];
@@ -866,7 +900,7 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     }
   }
 
-  // 2. Build each slide sequentially, appending to end of presentation
+  // 3. Build each slide sequentially, appending to end of presentation
   for (let i = 0; i < totalSlides; i++) {
     const slideData = slideStructures[i];
     const slideNum = i + 1;
@@ -880,7 +914,7 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     }
 
     try {
-      await createSingleSlide(slideData, slideNum);
+      await createSingleSlide(slideData, slideNum, layoutOptions);
     } catch (slideErr) {
       logToPPTConsole(`Slide ${slideNum} Error: ${slideErr.message}`, true);
       console.error(`[PPTBuilder] Slide ${slideNum} Error:`, slideErr);
