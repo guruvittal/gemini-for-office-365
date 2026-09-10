@@ -81,13 +81,13 @@ CRITICAL INSTRUCTIONS FOR IMAGE GENERATION:
 
     if (isSummarizeSlides) {
       const rules = `
-CRITICAL INSTRUCTIONS FOR SUMMARIZE SLIDES GENERATION (UP TO 5 SLIDES):
-1. Provide a comprehensive Executive Summary presentation across multiple slides (UP TO 5 SLIDES):
-   - You can create up to 5 slides to thoroughly cover the key information, data, metrics, comparisons, and strategic findings.
+CRITICAL INSTRUCTIONS FOR SUMMARIZE SLIDES GENERATION (STRICTLY 3 TO 5 SLIDES MAXIMUM):
+1. Provide a comprehensive Executive Summary presentation across multiple slides (STRICTLY BETWEEN 3 AND 5 SLIDES MAXIMUM):
+   - You must generate AT MOST 5 slides total (strictly 3 to 5 slides). NEVER generate 6 or more slides.
    - Separate distinct topics, tables, and visual charts into their own slides (e.g. ## Slide 1: [Executive Overview / Main Metrics Table], ## Slide 2: [Category Breakdown / Visual Chart / Details Table], etc.).
    - If there are multiple tables or data sets, place each table on its own appropriate slide.
    - If a visual chart represents data, output a structured JSON code block with the exact data metrics (chartType: "doughnut" or "bar", title: "...", data: [...]) so our client presentation engine can render a crisp chart.
-   - Break down the key takeaways into a dedicated single slide titled "## 📊 Executive Summary: Key Takeaways" with a maximum of 5 bullet points (each with an impactful bold lead-in phrase). CRITICAL: Generate at most 5 bullet points for the key takeaways to fit cleanly on the slide; do not exceed 5 bullet points.
+   - Break down the key takeaways into a dedicated single slide titled "## 📊 Executive Summary: Key Takeaways" with at most 3 to 4 concise executive bullet points (max 15 words per bullet). CRITICAL: Generate strictly at most 4 bullet points; do NOT exceed 4 bullet points or create continuation slides.
    - Format each slide with a clear markdown header (## Slide 1: [Title], ## Slide 2: [Title], etc.) so each section generates its own slide.
 2. STRICT CLOSED-BOOK GROUNDING CONTRACT:
    - You are operating in 100% STRICT CLOSED-BOOK MODE based SOLELY on the provided slide context.
@@ -134,9 +134,12 @@ CRITICAL INSTRUCTIONS FOR EXECUTIVE SUMMARY GENERATION:
 
     let countConstraint = "";
     if (requestedCount && requestedCount > 0) {
+      const slideList = Array.from({ length: requestedCount }, (_, idx) => `- ## Slide ${idx + 1}: [Title]`).join("\n");
       countConstraint = `
 CRITICAL CONSTRAINT - EXACT SLIDE COUNT:
-The user explicitly requested EXACTLY ${requestedCount} slides. You MUST generate EXACTLY ${requestedCount} slides (from ## Slide 1 to ## Slide ${requestedCount}). NEVER output fewer or more than ${requestedCount} slides under any circumstances.
+The user explicitly requested EXACTLY ${requestedCount} slides. You MUST generate ALL ${requestedCount} slides from ## Slide 1 through ## Slide ${requestedCount}:
+${slideList}
+NEVER output fewer or more than ${requestedCount} slides under any circumstances.
 `;
     }
 
@@ -165,7 +168,7 @@ CRITICAL STRUCTURE CONTRACT FOR SLIDE GENERATION:${countConstraint}
 - EACH CHART MUST BE 100% UNIQUE: NEVER repeat or duplicate the same chart, metrics, or title across multiple slides. If a deck has 5 to 10 slides, at most 2 should contain a data chart, and each MUST cover a completely different topic and metric.
 - CRITICAL CHART TITLE RULE: Every chart title MUST be short and punchy (maximum 2 to 5 words). NEVER create long, rambling titles or include parenthetical details in the title.
 - NEVER COMBINE A CHART AND A TABLE ON THE SAME SLIDE: A slide must feature EITHER a table OR a chart, NEVER both.
-- SLIDE 1 MUST BE A TITLE & SUMMARY SLIDE: Slide 1 must contain ONLY the presentation title, subtitle, and ONE single executive summary small paragraph. Save specific operational details, findings, metrics, data tables, and pillars for Slides 2 through 6.
+- SLIDE 1 MUST BE A TITLE & SUMMARY SLIDE: Slide 1 must contain ONLY the presentation title, subtitle, and ONE single executive summary small paragraph. Save specific operational details, findings, metrics, data tables, and pillars for subsequent slides (Slide 2 onwards).
 4. Do NOT output internal design metadata, font sizes (like "Title Size: 44"), hex colors (like "Color: #..."), or raw "Visual Concept:" labels. Keep the output clean, executive-ready presentation content.
 5. Separate every slide cleanly with a horizontal rule "---".
 `;

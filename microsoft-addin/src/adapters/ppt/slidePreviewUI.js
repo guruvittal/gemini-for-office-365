@@ -119,143 +119,151 @@ export function injectPowerPointStyles() {
 export function enhanceBubbleWithSlideDeck(bubbleEl, htmlContent, rawText, adapter) {
   if (!bubbleEl || bubbleEl.querySelector(".ppt-deck-preview-container")) return;
 
-  const isSummarizeSlides = bubbleEl.dataset?.isSummarizeSlides === "true" || (typeof window !== "undefined" && window.__isSummarizeSlidesAction);
-  const slides = parseSlides(htmlContent, rawText, { isSummarizeSlides });
-  if (slides.length < 2) return;
-
-  injectPowerPointStyles();
-
-  const container = document.createElement("div");
-  container.className = "ppt-deck-preview-container";
-
-  // Header
-  const header = document.createElement("div");
-  header.className = "ppt-deck-header";
-  header.innerHTML = `
-    <div class="ppt-deck-title">📊 <span>Presentation Deck Ready</span></div>
-    <div class="ppt-deck-badge">${slides.length} Slides</div>
-  `;
-  container.appendChild(header);
-
-  // Slides List
-  const slidesList = document.createElement("div");
-  slidesList.className = "ppt-slides-list";
-
-  slides.forEach((slide, idx) => {
-    const card = document.createElement("div");
-    card.className = "ppt-slide-card";
-
-    let previewContent = "";
-    if (slide.visualType === "metric_grid_3col" && slide.visualData && slide.visualData.cards) {
-      const cardsHtml = slide.visualData.cards.map(c => `
-        <div style="flex: 1; min-width: 70px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px; text-align: center;">
-          <div style="font-size: 16px; font-weight: 700; color: #0078d4;">${escapeHtml(c.metric || "")}</div>
-          <div style="font-size: 10px; font-weight: 700; color: #0f172a; margin-top: 2px;">${escapeHtml(c.title || "")}</div>
-        </div>
-      `).join("");
-      previewContent = `<div style="display: flex; gap: 6px; margin: 4px 0;">${cardsHtml}</div>`;
-      if (slide.body) {
-        previewContent += `<div style="white-space: pre-wrap; font-size: 10.5px; color: #475569; margin-top: 4px;">${escapeHtml(slide.body.trim())}</div>`;
-      }
-    } else if (slide.visualType === "before_after" && slide.visualData) {
-      previewContent = `
-        <div style="display: flex; gap: 6px; margin: 4px 0;">
-          <div style="flex: 1; background: #fff5f5; border: 1px solid #fed7d7; border-radius: 4px; padding: 6px;">
-            <div style="font-size: 10.5px; font-weight: 700; color: #c53030;">🔴 ${escapeHtml(slide.visualData.before?.title || "Before")}</div>
-          </div>
-          <div style="flex: 1; background: #f0fff4; border: 1px solid #c6f6d5; border-radius: 4px; padding: 6px;">
-            <div style="font-size: 10.5px; font-weight: 700; color: #276749;">🟢 ${escapeHtml(slide.visualData.after?.title || "After")}</div>
-          </div>
-        </div>
-      `;
-      if (slide.body) {
-        previewContent += `<div style="white-space: pre-wrap; font-size: 10.5px; color: #475569; margin-top: 4px;">${escapeHtml(slide.body.trim())}</div>`;
-      }
-    } else if (slide.tableData && slide.tableData.rows && slide.tableData.rows.length > 0) {
-      const headersHtml = (slide.tableData.headers || []).map(h => `<th style="padding: 4px 6px; background: #ffffff; color: #000000; font-weight: 700; text-align: left; font-size: 10px; border: 1px solid #165b7d; border-bottom: 2px solid #165b7d;">${escapeHtml(h)}</th>`).join("");
-      const rowsHtml = slide.tableData.rows.map((r, rIdx) => {
-        const bg = rIdx % 2 === 0 ? '#e1edf5' : '#ffffff';
-        const cells = r.map((c, cIdx) => `<td style="padding: 4px 6px; font-size: 10px; border: 1px solid #165b7d; color: #000000; ${cIdx === 0 ? 'font-weight: 600;' : ''}">${escapeHtml(c)}</td>`).join("");
-        return `<tr style="background: ${bg};">${cells}</tr>`;
-      }).join("");
-
-      previewContent = `
-        <div style="overflow-x: auto; margin: 4px 0;">
-          <table style="width: 100%; border-collapse: collapse; border: 1px solid #165b7d; font-size: 10px; line-height: 1.3; background: #ffffff;">
-            ${headersHtml ? `<thead><tr>${headersHtml}</tr></thead>` : ''}
-            <tbody>${rowsHtml}</tbody>
-          </table>
-        </div>
-      `;
-      if (slide.additionalBody) {
-        previewContent += `<div style="white-space: pre-wrap; margin-top: 6px; font-size: 10.5px; color: #323130;">${escapeHtml(slide.additionalBody.trim())}</div>`;
-      }
-    } else {
-      const previewBody = slide.body
-        ? slide.body.trim()
-        : "Full slide content & visual layout prepared.";
-      previewContent = `<div style="white-space: pre-wrap;">${escapeHtml(previewBody)}</div>`;
+  try {
+    const isSummarizeSlides = bubbleEl.dataset?.isSummarizeSlides === "true" || (typeof window !== "undefined" && window.__isSummarizeSlidesAction);
+    let slides = parseSlides(htmlContent, rawText, { isSummarizeSlides });
+    if (!slides || slides.length < 2) return;
+    if (isSummarizeSlides && slides.length > 5) {
+      slides = slides.slice(0, 5);
     }
 
-    if (slide.base64Images && slide.base64Images.length > 0 && !previewContent.includes("<img")) {
-      previewContent += `<div style="margin-top: 4px; text-align: center;"><img src="${slide.base64Images[0]}" style="max-height: 70px; border-radius: 4px; border: 1px solid #cbd5e1;" /></div>`;
-    }
+    injectPowerPointStyles();
 
-    card.innerHTML = `
-      <div class="ppt-slide-card-header">
-        <span class="ppt-slide-num">Slide ${idx + 1}</span>
-        <span>${escapeHtml(slide.title)}</span>
-      </div>
-      ${slide.subtitle ? `<div style="font-size: 10.5px; font-weight: 600; color: #475569; margin: 2px 0 4px 0; padding-left: 2px;">${escapeHtml(slide.subtitle)}</div>` : ''}
-      <div class="ppt-slide-preview-body">${previewContent}</div>
+    const container = document.createElement("div");
+    container.className = "ppt-deck-preview-container";
+
+    // Header
+    const header = document.createElement("div");
+    header.className = "ppt-deck-header";
+    header.innerHTML = `
+      <div class="ppt-deck-title">📊 <span>Presentation Deck Ready</span></div>
+      <div class="ppt-deck-badge">${slides.length} Slides</div>
     `;
-    slidesList.appendChild(card);
-  });
-  container.appendChild(slidesList);
+    container.appendChild(header);
 
-  // Footer instruction
-  const footerHint = document.createElement("div");
-  footerHint.className = "ppt-deck-footer-hint";
-  footerHint.innerHTML = `👉 Click <b>"+ Insert into Slides"</b> below to create all ${slides.length} slides.`;
-  container.appendChild(footerHint);
+    // Slides List
+    const slidesList = document.createElement("div");
+    slidesList.className = "ppt-slides-list";
 
-  // Optional collapsible raw text outline
-  const rawDetails = document.createElement("details");
-  rawDetails.className = "ppt-raw-details";
-  rawDetails.style.cssText = "margin-top: 6px; font-size: 10.5px; color: #605e5c;";
-  rawDetails.innerHTML = `
-    <summary style="cursor: pointer; color: #0078d4; user-select: none; font-size: 10.5px; font-weight: 500;">📄 View Raw Markdown Text</summary>
-    <div style="padding: 6px 8px; background: #faf9f8; border: 1px solid #edebe9; border-radius: 4px; margin-top: 4px; font-size: 11px; line-height: 1.4; max-height: 150px; overflow-y: auto;">
-      ${htmlContent}
-    </div>
-  `;
-  container.appendChild(rawDetails);
+    slides.forEach((slide, idx) => {
+      const card = document.createElement("div");
+      card.className = "ppt-slide-card";
 
-  // Update existing action buttons in the bubble & hide raw duplicate text
-  const actionsContainer = bubbleEl.querySelector(".response-actions-container");
-  if (actionsContainer) {
-    const insertBtn = actionsContainer.querySelector(".insert-btn") || actionsContainer.querySelector(".action-btn.insert");
-    if (insertBtn) {
-      insertBtn.innerHTML = slides.length === 1 ? `➕ Insert as New Slide` : `➕ Insert as ${slides.length} New Slides`;
-    }
-    const replaceBtn = actionsContainer.querySelector(".replace-btn") || actionsContainer.querySelector(".action-btn.replace");
-    if (replaceBtn) {
-      replaceBtn.innerHTML = slides.length === 1 ? `🔄 Replace Slide` : `🔄 Replace with ${slides.length} Slides`;
-    }
+      let previewContent = "";
+      if (slide.visualType === "metric_grid_3col" && slide.visualData && slide.visualData.cards) {
+        const cardsHtml = slide.visualData.cards.map(c => `
+          <div style="flex: 1; min-width: 70px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px; text-align: center;">
+            <div style="font-size: 16px; font-weight: 700; color: #0078d4;">${escapeHtml(c.metric || "")}</div>
+            <div style="font-size: 10px; font-weight: 700; color: #0f172a; margin-top: 2px;">${escapeHtml(c.title || "")}</div>
+          </div>
+        `).join("");
+        previewContent = `<div style="display: flex; gap: 6px; margin: 4px 0;">${cardsHtml}</div>`;
+        if (slide.body) {
+          previewContent += `<div style="white-space: pre-wrap; font-size: 10.5px; color: #475569; margin-top: 4px;">${escapeHtml(slide.body.trim())}</div>`;
+        }
+      } else if (slide.visualType === "before_after" && slide.visualData) {
+        previewContent = `
+          <div style="display: flex; gap: 6px; margin: 4px 0;">
+            <div style="flex: 1; background: #fff5f5; border: 1px solid #fed7d7; border-radius: 4px; padding: 6px;">
+              <div style="font-size: 10.5px; font-weight: 700; color: #c53030;">🔴 ${escapeHtml(slide.visualData.before?.title || "Before")}</div>
+            </div>
+            <div style="flex: 1; background: #f0fff4; border: 1px solid #c6f6d5; border-radius: 4px; padding: 6px;">
+              <div style="font-size: 10.5px; font-weight: 700; color: #276749;">🟢 ${escapeHtml(slide.visualData.after?.title || "After")}</div>
+            </div>
+          </div>
+        `;
+        if (slide.body) {
+          previewContent += `<div style="white-space: pre-wrap; font-size: 10.5px; color: #475569; margin-top: 4px;">${escapeHtml(slide.body.trim())}</div>`;
+        }
+      } else if (slide.tableData && slide.tableData.rows && slide.tableData.rows.length > 0) {
+        const headersHtml = (slide.tableData.headers || []).map(h => `<th style="padding: 4px 6px; background: #ffffff; color: #000000; font-weight: 700; text-align: left; font-size: 10px; border: 1px solid #165b7d; border-bottom: 2px solid #165b7d;">${escapeHtml(h)}</th>`).join("");
+        const rowsHtml = slide.tableData.rows.map((r, rIdx) => {
+          const bg = rIdx % 2 === 0 ? '#e1edf5' : '#ffffff';
+          const cells = r.map((c, cIdx) => `<td style="padding: 4px 6px; font-size: 10px; border: 1px solid #165b7d; color: #000000; ${cIdx === 0 ? 'font-weight: 600;' : ''}">${escapeHtml(c)}</td>`).join("");
+          return `<tr style="background: ${bg};">${cells}</tr>`;
+        }).join("");
 
-    // Hide all raw markdown text siblings to eliminate duplicate visual text
-    Array.from(bubbleEl.children).forEach(child => {
-      if (child !== actionsContainer && child !== container) {
-        child.style.display = "none";
+        previewContent = `
+          <div style="overflow-x: auto; margin: 4px 0;">
+            <table style="width: 100%; border-collapse: collapse; border: 1px solid #165b7d; font-size: 10px; line-height: 1.3; background: #ffffff;">
+              ${headersHtml ? `<thead><tr>${headersHtml}</tr></thead>` : ''}
+              <tbody>${rowsHtml}</tbody>
+            </table>
+          </div>
+        `;
+        if (slide.additionalBody) {
+          previewContent += `<div style="white-space: pre-wrap; margin-top: 6px; font-size: 10.5px; color: #323130;">${escapeHtml(slide.additionalBody.trim())}</div>`;
+        }
+      } else {
+        const previewBody = slide.body
+          ? slide.body.trim()
+          : "Full slide content & visual layout prepared.";
+        previewContent = `<div style="white-space: pre-wrap;">${escapeHtml(previewBody)}</div>`;
       }
-    });
 
-    bubbleEl.insertBefore(container, actionsContainer);
-  } else {
-    Array.from(bubbleEl.children).forEach(child => {
-      if (child !== container) child.style.display = "none";
+      if (slide.base64Images && slide.base64Images.length > 0 && !previewContent.includes("<img")) {
+        previewContent += `<div style="margin-top: 4px; text-align: center;"><img src="${slide.base64Images[0]}" style="max-height: 70px; border-radius: 4px; border: 1px solid #cbd5e1;" /></div>`;
+      }
+
+      card.innerHTML = `
+        <div class="ppt-slide-card-header">
+          <span class="ppt-slide-num">Slide ${idx + 1}</span>
+          <span>${escapeHtml(slide.title)}</span>
+        </div>
+        ${slide.subtitle ? `<div style="font-size: 10.5px; font-weight: 600; color: #475569; margin: 2px 0 4px 0; padding-left: 2px;">${escapeHtml(slide.subtitle)}</div>` : ''}
+        <div class="ppt-slide-preview-body">${previewContent}</div>
+      `;
+      slidesList.appendChild(card);
     });
-    bubbleEl.appendChild(container);
+    container.appendChild(slidesList);
+
+    // Footer instruction
+    const footerHint = document.createElement("div");
+    footerHint.className = "ppt-deck-footer-hint";
+    footerHint.innerHTML = `👉 Click <b>"+ Insert into Slides"</b> below to create all ${slides.length} slides.`;
+    container.appendChild(footerHint);
+
+    // Optional collapsible raw text outline
+    const rawDetails = document.createElement("details");
+    rawDetails.className = "ppt-raw-details";
+    rawDetails.style.cssText = "margin-top: 6px; font-size: 10.5px; color: #605e5c;";
+    rawDetails.innerHTML = `
+      <summary style="cursor: pointer; color: #0078d4; user-select: none; font-size: 10.5px; font-weight: 500;">📄 View Raw Markdown Text</summary>
+      <div style="padding: 6px 8px; background: #faf9f8; border: 1px solid #edebe9; border-radius: 4px; margin-top: 4px; font-size: 11px; line-height: 1.4; max-height: 150px; overflow-y: auto;">
+        ${htmlContent}
+      </div>
+    `;
+    container.appendChild(rawDetails);
+
+    // Update existing action buttons in the bubble & hide raw duplicate text
+    const actionsContainer = bubbleEl.querySelector(".response-actions-container");
+    if (actionsContainer) {
+      const insertBtn = actionsContainer.querySelector(".insert-btn") || actionsContainer.querySelector(".action-btn.insert") || actionsContainer.querySelector("button.insert");
+      if (insertBtn) {
+        insertBtn.innerHTML = slides.length === 1 ? `➕ Insert as New Slide` : `➕ Insert as ${slides.length} New Slides`;
+        insertBtn.title = `Insert all ${slides.length} slides into presentation`;
+      }
+      const replaceBtn = actionsContainer.querySelector(".replace-btn") || actionsContainer.querySelector(".action-btn.replace") || actionsContainer.querySelector("button.replace");
+      if (replaceBtn) {
+        replaceBtn.remove();
+      }
+
+      // Hide all raw markdown text siblings to eliminate duplicate visual text
+      Array.from(bubbleEl.children).forEach(child => {
+        if (child !== actionsContainer && child !== container) {
+          child.style.display = "none";
+        }
+      });
+
+      bubbleEl.insertBefore(container, actionsContainer);
+    } else {
+      Array.from(bubbleEl.children).forEach(child => {
+        if (child !== container) child.style.display = "none";
+      });
+      bubbleEl.appendChild(container);
+    }
+  } catch (err) {
+    console.warn("enhanceBubbleWithSlideDeck error:", err);
   }
 }
 
@@ -268,6 +276,8 @@ export function initSlidePreviewObserver(adapter) {
 
   const chatHistory = document.getElementById("chatHistory");
   if (!chatHistory) return;
+  if (chatHistory.__slidePreviewObserverInitialized) return;
+  chatHistory.__slidePreviewObserverInitialized = true;
 
   injectPowerPointStyles();
 

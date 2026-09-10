@@ -380,6 +380,10 @@ function adaptUIForHost(hostName) {
 function resetChatSession() {
   currentSessionId = null;
   chatHistoryState = [];
+  if (typeof window !== "undefined") {
+    window.__isSummarizeSlidesAction = false;
+    window.__lastUserPrompt = "";
+  }
   const historyDiv = document.getElementById("chatHistory");
   if (historyDiv) {
     historyDiv.innerHTML = '<div class="chat-bubble system">Chat session reset. Ready for a new topic!</div>';
@@ -1145,16 +1149,16 @@ async function runPowerPointSlideAction(actionType) {
       break;
     case "summarize":
     case "takeaways":
-      taskInstruction = `Based strictly on the content from the ${slideLabel} provided below, create a comprehensive executive summary presentation (up to 5 slides).
+      taskInstruction = `Based strictly on the content from the ${slideLabel} provided below, create a comprehensive executive summary presentation (strictly between 3 and 5 slides maximum).
 CRITICAL CLOSED-BOOK GROUNDING CONTRACT:
 1. STRICT BOUNDARY: You are operating in 100% CLOSED-BOOK MODE. You must synthesize information ONLY AND EXCLUSIVELY from the text and data explicitly present in the selected slides below.
 2. ZERO EXTERNAL KNOWLEDGE / ZERO HALLUCINATIONS: Do NOT introduce outside industry context, external market facts, assumptions, or topics that are not explicitly stated in the selected slides below. If a point or metric is not directly written in the provided slide text, omit it completely.
-3. MULTI-SLIDE STRUCTURE & FORMAT (Up to 5 slides):
-   - You can create up to 5 slides to thoroughly cover the key information, data, metrics, comparisons, and strategic findings.
+3. MULTI-SLIDE STRUCTURE & FORMAT (Strictly between 3 to 5 slides maximum):
+   - You must generate AT MOST 5 slides total (strictly 3 to 5 slides). NEVER generate 6 or more slides.
    - Separate distinct topics, tables, and visual charts into their own slides (e.g. ## Slide 1: [Executive Overview / Main Metrics Table], ## Slide 2: [Category Breakdown / Visual Chart / Details Table], etc.).
    - If there are multiple tables or data sets, place each table on its own appropriate slide.
    - If a visual chart represents data, output a structured JSON code block with the exact data metrics (chartType: "doughnut" or "bar", title: "...", data: [...]) so our client presentation engine can render a crisp chart.
-   - Break down the key takeaways into a dedicated single slide titled "## 📊 Executive Summary: Key Takeaways" with a maximum of 5 bullet points (each with an impactful bold lead-in phrase). CRITICAL: Generate at most 5 bullet points for the key takeaways to fit cleanly on the slide; do not exceed 5 bullet points.
+   - Break down the key takeaways into a dedicated single slide titled "## 📊 Executive Summary: Key Takeaways" with at most 3 to 4 concise executive bullet points (max 15 words per bullet). CRITICAL: Generate strictly at most 4 bullet points; do NOT exceed 4 bullet points or create continuation slides.
    - Format each slide with a clear markdown header (## Slide 1: [Title], ## Slide 2: [Title], etc.) so each section generates its own slide.
 4. DO NOT output conversational preamble.`;
       if (!displayBubble) {
@@ -1368,11 +1372,19 @@ async function executeGeminiWorkflow(fullPrompt, displayUserBubble, attachments 
     // Detect if this is an explicit image creation intent
     const isImageIntent = Boolean(
       (options && options.isolateSession) ||
-      (displayUserBubble && displayUserBubble.includes("Generate image")) ||
-      (fullPrompt && /\b(create|generate|make|draw)\s+(an?\s+)?image\b/i.test(fullPrompt))
+      (displayUserBubble && /Generate image|Create image|Insert image/i.test(displayUserBubble)) ||
+      (fullPrompt && /\b(create|generate|make|draw|show|produce|render|provide|insert|add)\s+(an?\s+)?(image|picture|photo|illustration|graphic|visual|artwork)\b/i.test(fullPrompt)) ||
+      (fullPrompt && /\b(image|picture|photo|illustration|graphic|visual)\s+(of|for|showing|depicting)\b/i.test(fullPrompt))
     );
 
-    // If image generation, isolate from prior conversation session to prevent JSON formatting contagion
+    if (typeof window !== "undefined") {
+      window.__lastUserPrompt = fullPrompt || displayUserBubble || "";
+      if (isImageIntent) {
+        window.__isSummarizeSlidesAction = false;
+      }
+    }
+
+    // If image generation, isolate from prior conversation session to prevent JSON formatting and previous visual contagion
     const sessionIdToUse = isImageIntent ? null : currentSessionId;
     const historyToUse = isImageIntent ? [] : chatHistoryState;
 
@@ -1658,7 +1670,10 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "", bubble
   const isSummarizeAction = Boolean(
     bubbleOptions?.isSummarizeSlides ||
     (typeof window !== "undefined" && window.__isSummarizeSlidesAction) ||
-    (originalPrompt && originalPrompt.toLowerCase().includes("[summarize slides]"))
+    (originalPrompt && (
+      originalPrompt.toLowerCase().includes("[summarize slides]") ||
+      (isPPT && /\bsummariz(?:e|ing)\s+(?:the\s+|all\s+|these\s+)?(?:slides?|deck|presentation)\b/i.test(originalPrompt))
+    ))
   );
   bubble.dataset.isSummarizeSlides = isSummarizeAction ? "true" : "false";
 
@@ -1780,6 +1795,18 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "", bubble
   const shouldInsertImageOnly = renderedImages.length > 0 && (isImageRequest || (!fullText.includes("##") && textDiv.innerText.trim().length < 60));
   const isBubbleSummarize = bubble.dataset.isSummarizeSlides === "true";
 
+  // Helper: Retrieve the primary non-chart visual image from renderedImages
+  const getTargetVisualImage = () => {
+    if (renderedImages.length === 0) return null;
+    const nonChartImg = Array.from(renderedImages).reverse().find(img => {
+      const isInsideChart = img.closest(".rendered-chart-container, [data-chart-title]");
+      const isChartSrc = (img.src || "").toLowerCase().includes("chart");
+      const isChartAlt = (img.alt || "").toLowerCase().includes("chart");
+      return !isInsideChart && !isChartSrc && !isChartAlt;
+    });
+    return nonChartImg || renderedImages[renderedImages.length - 1] || renderedImages[0];
+  };
+
   // 1. In-Place Replace Button
   const hasSelection = isPPT && currentSelectedText && currentSelectedText.trim().length > 0;
   const replaceBtn = document.createElement("button");
@@ -1788,8 +1815,10 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "", bubble
   replaceBtn.title = shouldInsertImageOnly ? "Replace active slide/document with image" : (isPPT ? (hasSelection ? "Replace selected text in slide" : "Replace active slide content") : "Replace active draft or selection in Word");
   replaceBtn.onclick = async () => {
     if (shouldInsertImageOnly) {
-      const img = renderedImages[0];
-      await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "replace_draft", { imageOnly: true, isSummarizeSlides: isBubbleSummarize });
+      const img = getTargetVisualImage();
+      if (img && img.src) {
+        await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "replace_draft", { imageOnly: true, isSummarizeSlides: false });
+      }
     } else {
       await performDocumentInsertion(textDiv.innerHTML, fullText, "replace_draft", { isSummarizeSlides: isBubbleSummarize });
     }
@@ -1804,8 +1833,10 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "", bubble
     insertCurrentBtn.title = shouldInsertImageOnly ? "Insert image directly onto current slide" : "Insert generated content or image directly onto the currently active slide";
     insertCurrentBtn.onclick = async () => {
       if (shouldInsertImageOnly) {
-        const img = renderedImages[0];
-        await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "insert_current_slide", { imageOnly: true, isSummarizeSlides: isBubbleSummarize });
+        const img = getTargetVisualImage();
+        if (img && img.src) {
+          await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "insert_current_slide", { imageOnly: true, isSummarizeSlides: false });
+        }
       } else {
         await performDocumentInsertion(textDiv.innerHTML, fullText, "insert_current_slide", { isSummarizeSlides: isBubbleSummarize });
       }
@@ -1819,8 +1850,10 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "", bubble
   insertBtn.title = shouldInsertImageOnly ? "Insert image into presentation" : (isPPT ? "Create new presentation slides at the end of the deck" : "Insert at current cursor location");
   insertBtn.onclick = async () => {
     if (shouldInsertImageOnly) {
-      const img = renderedImages[0];
-      await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "insert_cursor", { imageOnly: true, isSummarizeSlides: isBubbleSummarize });
+      const img = getTargetVisualImage();
+      if (img && img.src) {
+        await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "insert_cursor", { imageOnly: true, isSummarizeSlides: false });
+      }
     } else {
       await performDocumentInsertion(textDiv.innerHTML, fullText, "insert_cursor", { isSummarizeSlides: isBubbleSummarize });
     }
@@ -1866,6 +1899,20 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "", bubble
 
   historyDiv.appendChild(bubble);
   historyDiv.scrollTop = historyDiv.scrollHeight;
+
+  // POWERPOINT INSTANT SLIDE DECK ENHANCEMENT:
+  // Immediately parse slides and display deck outline preview cards if multiple slides are detected
+  if (isPPT) {
+    try {
+      import('../adapters/ppt/slidePreviewUI.js').then(({ enhanceBubbleWithSlideDeck }) => {
+        enhanceBubbleWithSlideDeck(bubble, textDiv.innerHTML, fullText, hostAdapter);
+      }).catch(err => {
+        console.warn("Direct slide deck preview enhancement error:", err);
+      });
+    } catch (e) {
+      console.warn("Direct slide preview invocation failed:", e);
+    }
+  }
 
   // Ensure action buttons remain fully visible when images finish decoding
   const bubbleImages = bubble.querySelectorAll("img");

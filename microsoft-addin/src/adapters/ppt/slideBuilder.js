@@ -158,7 +158,7 @@ async function getThemeBlankLayoutOptions() {
 /**
  * Populates a native Microsoft PowerPoint table using PowerPoint.js shapes.addTable().
  */
-function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90, tableLeft = 50, tableWidth = 860, maxTableHeight = 380) {
+async function populateSlideTable(context, newSlide, tableData, slideNum, tableTop = 90, tableLeft = 50, tableWidth = 860, maxTableHeight = 380) {
   const headers = tableData.headers || [];
   const rows = tableData.rows || [];
   const colCount = Math.max(headers.length, ...rows.map(r => r.length), 1);
@@ -168,7 +168,7 @@ function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90, tableL
   if (headers.length > 0) {
     const hRow = [];
     for (let c = 0; c < colCount; c++) {
-      hRow.push(headers[c] || "");
+      hRow.push(headers[c] !== undefined && headers[c] !== null ? String(headers[c]) : "");
     }
     tableValues.push(hRow);
   }
@@ -182,85 +182,99 @@ function populateSlideTable(newSlide, tableData, slideNum, tableTop = 90, tableL
 
   const tableHeight = Math.min(maxTableHeight, Math.max(80, rowCount * 34));
 
-  // Helper to format table cells: 18pt for headers/title row, 14pt for data rows
-  const applyTableCellFontSizes = (tableObj) => {
-    if (!tableObj || typeof tableObj.getCellOrNullObject !== "function") return;
-    for (let r = 0; r < rowCount; r++) {
-      const isHeaderRow = (r === 0 && headers.length > 0);
-      const fontSize = isHeaderRow ? 18 : 14;
-      for (let c = 0; c < colCount; c++) {
-        try {
-          const cell = tableObj.getCellOrNullObject(r, c);
-          if (cell) {
-            if (cell.font) {
-              cell.font.size = fontSize;
-              if (isHeaderRow) cell.font.bold = true;
-            } else if (cell.textRange && cell.textRange.font) {
-              cell.textRange.font.size = fontSize;
-              if (isHeaderRow) cell.textRange.font.bold = true;
-            } else if (cell.textFrame && cell.textFrame.textRange && cell.textFrame.textRange.font) {
-              cell.textFrame.textRange.font.size = fontSize;
-              if (isHeaderRow) cell.textFrame.textRange.font.bold = true;
-            }
-          }
-        } catch (_) {}
-      }
-    }
-  };
-
-  try {
-    if (typeof newSlide.shapes.addTable === "function") {
+  // 1. Attempt native PowerPoint table via shapes.addTable()
+  let tableSuccess = false;
+  if (typeof newSlide.shapes.addTable === "function") {
+    try {
       const tableShape = newSlide.shapes.addTable(rowCount, colCount, {
         left: tableLeft,
         top: tableTop,
         width: tableWidth,
-        height: tableHeight,
-        values: tableValues
+        height: tableHeight
       });
-      try {
-        tableShape.table.format = PowerPoint.TableFormat.lightStyle1;
-      } catch (_) {}
+      const table = typeof tableShape.getTable === "function" ? tableShape.getTable() : tableShape.table;
+      if (table) {
+        for (let r = 0; r < tableValues.length; r++) {
+          for (let c = 0; c < colCount; c++) {
+            const rawVal = tableValues[r][c];
+            if (rawVal === undefined || rawVal === null) continue;
+            const strVal = String(rawVal).trim();
+            if (!strVal) continue;
 
-      // Apply cell font sizes: header row 18pt, data rows 14pt
-      try {
-        const tableObj = tableShape.table || (typeof tableShape.getTable === "function" ? tableShape.getTable() : null);
-        applyTableCellFontSizes(tableObj);
-      } catch (fErr) {
-        console.warn("[PPTBuilder] Notice applying table cell font sizes:", fErr);
+            try {
+              const cell = typeof table.getCell === "function"
+                ? table.getCell(r, c)
+                : (typeof table.getCellOrNullObject === "function" ? table.getCellOrNullObject(r, c) : null);
+              if (cell) {
+                // 1. Direct cell.text assignment (official Office.js TableCell property)
+                try {
+                  cell.text = strVal;
+                } catch (_) {}
+
+                // 2. textRange text and formatting
+                try {
+                  if (cell.textRange) {
+                    cell.textRange.text = strVal;
+                    if (r === 0 && headers.length > 0) {
+                      if (cell.textRange.font) {
+                        cell.textRange.font.bold = true;
+                        cell.textRange.font.color = "#FFFFFF";
+                      }
+                    } else {
+                      if (cell.textRange.font) {
+                        cell.textRange.font.size = 13;
+                      }
+                    }
+                  }
+                } catch (_) {}
+
+                // 3. Header background fill
+                if (r === 0 && headers.length > 0 && cell.fill && typeof cell.fill.setSolidColor === "function") {
+                  try {
+                    cell.fill.setSolidColor("#0f4c81");
+                  } catch (_) {}
+                }
+              }
+            } catch (cellErr) {
+              console.warn(`[PPTBuilder] Error populating cell [${r}, ${c}]:`, cellErr);
+            }
+          }
+        }
       }
-
-      logToPPTConsole(`Slide ${slideNum}: Added native table (${rowCount} rows x ${colCount} cols, header: 18pt, data: 14pt).`);
-      return tableHeight;
+      await context.sync();
+      tableSuccess = true;
+      logToPPTConsole(`Slide ${slideNum}: Added native table (${rowCount} rows x ${colCount} cols).`);
+    } catch (tblErr) {
+      console.warn("[PPTBuilder] Native shapes.addTable failed, falling back to formatted text box:", tblErr);
     }
-  } catch (err) {
-    console.warn("[PPTBuilder] shapes.addTable with options failed, trying basic addTable:", err);
   }
 
-  try {
-    const shape = newSlide.shapes.addTable(rowCount, colCount);
-    shape.left = tableLeft;
-    shape.top = tableTop;
-    shape.width = tableWidth;
-    const table = shape.getTable();
-    for (let r = 0; r < tableValues.length; r++) {
-      for (let c = 0; c < colCount; c++) {
-        const cell = table.getCellOrNullObject(r, c);
-        if (cell) cell.text = tableValues[r][c];
-      }
-    }
-
-    // Apply cell font sizes: header row 18pt, data rows 14pt
+  // 2. Resilient fallback: render table content as structured text in a text box
+  if (!tableSuccess) {
     try {
-      applyTableCellFontSizes(table);
-    } catch (_) {}
-
-    logToPPTConsole(`Slide ${slideNum}: Added native table via getCell (header: 18pt, data: 14pt).`);
-    return tableHeight;
-  } catch (fallbackErr) {
-    console.error("[PPTBuilder] Native table shape creation failed:", fallbackErr);
-    logToPPTConsole(`Slide ${slideNum}: ⚠️ Table shape notice: ${fallbackErr.message}`);
-    return tableHeight;
+      const fallbackLines = [];
+      if (headers.length > 0) {
+        fallbackLines.push(`• **${headers.join(" | ")}**`);
+      }
+      for (const r of rows) {
+        fallbackLines.push(`• ${r.join(" | ")}`);
+      }
+      const tableBox = newSlide.shapes.addTextBox(fallbackLines.join("\n"), {
+        left: tableLeft,
+        top: tableTop,
+        width: tableWidth,
+        height: tableHeight
+      });
+      tableBox.textFrame.textRange.font.size = 14;
+      tableBox.textFrame.wordWrap = true;
+      await context.sync();
+      logToPPTConsole(`Slide ${slideNum}: Rendered table data in text frame.`);
+    } catch (fErr) {
+      console.warn("[PPTBuilder] Table fallback textbox failed:", fErr);
+    }
   }
+
+  return tableHeight;
 }
 
 /**
@@ -461,26 +475,17 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
   await PowerPoint.run(async (context) => {
     const slides = context.presentation.slides;
 
-    // 1. Add slide using Theme Blank Layout if available, falling back to standard add
-    if (layoutOptions) {
-      try {
-        slides.add(layoutOptions);
-      } catch (lErr) {
-        slides.add();
-      }
-    } else {
-      slides.add();
-    }
+    // 1. Add new slide directly to presentation
+    slides.add();
     await context.sync();
 
-    // 2. Fetch total count to locate newly added slide at the tail
+    // 2. In Office.js, slides.add() returns void; fetch newly added slide at tail by index
     const countResult = slides.getCount();
     await context.sync();
-
     const slideCount = countResult.value;
-    logToPPTConsole(`Slide ${slideNum}: Appended slide at index ${slideCount - 1} (Total: ${slideCount}).`);
-
     const newSlide = slides.getItemAt(slideCount - 1);
+
+    logToPPTConsole(`Slide ${slideNum}: Initialized new slide canvas at index ${slideCount - 1}.`);
 
     // If slide notes exist, associate them with the slide tags metadata
     if (slideData.notes && newSlide.tags) {
@@ -497,7 +502,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
 
     let contentTop = 40;
     if (!isImageOnlySlide && cleanTitle) {
-      // 3. Add Title TextBox at Top
+      // 2. Add Title TextBox at Top
       const titleBox = newSlide.shapes.addTextBox(cleanTitle, {
         left: 50,
         top: 30,
@@ -511,7 +516,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
       }
       contentTop = 85;
 
-      // 4. Add Subtitle directly under Title if present
+      // 3. Add Subtitle directly under Title if present
       if (subtitle) {
         const subtitleBox = newSlide.shapes.addTextBox(subtitle, {
           left: 50,
@@ -528,9 +533,9 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
       }
     }
 
-    // 5. Layout Rendering: Image Only, Table + Image, Table + Bullets, Table Only, Image + Bullets, or Bullets Only
+    // 4. Layout Rendering: Image Only, Table + Image, Table + Bullets, Table Only, Image + Bullets, or Bullets Only
     if (isImageOnlySlide && hasImages) {
-      // 5-ImageOnly: Centered prominently across full slide with NO titles or placeholder boxes
+      // 4-ImageOnly: Centered prominently across full slide with NO titles or placeholder boxes
       imageInserted = insertPictureOnSlide(newSlide, imagesToInsert[0], {
         left: 60,
         top: 40,
@@ -538,7 +543,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
         height: 460
       }, slideNum);
     } else if (hasTable && hasImages) {
-      // 5a. Side-by-side: Chart/Image on Left, Table on Right
+      // 4a. Side-by-side: Chart/Image on Left, Table on Right
       imageInserted = insertPictureOnSlide(newSlide, imagesToInsert[0], {
         left: 50,
         top: contentTop + 10,
@@ -546,12 +551,12 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
         height: 350
       }, slideNum);
 
-      populateSlideTable(newSlide, tableData, slideNum, contentTop + 10, 500, 410);
+      await populateSlideTable(context, newSlide, tableData, slideNum, contentTop + 10, 500, 410);
     } else if (hasTable) {
-      // 5b. Table Presentation: Render full-width with optimal height so rows never collide
-      populateSlideTable(newSlide, tableData, slideNum, contentTop, 50, 860);
+      // 4b. Table Presentation: Render full-width with optimal height so rows never collide
+      await populateSlideTable(context, newSlide, tableData, slideNum, contentTop, 50, 860);
     } else if (hasImages && hasMeaningfulBody) {
-      // 5c. Bullets on Left, Image on Right
+      // 4c. Bullets on Left, Image on Right
       const { cleanText: cleanBullets, parsedParagraphs } = parseMarkdownFormatting(bodyTextContent);
       const bodyBox = newSlide.shapes.addTextBox(cleanBullets, {
         left: 50,
@@ -561,22 +566,26 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
       });
       bodyBox.textFrame.textRange.font.size = 18;
       bodyBox.textFrame.wordWrap = true;
+      await context.sync();
 
-      // Apply bold styling to lead-in phrases
+      // Safely apply bold styling to lead-in phrases
       if (parsedParagraphs && parsedParagraphs.some(p => p.boldRanges && p.boldRanges.length > 0)) {
         try {
           let charOffset = 0;
           for (let pIdx = 0; pIdx < parsedParagraphs.length; pIdx++) {
             const p = parsedParagraphs[pIdx];
             for (const b of (p.boldRanges || [])) {
-              if (b.start >= 0 && b.length > 0) {
+              if (b.start >= 0 && b.length > 0 && (charOffset + b.start + b.length) <= cleanBullets.length) {
                 const sub = bodyBox.textFrame.textRange.getSubstring(charOffset + b.start, b.length);
                 sub.font.bold = true;
               }
             }
             charOffset += p.cleanText.length + 1; // +1 for \n
           }
-        } catch (_) {}
+          await context.sync();
+        } catch (boldErr) {
+          console.warn("[PPTBuilder] Notice applying bold lead-in:", boldErr);
+        }
       }
 
       imageInserted = insertPictureOnSlide(newSlide, imagesToInsert[0], {
@@ -586,7 +595,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
         height: 350
       }, slideNum);
     } else if (hasImages) {
-      // 5d. Image Only: Centered prominently, NO placeholder text box
+      // 4d. Image Only: Centered prominently, NO placeholder text box
       imageInserted = insertPictureOnSlide(newSlide, imagesToInsert[0], {
         left: 170,
         top: contentTop + 10,
@@ -594,7 +603,7 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
         height: 370
       }, slideNum);
     } else {
-      // 5e. Bullets Only: Full width
+      // 4e. Bullets Only: Full width
       const content = hasMeaningfulBody ? bodyTextContent : "• Executive slide content";
       const { cleanText: cleanBullets, parsedParagraphs } = parseMarkdownFormatting(content);
       const bodyBox = newSlide.shapes.addTextBox(cleanBullets, {
@@ -605,26 +614,30 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
       });
       bodyBox.textFrame.textRange.font.size = 18;
       bodyBox.textFrame.wordWrap = true;
+      await context.sync();
 
-      // Apply bold styling to lead-in phrases
+      // Safely apply bold styling to lead-in phrases
       if (parsedParagraphs && parsedParagraphs.some(p => p.boldRanges && p.boldRanges.length > 0)) {
         try {
           let charOffset = 0;
           for (let pIdx = 0; pIdx < parsedParagraphs.length; pIdx++) {
             const p = parsedParagraphs[pIdx];
             for (const b of (p.boldRanges || [])) {
-              if (b.start >= 0 && b.length > 0) {
+              if (b.start >= 0 && b.length > 0 && (charOffset + b.start + b.length) <= cleanBullets.length) {
                 const sub = bodyBox.textFrame.textRange.getSubstring(charOffset + b.start, b.length);
                 sub.font.bold = true;
               }
             }
             charOffset += p.cleanText.length + 1; // +1 for \n
           }
-        } catch (_) {}
+          await context.sync();
+        } catch (boldErr) {
+          console.warn("[PPTBuilder] Notice applying bold lead-in:", boldErr);
+        }
       }
     }
 
-    // 6. Commit all shapes in single batch
+    // 5. Commit all shapes in single batch
     await context.sync();
     logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}${hasTable ? 'Native Table' : 'Bullets'}.`);
   });
@@ -758,14 +771,17 @@ export async function insertOnCurrentSlide(slideStructures, options = {}) {
     }
     // 4. Table presentation
     else if (hasTable) {
-      populateSlideTable(activeSlide, tableData, 1, 90, 50, 860);
+      await populateSlideTable(context, activeSlide, tableData, 1, 90, 50, 860);
       logToPPTConsole(`Inserted table onto current slide.`);
 
       // If there are following bullet points, put them on a dedicated second slide
       if (hasMeaningfulBody) {
         try {
-          const newTakeawaySlide = context.presentation.slides.add();
+          context.presentation.slides.add();
           await context.sync();
+          const takeawayCountResult = context.presentation.slides.getCount();
+          await context.sync();
+          const newTakeawaySlide = context.presentation.slides.getItemAt(takeawayCountResult.value - 1);
           const { cleanText: cleanBullets } = parseMarkdownFormatting(rawBody);
           const bodyBox = newTakeawaySlide.shapes.addTextBox(cleanBullets, {
             left: 50,
@@ -833,13 +849,7 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
   const totalSlides = slideStructures.length;
   logToPPTConsole(`=== Starting Generation of ${totalSlides} Slide(s) ===`);
 
-  // 1. Discover Theme Blank Layout ONCE upfront to preserve presentation theme and eliminate placeholders
-  const layoutOptions = await getThemeBlankLayoutOptions();
-  if (layoutOptions) {
-    logToPPTConsole(`ℹ️ Using Theme Blank Layout.`);
-  }
-
-  // 2. Pre-process images
+  // 1. Pre-process images
   for (let idx = 0; idx < slideStructures.length; idx++) {
     const slide = slideStructures[idx];
     slide.compressedImages = [];
@@ -856,7 +866,7 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     }
   }
 
-  // 3. Build each slide sequentially, appending to end of presentation
+  // 2. Build each slide sequentially, appending to end of presentation
   for (let i = 0; i < totalSlides; i++) {
     const slideData = slideStructures[i];
     const slideNum = i + 1;
@@ -870,7 +880,7 @@ export async function buildPresentation(slideStructures, options = {}, onProgres
     }
 
     try {
-      await createSingleSlide(slideData, slideNum, layoutOptions);
+      await createSingleSlide(slideData, slideNum);
     } catch (slideErr) {
       logToPPTConsole(`Slide ${slideNum} Error: ${slideErr.message}`, true);
       console.error(`[PPTBuilder] Slide ${slideNum} Error:`, slideErr);

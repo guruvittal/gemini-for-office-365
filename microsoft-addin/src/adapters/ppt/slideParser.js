@@ -325,19 +325,15 @@ function getSlideHeaderElements(tempDiv) {
   const allHeaders = Array.from(tempDiv.querySelectorAll("h1, h2, h3, h4"));
   if (allHeaders.length === 0) return [];
 
-  // 1. Check if headers have explicit Slide numbering (e.g. "Slide 1", "Slide 2", "## Slide 1")
+  const h2s = Array.from(tempDiv.querySelectorAll("h2"));
   const slideNumHeaders = allHeaders.filter(h => {
     const text = (h.innerText || h.textContent || "").trim();
     return /^(?:Slide\s*\d+|#+\s*Slide\s*\d+)/i.test(text) || /\bSlide\s*\d+\b/i.test(text);
   });
 
-  if (slideNumHeaders.length >= 2) {
-    return slideNumHeaders;
-  }
-
-  // 2. Check for H2 headers (standard markdown slide divider)
-  const h2s = Array.from(tempDiv.querySelectorAll("h2"));
-  if (h2s.length >= 2) {
+  // 1. If H2 headers exist and cover at least as many sections as slideNumHeaders,
+  // prefer H2s so unnumbered conclusion, takeaway, or summary slides are never dropped!
+  if (h2s.length >= 2 && h2s.length >= slideNumHeaders.length) {
     const h1 = tempDiv.querySelector("h1");
     if (h1) {
       let hasBody = false;
@@ -351,11 +347,21 @@ function getSlideHeaderElements(tempDiv) {
         sib = sib.nextElementSibling;
       }
       const firstH2Text = (h2s[0].innerText || h2s[0].textContent || "").trim();
-      const firstH2IsSlide1 = /^Slide\s*1\b/i.test(firstH2Text);
+      const firstH2IsSlide1 = /^(?:Slide\s*1\b|#+\s*Slide\s*1\b)/i.test(firstH2Text);
       if (hasBody && !firstH2IsSlide1) {
         return [h1, ...h2s];
       }
     }
+    return h2s;
+  }
+
+  // 2. Check if headers have explicit Slide numbering (e.g. "Slide 1", "Slide 2", "## Slide 1")
+  if (slideNumHeaders.length >= 2) {
+    return slideNumHeaders;
+  }
+
+  // 3. Fallback to H2 headers if present
+  if (h2s.length >= 2) {
     return h2s;
   }
 
@@ -479,26 +485,28 @@ function parseSummarizeDeck(tempDiv, allImages = [], rawText = "", options = {})
       }
     }
 
-    const maxBulletsPerSlide = 5;
-    for (let c = 0; c < takeawayBullets.length; c += maxBulletsPerSlide) {
-      const chunk = takeawayBullets.slice(c, c + maxBulletsPerSlide);
-      const isContinuation = c > 0;
-      slides.push({
-        slideNumber: slides.length + 1,
-        title: isContinuation ? `${takeawayTitle} (Cont.)` : takeawayTitle,
-        subtitle: isContinuation ? "Continued Highlights" : "Strategic Highlights & Next Steps",
-        visualConcept: "",
-        visualType: null,
-        visualData: null,
-        color: null,
-        titleSize: 36,
-        subtitleSize: 20,
-        body: chunk.join("\n\n"),
-        additionalBody: chunk.join("\n\n"),
-        tableData: null,
-        base64Images: []
-      });
-    }
+    // Cap at most 4 concise, impactful takeaways for a clean, professional executive slide
+    const cappedBullets = takeawayBullets.slice(0, 4);
+    slides.push({
+      slideNumber: slides.length + 1,
+      title: takeawayTitle,
+      subtitle: "Strategic Highlights & Next Steps",
+      visualConcept: "",
+      visualType: null,
+      visualData: null,
+      color: null,
+      titleSize: 36,
+      subtitleSize: 20,
+      body: cappedBullets.join("\n\n"),
+      additionalBody: cappedBullets.join("\n\n"),
+      tableData: null,
+      base64Images: []
+    });
+  }
+
+  // Hard cap summarize deck at strictly 5 slides max
+  if (slides.length > 5) {
+    slides = slides.slice(0, 5);
   }
 
   if (slides.length >= 2) {
@@ -576,6 +584,13 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
                                /(?:image|picture|photo|visual|illustration)\s+(?:of|for|showing|depicting)/i.test(lastPrompt);
   const isImageOnly = options?.imageOnly || (allImages.length > 0 && isImageRequestPrompt) || (allImages.length > 0 && !rawText.includes("##") && remainingText.length < 5);
   if (isImageOnly && allImages.length > 0) {
+    let imagesForSlide = allImages;
+    if (options?.imageOnly) {
+      const nonChartImgs = allImages.filter(img => !img.toLowerCase().includes("chart") && img !== highResChartSrc);
+      if (nonChartImgs.length > 0) {
+        imagesForSlide = nonChartImgs;
+      }
+    }
     return [{
       slideNumber: 1,
       title: "",
@@ -587,7 +602,7 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
       body: "",
       additionalBody: "",
       tableData: null,
-      base64Images: allImages,
+      base64Images: imagesForSlide,
       imageOnly: true
     }];
   }
@@ -597,9 +612,12 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
     (typeof window !== "undefined" && window.__isSummarizeSlidesAction)
   );
 
-  // If Summarize Slides mode is active, check if multiple sections (tables, chart, takeaways)
-  // are present. If so, parse into up to 5 comprehensive slides!
-  if (isSummarizeSlides) {
+  const headerEls = getSlideHeaderElements(tempDiv);
+
+  // If Summarize Slides mode is active without explicit slide headers, check if multiple sections
+  // (tables, chart, takeaways) are present. If so, parse into up to 5 comprehensive slides!
+  // CRITICAL: When explicit slide headers (## Slide 1, ## Slide 2) exist, Strategy 1 takes precedence!
+  if (isSummarizeSlides && headerEls.length < 2) {
     const summarizeDeck = parseSummarizeDeck(tempDiv, allImages, rawText, options);
     if (summarizeDeck && summarizeDeck.length >= 2) {
       return finalizeSlides(summarizeDeck, allImages, rawText, options);
@@ -662,7 +680,7 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
   // -------------------------------------------------------------
   // Strategy 1: Explicit Slide Headings
   // -------------------------------------------------------------
-  const headerEls = getSlideHeaderElements(tempDiv);
+  // (headerEls was already resolved above via getSlideHeaderElements)
   
   // Check if there is an explicit multi-slide outline table or list in the document
   const hasOutlineTable = Array.from(tempDiv.querySelectorAll("table")).some(t => {
@@ -682,11 +700,103 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
 
   if (shouldRunStrategy1) {
     const slides = [];
+
+    // Check if there is an Executive Summary or Key Takeaways section preceding the first slide header
+    let preSummarySlide = null;
+    if (headerEls.length >= 1) {
+      const firstHeaderText = (headerEls[0].innerText || headerEls[0].textContent || "").trim();
+      const isFirstHeaderSlide1 = /^(?:Slide\s*1\b|#+\s*Slide\s*1\b)/i.test(firstHeaderText);
+
+      if (isFirstHeaderSlide1 || isSummarizeSlides || headerEls.length >= 2) {
+        const preElements = [];
+        let pNode = headerEls[0].previousElementSibling;
+        while (pNode) {
+          preElements.unshift(pNode);
+          pNode = pNode.previousElementSibling;
+        }
+
+        let preTitle = "";
+        let preSubtitle = "";
+        const preBullets = [];
+        const preImgs = [];
+
+        for (const el of preElements) {
+          const imgs = Array.from(el.querySelectorAll("img")).map(img => img.src || img.getAttribute("src") || "").filter(s => s && s.length > 50);
+          if (el.tagName === "IMG") {
+            const s = el.src || el.getAttribute("src") || "";
+            if (s.length > 50) imgs.push(s);
+          }
+          if (imgs.length > 0) preImgs.push(...imgs);
+
+          const txt = (el.innerText || el.textContent || "").trim();
+          if (!txt || txt.startsWith("Verified Sources") || txt.includes("Zoom & Review") || txt.includes("🔍")) continue;
+
+          // Check if this element is an Executive Summary or Key Takeaways heading
+          if (/takeaways?|executive\s+summary/i.test(txt) && !preTitle) {
+            preTitle = cleanSlideTitle(txt, 1);
+            continue;
+          }
+
+          // Check if this element is a deck title/subtitle
+          if (/^[📊📈⚡🎯💡]|\bdecisions?\b|\banalysis\b|\bstewardship\b|\breport\b/i.test(txt) && !preTitle && !preSubtitle && txt.length < 120 && !txt.includes(":")) {
+            if (!preSubtitle && preTitle) {
+              preSubtitle = txt;
+            }
+            continue;
+          }
+
+          // Check for bullet lists (ul/ol)
+          if (el.tagName === "UL" || el.tagName === "OL") {
+            Array.from(el.querySelectorAll("li")).forEach(li => {
+              const bTxt = (li.innerText || li.textContent || "").trim();
+              if (bTxt.length > 5) {
+                preBullets.push(bTxt.startsWith("•") ? bTxt : `• ${bTxt}`);
+              }
+            });
+            continue;
+          }
+
+          // Check for bullet-like paragraphs
+          if (/^(?:•|[-*]|\*\*|\b[A-Z][a-zA-Z\s]+:)/.test(txt) && txt.length > 20 && !txt.startsWith("|")) {
+            const cleanBullet = txt.replace(/^[-*•]\s*/, "");
+            preBullets.push(`• ${cleanBullet}`);
+            continue;
+          }
+
+          // If we already have a preTitle and no subtitle yet, a short descriptive line is the subtitle
+          if (preTitle && !preSubtitle && txt.length < 150 && !txt.includes(":")) {
+            preSubtitle = txt;
+          }
+        }
+
+        // If we found an explicit Executive Summary title or substantive bullets (>= 2)
+        if (preBullets.length >= 2 || (preTitle && preBullets.length >= 1)) {
+          preSummarySlide = {
+            slideNumber: 1,
+            title: cleanSlideTitle(preTitle || "Executive Summary: Key Takeaways", 1),
+            subtitle: preSubtitle || "Strategic Highlights & Takeaways",
+            visualConcept: "",
+            visualType: null,
+            visualData: null,
+            color: null,
+            titleSize: 36,
+            subtitleSize: 20,
+            body: preBullets.slice(0, 5).join("\n\n"),
+            additionalBody: preBullets.length > 5 ? preBullets.slice(5).join("\n\n") : "",
+            tableData: null,
+            base64Images: preImgs
+          };
+          slides.push(preSummarySlide);
+        }
+      }
+    }
+
     for (let i = 0; i < headerEls.length; i++) {
       const h = headerEls[i];
       const nextHeader = headerEls[i + 1] || null;
+      const slideNum = slides.length + 1;
       const rawTitle = (h.innerText || h.textContent || "").trim();
-      const title = cleanSlideTitle(rawTitle, i + 1);
+      const title = cleanSlideTitle(rawTitle, slideNum);
 
       const allBodyLines = [];
       const additionalBodyLines = [];
@@ -695,8 +805,8 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
       let sectionSubtitle = "";
       let sectionTableData = null;
 
-      // If this is the first slide, collect any chart images or illustrations that appear before the first header
-      if (i === 0) {
+      // If this is the first header, collect any chart images or illustrations that appear before it
+      if (i === 0 && !preSummarySlide) {
         let prev = h.previousElementSibling;
         while (prev) {
           const prevImgs = Array.from(prev.querySelectorAll("img"))
@@ -1106,6 +1216,14 @@ export function parseSlides(htmlContent, rawText = "", options = {}) {
   // When a table is present without multiple explicit slide markers,
   // produce a dedicated slide with full tabular layout data.
   // -------------------------------------------------------------
+  const allTables = Array.from(tempDiv.querySelectorAll("table"));
+  if (allTables.length >= 2 && isSummarizeSlides) {
+    const summarizeDeck = parseSummarizeDeck(tempDiv, allImages, rawText, options);
+    if (summarizeDeck && summarizeDeck.length >= 2) {
+      return finalizeSlides(summarizeDeck, allImages, rawText, options);
+    }
+  }
+
   const standaloneTable = tempDiv.querySelector("table");
   if (standaloneTable) {
     const tbl = extractTableContent(standaloneTable);
@@ -1523,56 +1641,23 @@ function finalizeSlides(slides, allImages = [], rawText = "", options = {}) {
       continue;
     }
 
-    // If this is an existing takeaway slide in Summarize Slides with more than 5 bullets,
-    // break into multiple slides with 5 bullet points per slide!
-    const isTakeaway = (s.title || "").toLowerCase().includes("takeaway") ||
-                       (s.subtitle || "").toLowerCase().includes("strategic highlights");
-    if (isSummarizeSlides && isTakeaway && !s.tableData) {
-      const rawLines = (s.body || "")
-        .split(/\r?\n/)
-        .map(b => b.trim())
-        .filter(b => b && b !== "• Executive slide content" && !b.startsWith("|") && !b.startsWith("---"));
-      
-      const bullets = [];
-      let current = "";
-      for (const line of rawLines) {
-        if (/^(?:•|[-*]|\d+\.)/.test(line)) {
-          if (current) bullets.push(current);
-          current = line.startsWith("•") ? line : `• ${line.replace(/^(?:[-*]|\d+\.)\s*/, "").trim()}`;
-        } else if (current) {
-          current += " " + line;
-        } else {
-          current = `• ${line}`;
-        }
-      }
-      if (current) bullets.push(current);
-
-      if (bullets.length > 5) {
-        const maxBulletsPerSlide = 5;
-        for (let c = 0; c < bullets.length; c += maxBulletsPerSlide) {
-          const chunk = bullets.slice(c, c + maxBulletsPerSlide);
-          const isContinuation = c > 0;
-          processedSlides.push({
-            ...s,
-            slideNumber: processedSlides.length + 1,
-            title: isContinuation ? `${s.title} (Cont.)` : s.title,
-            subtitle: isContinuation ? "Continued Highlights" : (s.subtitle || "Strategic Highlights & Next Steps"),
-            body: chunk.join("\n\n"),
-            additionalBody: chunk.join("\n\n")
-          });
-        }
-        continue;
-      }
-    }
-
     processedSlides.push(s);
   }
   finalSlides = processedSlides;
 
-  // In Summarize Slides mode: enforce maximum slides and re-index slide numbers
+  // In Summarize Slides mode: enforce maximum 5 slides, cap bullets, and re-index slide numbers
   if (isSummarizeSlides) {
-    if (finalSlides.length > 8) {
-      finalSlides = finalSlides.slice(0, 8);
+    if (finalSlides.length > 5) {
+      finalSlides = finalSlides.slice(0, 5);
+    }
+    for (const s of finalSlides) {
+      if (s.body && !s.tableData) {
+        const bulletLines = s.body.split(/\n\s*\n/).filter(b => b.trim().length > 0);
+        if (bulletLines.length > 4) {
+          s.body = bulletLines.slice(0, 4).join("\n\n");
+          if (s.additionalBody) s.additionalBody = s.body;
+        }
+      }
     }
     finalSlides.forEach((s, idx) => {
       s.slideNumber = idx + 1;
@@ -1659,6 +1744,14 @@ function consolidateExecutiveSummarySlides(slides, allImages = [], options = {})
   );
 
   if (isSummarizeSlides) return slides;
+
+  // CRITICAL GUARD: Never collapse a multi-slide deck where slides have distinct topics/titles!
+  if (slides.length >= 2) {
+    const distinctTitles = new Set(slides.map(s => (s.title || "").toLowerCase().trim()).filter(Boolean));
+    if (distinctTitles.size >= 2) {
+      return slides;
+    }
+  }
 
   const firstTitle = (slides[0].title || "").toLowerCase();
   const isExecutiveSummary = slides.length > 1 && (
