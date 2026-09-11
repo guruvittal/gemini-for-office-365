@@ -122,10 +122,11 @@ CRITICAL INSTRUCTIONS FOR EXECUTIVE SUMMARY GENERATION:
   // Rule set for slide generation
   if (lowerPrompt.includes("slide") || lowerPrompt.includes("presentation") || lowerPrompt.includes("deck") || lowerPrompt.includes("table") || lowerPrompt.includes("pitch")) {
     const wordToNumber = {
+      "a": 1, "an": 1, "single": 1,
       "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
       "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10
     };
-    const countMatch = lowerPrompt.match(/\b(?:create|generate|make|build|provide|give\s+me)?\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+slides?\b/i);
+    const countMatch = lowerPrompt.match(/\b(?:create|generate|make|build|provide|give\s+me|add)?\s*(an?|single|\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:new\s+|executive\s+)?slides?(?!\s+deck)\b/i);
     let requestedCount = null;
     if (countMatch && countMatch[1]) {
       const token = countMatch[1].toLowerCase();
@@ -134,12 +135,13 @@ CRITICAL INSTRUCTIONS FOR EXECUTIVE SUMMARY GENERATION:
 
     let countConstraint = "";
     if (requestedCount && requestedCount > 0) {
+      const slideWord = requestedCount === 1 ? "slide" : "slides";
       const slideList = Array.from({ length: requestedCount }, (_, idx) => `- ## Slide ${idx + 1}: [Title]`).join("\n");
       countConstraint = `
 CRITICAL CONSTRAINT - EXACT SLIDE COUNT:
-The user explicitly requested EXACTLY ${requestedCount} slides. You MUST generate ALL ${requestedCount} slides from ## Slide 1 through ## Slide ${requestedCount}:
+The user explicitly requested EXACTLY ${requestedCount} ${slideWord}. You MUST generate ALL ${requestedCount} ${slideWord} from ## Slide 1 through ## Slide ${requestedCount}:
 ${slideList}
-NEVER output fewer or more than ${requestedCount} slides under any circumstances.
+NEVER output fewer or more than ${requestedCount} ${slideWord} under any circumstances.
 `;
     }
 

@@ -51,6 +51,14 @@ Office.onReady(async (info) => {
   // Detect active Microsoft Office host (Word, PowerPoint, Excel) dynamically
   hostAdapter = HostAdapterFactory.getAdapter(info);
 
+  // IMMEDIATELY adapt UI for the active host (PowerPoint, Word, Excel)
+  // Ensures "Chat with Slides" loads instantly on startup without waiting for Entra ID SSO login
+  adaptUIForHost(hostAdapter.name);
+
+  if (hostAdapter.name === "PowerPoint") {
+    initPowerPointDiagnostics();
+  }
+
   // Pre-fetch dynamic backend configuration (Google OAuth Client ID)
   fetchAppConfig().catch(e => console.warn("Background config fetch failed:", e));
 
@@ -185,13 +193,6 @@ Office.onReady(async (info) => {
         debugStatus.innerText = selectedUrl ? `Target: Override Active` : `${hostAdapter ? hostAdapter.name : 'Office'} Ready`;
       }
     };
-  }
-
-  // Adapt UI titles, top banners, and action chips to the active Microsoft product
-  adaptUIForHost(hostAdapter.name);
-
-  if (hostAdapter.name === "PowerPoint") {
-    initPowerPointDiagnostics();
   }
 
   // Setup Document Intelligence Chips (Feature 1: Full Document Q&A)
@@ -1807,22 +1808,24 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "", bubble
     return nonChartImg || renderedImages[renderedImages.length - 1] || renderedImages[0];
   };
 
-  // 1. In-Place Replace Button
-  const hasSelection = isPPT && currentSelectedText && currentSelectedText.trim().length > 0;
-  const replaceBtn = document.createElement("button");
-  replaceBtn.className = "action-btn replace";
-  replaceBtn.innerHTML = shouldInsertImageOnly ? (isPPT ? `🔄 Replace with Image` : `🔄 Replace Image`) : (isPPT ? (hasSelection ? `🔄 Replace in Slide` : `🔄 Replace Slide`) : (isExcel ? `🔄 Replace in Sheet` : `🔄 Replace in Doc`));
-  replaceBtn.title = shouldInsertImageOnly ? "Replace active slide/document with image" : (isPPT ? (hasSelection ? "Replace selected text in slide" : "Replace active slide content") : "Replace active draft or selection in Word");
-  replaceBtn.onclick = async () => {
-    if (shouldInsertImageOnly) {
-      const img = getTargetVisualImage();
-      if (img && img.src) {
-        await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "replace_draft", { imageOnly: true, isSummarizeSlides: false });
+  // 1. In-Place Replace Button (Word & Excel only; completely omitted in PowerPoint)
+  let replaceBtn = null;
+  if (!isPPT) {
+    replaceBtn = document.createElement("button");
+    replaceBtn.className = "action-btn replace";
+    replaceBtn.innerHTML = shouldInsertImageOnly ? `🔄 Replace Image` : (isExcel ? `🔄 Replace in Sheet` : `🔄 Replace in Doc`);
+    replaceBtn.title = shouldInsertImageOnly ? "Replace active document with image" : (isExcel ? "Replace active sheet content" : "Replace active draft or selection in Word");
+    replaceBtn.onclick = async () => {
+      if (shouldInsertImageOnly) {
+        const img = getTargetVisualImage();
+        if (img && img.src) {
+          await performDocumentInsertion(`<img src="${img.src}" />`, `![Image](${img.src})`, "replace_draft", { imageOnly: true, isSummarizeSlides: false });
+        }
+      } else {
+        await performDocumentInsertion(textDiv.innerHTML, fullText, "replace_draft", { isSummarizeSlides: isBubbleSummarize });
       }
-    } else {
-      await performDocumentInsertion(textDiv.innerHTML, fullText, "replace_draft", { isSummarizeSlides: isBubbleSummarize });
-    }
-  };
+    };
+  }
 
   // 2. Insert on Current Slide Button (PowerPoint only)
   let insertCurrentBtn = null;
@@ -1843,10 +1846,10 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "", bubble
     };
   }
 
-  // 3. Insert as New Slide(s) Button
+  // 3. Insert as New Slide Button
   const insertBtn = document.createElement("button");
   insertBtn.className = "action-btn insert";
-  insertBtn.innerHTML = shouldInsertImageOnly ? (isPPT ? `➕ Insert Image as New Slide` : `➕ Insert Image`) : (isPPT ? `➕ Insert as New Slide(s)` : (isExcel ? `➕ Insert into Sheet` : `➕ Insert at Cursor`));
+  insertBtn.innerHTML = shouldInsertImageOnly ? (isPPT ? `➕ Insert Image as New Slide` : `➕ Insert Image`) : (isPPT ? `➕ Insert as New Slide` : (isExcel ? `➕ Insert into Sheet` : `➕ Insert at Cursor`));
   insertBtn.title = shouldInsertImageOnly ? "Insert image into presentation" : (isPPT ? "Create new presentation slides at the end of the deck" : "Insert at current cursor location");
   insertBtn.onclick = async () => {
     if (shouldInsertImageOnly) {
@@ -1859,7 +1862,7 @@ function appendAssistantBubble(text, apiData = null, originalPrompt = "", bubble
     }
   };
 
-  primaryActions.appendChild(replaceBtn);
+  if (replaceBtn) primaryActions.appendChild(replaceBtn);
   if (insertCurrentBtn) primaryActions.appendChild(insertCurrentBtn);
   primaryActions.appendChild(insertBtn);
   actionsContainer.appendChild(primaryActions);

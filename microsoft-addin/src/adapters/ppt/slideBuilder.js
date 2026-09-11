@@ -634,37 +634,36 @@ async function createSingleSlide(slideData, slideNum, layoutOptions = null) {
     logToPPTConsole(`Slide ${slideNum}: ✅ Created with Title, ${subtitle ? 'Subtitle, ' : ''}${hasTable ? 'Native Table' : 'Bullets'}.`);
   };
 
-  let slideCreated = false;
-  // Attempt with theme blank layout if available (eliminates default title/subtitle placeholder watermarks cleanly)
-  if (layoutOptions && layoutOptions.slideMasterId && layoutOptions.layoutId) {
-    try {
-      await PowerPoint.run(async (context) => {
-        const slides = context.presentation.slides;
-        const countResult = slides.getCount();
+  await PowerPoint.run(async (context) => {
+    const slides = context.presentation.slides;
+
+    // 1. Add exactly one slide canvas (prefer theme blank layout to eliminate watermark placeholders)
+    let addedWithLayout = false;
+    if (layoutOptions && layoutOptions.slideMasterId && layoutOptions.layoutId) {
+      try {
         slides.add(layoutOptions);
         await context.sync();
-        const newSlide = slides.getItemAt(countResult.value);
-        logToPPTConsole(`Slide ${slideNum}: Initialized blank layout canvas at index ${countResult.value}.`);
-        await buildSlideInContext(context, newSlide);
-      });
-      slideCreated = true;
-    } catch (lErr) {
-      console.warn(`[PPTBuilder] Blank layout add failed, falling back to standard add:`, lErr);
+        addedWithLayout = true;
+      } catch (lErr) {
+        console.warn(`[PPTBuilder] Blank layout add failed, falling back to standard add:`, lErr);
+      }
     }
-  }
 
-  // Standard fallback if blank layout was not available or failed
-  if (!slideCreated) {
-    await PowerPoint.run(async (context) => {
-      const slides = context.presentation.slides;
-      const countResult = slides.getCount();
+    if (!addedWithLayout) {
       slides.add();
       await context.sync();
-      const newSlide = slides.getItemAt(countResult.value);
-      logToPPTConsole(`Slide ${slideNum}: Initialized standard slide canvas at index ${countResult.value}.`);
-      await buildSlideInContext(context, newSlide);
-    });
-  }
+    }
+
+    // 2. Fetch the newly created slide at the tail (guaranteed: totalSlides - 1)
+    const countResult = slides.getCount();
+    await context.sync();
+    const lastIndex = countResult.value - 1;
+    const newSlide = slides.getItemAt(lastIndex);
+    logToPPTConsole(`Slide ${slideNum}: Initialized ${addedWithLayout ? "blank theme" : "standard"} canvas at index ${lastIndex}.`);
+
+    // 3. Build all slide shapes, text boxes, tables, and visuals
+    await buildSlideInContext(context, newSlide);
+  });
 
   // Universal Fallback: If shape picture insertion failed, inject via Office Common API
   if (hasImages && !imageInserted && imagesToInsert.length > 0) {
@@ -801,10 +800,11 @@ export async function insertOnCurrentSlide(slideStructures, options = {}) {
       // If there are following bullet points, put them on a dedicated second slide
       if (hasMeaningfulBody) {
         try {
-          const takeawayCountResult = context.presentation.slides.getCount();
           context.presentation.slides.add();
           await context.sync();
-          const newTakeawaySlide = context.presentation.slides.getItemAt(takeawayCountResult.value);
+          const takeawayCountResult = context.presentation.slides.getCount();
+          await context.sync();
+          const newTakeawaySlide = context.presentation.slides.getItemAt(takeawayCountResult.value - 1);
           const { cleanText: cleanBullets } = parseMarkdownFormatting(rawBody);
           const bodyBox = newTakeawaySlide.shapes.addTextBox(cleanBullets, {
             left: 50,
