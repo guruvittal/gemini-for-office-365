@@ -78,6 +78,7 @@ BACKEND_MODE=streamassist,\
 ENTERPRISE_COLLECTION_ID=default_collection,\
 ENTERPRISE_ASSISTANT_ID=default_assistant,\
 ALLOW_SERVICE_ACCOUNT_FALLBACK=${ALLOW_SERVICE_ACCOUNT_FALLBACK}" \
+    --memory=1Gi \
     --quiet
 
   BACKEND_URL=$(gcloud run services describe "${BACKEND_SERVICE_NAME}" --region="${REGION}" --project="${PROJECT_ID}" --format="value(status.url)")
