@@ -46,7 +46,7 @@ export function setProxyUrlOverride(url) {
   }
 }
 
-export async function askGeminiEnterprise(prompt, history = [], sessionId = null, enableGrounding = true) {
+export async function askGeminiEnterprise(prompt, history = [], sessionId = null, enableGrounding = true, attachments = null) {
   const functionUrl = getActiveProxyUrl();
   const userProfile = getUserProfile();
 
@@ -69,6 +69,9 @@ export async function askGeminiEnterprise(prompt, history = [], sessionId = null
   };
   if (sessionId) {
     payload.sessionId = sessionId;
+  }
+  if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+    payload.attachments = attachments;
   }
 
   const headers = { 

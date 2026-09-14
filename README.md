@@ -23,7 +23,10 @@ https://github.com/user-attachments/assets/7b361e71-13d4-48ba-81ce-41bf5d0c9e50
 
 ---
 
+> 📖 **Developer & Architecture Guide:** For a detailed breakdown of the new decoupled authentication architecture, Microsoft Entra ID SSO integration, Google Cloud S2S IAM security, and flow diagrams, see [DEVELOPER_ARCHITECTURE_GUIDE.md](DEVELOPER_ARCHITECTURE_GUIDE.md).
+
 ## 🏗️ Architecture Overview
+
 
 ```mermaid
 graph TB
@@ -42,8 +45,8 @@ graph TB
         FrontendRun["Cloud Run: gemini-frontend<br/>(Nginx Container / Port 80)"]
         ProxyFunction["Cloud Function Gen 2: askGemini<br/>(Node.js 20 Microservice)"]
         
-        TaskpaneUI -->|1. Loads Static Assets & JS Bundle| FrontendRun
-        TaskpaneUI -->|2. HTTPS POST /askGemini JSON| ProxyFunction
+        TaskpaneUI -->|"1. Loads Static Assets & JS Bundle"| FrontendRun
+        TaskpaneUI -->|"2. HTTPS POST /askGemini JSON"| ProxyFunction
     end
 
     subgraph VertexAIEngine ["Google Cloud Vertex AI Enterprise Backend"]
@@ -51,9 +54,9 @@ graph TB
         FlashModel["Gemini 2.5 Flash<br/>(Grounded Generative Text Model)"]
         ImageModel["Gemini 2.5 Flash Image<br/>(Nano Banana Visual Chart Generator)"]
         
-        ProxyFunction -->|A. Grounded RAG Query| FlashModel
-        FlashModel <-->|B. Semantic Retrieval & Citations| SearchDS
-        ProxyFunction -->|C. Balanced Regex Extractor| ImageModel
+        ProxyFunction -->|"A. Grounded RAG Query"| FlashModel
+        FlashModel ---|"B. Semantic Retrieval & Citations"| SearchDS
+        ProxyFunction -->|"C. Balanced Regex Extractor"| ImageModel
     end
 
     subgraph OutputPipeline ["Client Rendering & Document Injection"]
@@ -78,91 +81,68 @@ graph TB
 ```
 gemini-for-office-365/
 │
-├── README.md                          # Main project overview & quick-start guide
-├── ARCHITECTURE.md                    # Detailed architecture, grounding & visual flow diagrams
-├── LICENSE                            # Apache-2.0 License
-├── .gitignore                         # Root gitignore
+├── README.md                                   # Main project overview & quick-start guide
+├── ARCHITECTURE.md                             # Detailed architecture, grounding, visual & auth diagrams
+├── manifest-wif.xml                            # Office 365 Add-in XML Manifest for WIF
+├── manifest-gsuite.xml                         # Office 365 Add-in XML Manifest for GSuite / Cloud Identity
+├── manifest.xml                                # Legacy / Base Add-in XML Manifest
+├── LICENSE                                     # Apache-2.0 License
+├── .gitignore                                  # Root gitignore
 │
-├── microsoft-addin/                   # Microsoft Office 365 Add-in (Word, PowerPoint, Excel)
-│   ├── manifest.xml                   # Office Add-in XML Manifest
-│   ├── package.json                   # Webpack, Babel & Office.js dependencies
-│   ├── webpack.config.js              # Webpack bundling configuration
-│   ├── babel.config.json              # Babel presets
-│   ├── Dockerfile                     # Nginx container for Cloud Run deployment
-│   ├── nginx.conf                     # Nginx server configuration with CORS headers
-│   ├── .env.example                   # Add-in environment variable template
-│   ├── assets/                        # Icons & logos for Office Ribbon & Taskpane
+├── authproxy/                                  # Tier 2: Microsoft Entra ID Auth Gateway (Python FastAPI)
+│   ├── main.py                                 # JWT verification, IdP auto-discovery & S2S token minting
+│   ├── requirements.txt                        # FastAPI, uvicorn, PyJWT, cryptography, google-auth
+│   ├── Dockerfile                              # Python 3.11 Cloud Run container
+│   └── README.md                               # Auth proxy service reference
+│
+├── microsoft-addin/                            # Tier 1: Microsoft Office 365 Add-in (Word, PPT, Excel)
+│   ├── package.json                            # Webpack, Babel, Office.js dependencies
+│   ├── webpack.config.js                       # Production build & bundling configuration
+│   ├── Dockerfile                              # Nginx web server for Cloud Run hosting
+│   ├── nginx.conf                              # Nginx security & CORS headers
+│   ├── assets/                                 # Office Ribbon and Taskpane branding icons
 │   └── src/
-│       ├── adapters/                  # WordAdapter, PPTAdapter, ExcelAdapter, HostAdapterFactory
-│       ├── core/                      # geminiClient, markdownParser
-│       ├── taskpane/                  # taskpane.html, taskpane.css, taskpane.js
-│       └── commands/                  # commands.html, commands.js
+│       ├── adapters/                           # WordAdapter, PPTAdapter, ExcelAdapter, HostAdapterFactory
+│       ├── core/                               # authService (Office SSO), geminiClient, markdownParser
+│       ├── taskpane/                           # taskpane.html, taskpane.css, taskpane.js
+│       └── commands/                           # commands.html, commands.js
 │
-└── geminiproxy/                       # Google Cloud Vertex AI Backend Proxy
-    ├── index.js                       # Cloud Function (askGemini), Grounding & Nano Banana vision
-    ├── package.json                   # Dependencies (@google-cloud/vertexai, functions-framework)
-    ├── .env.example                   # Backend environment configuration (Project ID, Datastore)
-    ├── .gcloudignore                  # Ignored files for Cloud Functions deployment
-    └── README.md                      # Backend deployment & configuration guide
+├── geminiproxy/                                # Tier 3: Core Inference Backend (Node.js Express)
+│   ├── index.js                                # Discovery Engine streamAssist, Gemini 2.5 Flash, Grounding
+│   ├── package.json                            # Dependencies (express, cors, google-auth-library)
+│   ├── Dockerfile                              # Node.js 20 Cloud Run container
+│   └── README.md                               # Backend configuration guide
+│
+├── DEVELOPER_ARCHITECTURE_GUIDE.md             # Deep-dive architecture, sequence flows & developer guide
+├── DEPLOYMENT_INSTRUCTIONS.md                  # Comprehensive end-to-end multi-track deployment runbook
+├── ARCHITECTURE.md                             # System architecture, multimodal graphics & host adapters
+├── MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md    # Microsoft 365 centralized tenant admin deployment guide
+│
+└── scripts/
+    ├── generate_manifest.py                    # Interactive & CLI tool to generate custom Office XML manifests
+    └── sideload_mac.sh                         # macOS local development sideloading automation script
 ```
 
 ---
 
-## 🚀 Quick Start & Deployment
+## 📚 Documentation & Deployment Guides
 
-### 1. Backend Proxy Deployment (`geminiproxy/`)
-```bash
-cd geminiproxy
-cp .env.example .env
+For setup instructions, deployment steps, architecture deep-dives, and admin guides, consult the dedicated documentation files:
 
-# Deploy to Google Cloud Functions (Gen 2)
-gcloud functions deploy askGemini \
-  --gen2 \
-  --runtime=nodejs20 \
-  --region=us-central1 \
-  --source=. \
-  --entry-point=askGemini \
-  --trigger-http \
-  --no-allow-unauthenticated \
-  --set-env-vars GCP_PROJECT_ID=YOUR_PROJECT_ID,VERTEX_DATASTORE_ID=YOUR_DATASTORE_ID \
-  --project=YOUR_PROJECT_ID
-
-# Enable public invocation via Cloud Run (for add-in webview)
-gcloud run services update askgemini \
-  --region=us-central1 \
-  --no-invoker-iam-check \
-  --project=YOUR_PROJECT_ID
-```
-
-### 2. Frontend Add-in Deployment (`microsoft-addin/`)
-```bash
-cd ../microsoft-addin
-npm install
-npm run build
-
-# Deploy containerized frontend to Cloud Run
-gcloud run deploy gemini-frontend \
-  --source dist \
-  --region us-central1 \
-  --port 80 \
-  --no-allow-unauthenticated \
-  --project YOUR_PROJECT_ID
-
-gcloud run services update gemini-frontend \
-  --region=us-central1 \
-  --no-invoker-iam-check \
-  --project YOUR_PROJECT_ID
-```
-
-### 3. Sideload into Microsoft Office
-1. Open **Microsoft Word**, **PowerPoint**, or **Excel**.
-2. Go to **Insert** > **Add-ins** > **My Add-ins**.
-3. Click **Upload My Add-in** and select `microsoft-addin/manifest.xml`.
-4. The **Gemini for Office 365** icon will appear on the **Home** ribbon.
+| Guide | Description |
+| :--- | :--- |
+| 📋 **[`DEPLOYMENT_INSTRUCTIONS.md`](DEPLOYMENT_INSTRUCTIONS.md)** | **Primary Deployment Runbook:** End-to-end first-time setup for **Track 1 (WIF)** and **Track 2 (GSuite)**, Microsoft Entra ID App Registration, live environment configuration, dual security boundary explanation, Google OAuth client setup, manifest customization reference, and full Cloud Run environment variables catalog. |
+| 📖 **[`DEVELOPER_ARCHITECTURE_GUIDE.md`](DEVELOPER_ARCHITECTURE_GUIDE.md)** | **Architecture & Security Deep-Dive:** Token exchange flows (Entra ID JWT ➔ Google STS Workforce Pool ➔ Gemini Enterprise), Service-to-Service IAM authentication, and comprehensive error resolution matrix. |
+| 🏢 **[`MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md`](MICROSOFT_365_ADMIN_CENTER_DEPLOYMENT.md)** | **Centralized IT Admin Deployment:** Enterprise-wide rollout guide via Microsoft 365 Admin Center Integrated Apps. |
+| 🏗️ **[`ARCHITECTURE.md`](ARCHITECTURE.md)** | **System Architecture:** Detailed client adapter lifecycle (`WordAdapter`, `PPTAdapter`, `ExcelAdapter`), multimodal visual generation pipeline, and document injection flows. |
+| ⚙️ **[`geminiproxy/README.md`](geminiproxy/README.md)** | **Backend Proxy Reference:** Configuration, environment variables, and deployment for the Node.js Express inference backend. |
+| 💻 **[`microsoft-addin/README.md`](microsoft-addin/README.md)** | **Office Add-in Frontend Reference:** Build, local development server, Nginx container packaging, and manifest sideloading. |
 
 ---
 
 ## 🔒 Security & Privacy
-- **Zero API Keys in Client:** All client-side calls route through authenticated Google Cloud microservices.
+
+- **Zero API Keys in Client:** All client-side calls route through authenticated Google Cloud microservices using Microsoft Entra ID SSO tokens or Google OAuth.
 - **Enterprise Isolation:** Documents, slides, and spreadsheet data stay strictly inside your Google Cloud tenant boundary.
-- **CORS Configured:** Permissive for enterprise Office webviews while protecting internal execution pipelines.
+- **Principle of Least Privilege:** Fine-grained IAM service accounts isolate gateway authentication from backend Gemini Enterprise execution.
+

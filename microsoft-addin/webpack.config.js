@@ -34,7 +34,6 @@ module.exports = async (env, options) => {
   const manifestDeployedSrc = fs.existsSync(path.resolve(__dirname, "manifest-deployed.xml"))
     ? "manifest-deployed.xml"
     : (fs.existsSync(path.resolve(__dirname, "../manifest-deployed.xml")) ? path.resolve(__dirname, "../manifest-deployed.xml") : null);
-
   const copyPatterns = [
     {
       from: "Dockerfile",
@@ -105,7 +104,6 @@ module.exports = async (env, options) => {
       },
     });
   }
-
   const config = {
     devtool: "source-map",
     entry: {

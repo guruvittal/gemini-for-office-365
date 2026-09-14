@@ -10,172 +10,482 @@
     <title>Gemini Enterprise Assistant</title>
     <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
     <style>
         * { box-sizing: border-box; }
         html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
-        body { font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif; padding: 6px 8px; background-color: #faf9f8; display: flex; flex-direction: column; height: 100vh; }
+        body { font-family: "Segoe UI", -apple-system, sans-serif; padding: 8px 10px 8px 10px; background-color: #faf9f8; display: flex; flex-direction: column; height: 100vh; }
         
-        /* Modern Compact Header */
-        .header { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; height: 32px; margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid #edebe9; }
-        .header-left { display: flex; align-items: center; gap: 6px; }
-        .header-right { display: flex; align-items: center; gap: 5px; }
-        h3 { margin: 0; color: #101010; font-weight: 600; font-size: 13.5px; display: flex; align-items: center; gap: 5px; }
-        .header-badge { font-size: 9.5px; background: #deecf9; color: #0078d4; padding: 1px 5px; border-radius: 8px; font-weight: 600; }
-        .user-status-dot { width: 7px; height: 7px; border-radius: 50%; background-color: #107c41; display: inline-block; flex-shrink: 0; }
-        .user-status-dot.offline { background-color: #a19f9d; }
+        .header { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; padding-bottom: 5px; border-bottom: 1px solid #edebe9; }
+        h3 { margin: 0; color: #101010; font-weight: 600; font-size: 14.5px; display: flex; align-items: center; gap: 6px; }
+        .header-badge { font-size: 10px; background: #deecf9; color: #0078d4; padding: 2px 6px; border-radius: 10px; font-weight: 600; }
         button.secondary { background-color: #ffffff; color: #323130; border: 1px solid #8a8886; border-radius: 4px; padding: 3px 8px; font-size: 11px; cursor: pointer; font-weight: 500; }
-        button.secondary:hover { background-color: #f3f2f1; }
-        .google-drive-btn { background-color: #ffffff; color: #1a73e8; border: 1px solid #dadce0; border-radius: 10px; padding: 2px 7px; font-size: 10px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; }
+        .tip-banner { flex-shrink: 0; background-color: #eff6fc; border: 1px solid #c7e0f4; border-radius: 6px; padding: 5px 8px; font-size: 11px; color: #005a9e; margin-bottom: 5px; line-height: 1.3; display: flex; justify-content: space-between; align-items: center; }
+        .tip-banner strong { color: #0078d4; }
+        .scan-btn { background-color: #0078d4; color: white; border: none; border-radius: 4px; padding: 3px 7px; font-size: 10.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+        .scan-btn:hover { background-color: #106ebe; }
 
-        /* Empty State inside Chat History */
-        .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px 8px; gap: 8px; margin: auto 0; }
-        .empty-state-icon { font-size: 26px; }
-        .empty-state-title { font-size: 13px; font-weight: 600; color: #201f1e; }
-        .empty-state-sub { font-size: 11px; color: #605e5c; max-width: 260px; line-height: 1.35; }
-        .empty-state-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; margin-top: 4px; }
-        .empty-state-hint { font-size: 10px; color: #005a9e; background: #eff6fc; border: 1px solid #c7e0f4; border-radius: 4px; padding: 4px 8px; margin-top: 6px; }
-        .quick-chip { background-color: #ffffff; color: #005a9e; border: 1px solid #c7e0f4; border-radius: 12px; padding: 3px 9px; font-size: 10.5px; font-weight: 500; cursor: pointer; transition: all 0.15s ease; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+        /* Feature 1: Document Intelligence Quick Bar */
+        .doc-tools-bar { flex-shrink: 0; display: flex; flex-direction: column; gap: 5px; background-color: #ffffff; border: 1px solid #e1dfdd; border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+        .doc-tools-title { font-size: 11px; font-weight: 600; color: #323130; display: flex; justify-content: space-between; align-items: center; }
+        .chips-container { display: flex; flex-wrap: wrap; gap: 4px; }
+        .quick-chip { background-color: #eff6fc; color: #005a9e; border: 1px solid #c7e0f4; border-radius: 12px; padding: 3px 8px; font-size: 10.5px; font-weight: 500; cursor: pointer; transition: all 0.15s ease; white-space: nowrap; }
         .quick-chip:hover { background-color: #0078d4; color: #ffffff; border-color: #0078d4; }
-
-        /* Chat History: takes all available vertical space */
-        #chatHistory { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; margin-bottom: 4px; }
         
-        .chat-bubble { max-width: 96%; padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.45; word-wrap: break-word; }
+        #debugStatus { font-size: 9.5px; color: #605e5c; font-style: italic; display: block; margin-top: 1px; }
+
+        #chatHistory { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 2px 4px; margin-bottom: 6px; }
+        
+        .chat-bubble { max-width: 95%; padding: 10px 12px; border-radius: 8px; font-size: 12.5px; line-height: 1.5; word-wrap: break-word; }
         .chat-bubble.user { align-self: flex-end; background-color: #0078d4; color: white; border-bottom-right-radius: 2px; white-space: pre-wrap; font-weight: 500; }
-        .chat-bubble.assistant { align-self: flex-start; background-color: #ffffff; border: 1px solid #e1dfdd; color: #201f1e; border-bottom-left-radius: 2px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); width: 96%; }
-        .chat-bubble.system { align-self: center; background-color: #f3f2f1; color: #605e5c; font-size: 11px; font-style: italic; max-width: 100%; border-radius: 4px; padding: 4px 8px; text-align: center; }
+        .chat-bubble.assistant { align-self: flex-start; background-color: #ffffff; border: 1px solid #e1dfdd; color: #201f1e; border-bottom-left-radius: 2px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+        .chat-bubble.system { align-self: center; background-color: #f3f2f1; color: #605e5c; font-size: 11.5px; font-style: italic; max-width: 100%; border-radius: 4px; padding: 5px 8px; text-align: center; }
         
-        /* Markdown formatting */
-        .chat-bubble.assistant h1, .chat-bubble.assistant h2, .chat-bubble.assistant h3 { margin-top: 6px; margin-bottom: 3px; color: #0078d4; font-weight: 600; }
-        .chat-bubble.assistant h1 { font-size: 14px; border-bottom: 2px solid #eff6fc; padding-bottom: 2px; }
-        .chat-bubble.assistant h2 { font-size: 13px; border-bottom: 1px solid #edebe9; padding-bottom: 2px; }
-        .chat-bubble.assistant h3 { font-size: 12px; }
-        .chat-bubble.assistant p { margin: 4px 0; }
-        .chat-bubble.assistant ul, .chat-bubble.assistant ol { padding-left: 16px; margin: 4px 0; }
+        /* Rich Multimodal & Executive Document Formatting Styles */
+        .chat-bubble.assistant h1, .chat-bubble.assistant h2, .chat-bubble.assistant h3 { margin-top: 8px; margin-bottom: 4px; color: #0078d4; font-weight: 600; }
+        .chat-bubble.assistant h1 { font-size: 15px; border-bottom: 2px solid #eff6fc; padding-bottom: 3px; }
+        .chat-bubble.assistant h2 { font-size: 13.5px; border-bottom: 1px solid #edebe9; padding-bottom: 2px; }
+        .chat-bubble.assistant h3 { font-size: 12.5px; }
+        .chat-bubble.assistant p { margin: 5px 0; }
+        .chat-bubble.assistant ul, .chat-bubble.assistant ol { padding-left: 16px; margin: 5px 0; }
         .chat-bubble.assistant li { margin-bottom: 2px; }
-        .chat-bubble.assistant code { background-color: #f3f2f1; padding: 1px 4px; border-radius: 3px; font-family: Consolas, monospace; font-size: 11px; color: #a4262c; }
-        .chat-bubble.assistant pre { background-color: #201f1e; color: #f3f2f1; padding: 6px 8px; border-radius: 4px; overflow-x: auto; margin: 4px 0; font-family: Consolas, monospace; font-size: 11px; }
-        .chat-bubble.assistant blockquote { margin: 4px 0; padding: 4px 8px; background-color: #f0f6ff; border-left: 3px solid #0078d4; border-radius: 3px; color: #106ebe; font-size: 11.5px; }
+        .chat-bubble.assistant code { background-color: #f3f2f1; padding: 1px 4px; border-radius: 3px; font-family: Consolas, monospace; font-size: 11.5px; color: #a4262c; }
+        .chat-bubble.assistant pre { background-color: #201f1e; color: #f3f2f1; padding: 8px; border-radius: 6px; overflow-x: auto; margin: 6px 0; font-family: Consolas, monospace; }
+        
+        /* Executive Callout & Blockquote Boxes */
+        .chat-bubble.assistant blockquote { margin: 6px 0; padding: 6px 10px; background-color: #f0f6ff; border-left: 4px solid #0078d4; border-radius: 4px; color: #106ebe; font-size: 12px; }
         .chat-bubble.assistant blockquote p { margin: 0; }
-        .chat-bubble.assistant table { border-collapse: collapse; width: 100%; margin: 6px 0; border: 1px solid #c8c6c4; border-radius: 4px; font-size: 11px; }
-        .chat-bubble.assistant th, .chat-bubble.assistant td { border: 1px solid #e1dfdd; padding: 4px 6px; }
-        .chat-bubble.assistant th { background-color: #0078d4; color: #ffffff; font-weight: 600; text-align: left; }
-        .chat-bubble.assistant tr:nth-child(even) { background-color: #faf9f8; }
 
-        /* Action Toolbar */
-        .response-actions-container { margin-top: 6px; padding-top: 5px; border-top: 1px solid #edebe9; display: flex; flex-direction: column; gap: 4px; }
-        .primary-actions { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+        /* Rich Executive Tables - Light Executive Theme */
+        .chat-bubble.assistant table { border-collapse: collapse; width: 100%; margin: 8px 0; border: 1px solid #165b7d; border-radius: 4px; font-size: 11px; background-color: #ffffff; }
+        .chat-bubble.assistant th { background-color: #ffffff; color: #000000; font-weight: 700; text-align: left; border: 1px solid #165b7d; border-bottom: 2px solid #165b7d; padding: 6px 8px; font-size: 11px; }
+        .chat-bubble.assistant td { border: 1px solid #165b7d; padding: 6px 8px; color: #000000; }
+        .chat-bubble.assistant tbody tr:nth-child(odd) { background-color: #e1edf5; }
+        .chat-bubble.assistant tbody tr:nth-child(even) { background-color: #ffffff; }
+
+        /* Feature 2: Action Toolbar & Refinement Chips under Response */
+        .response-actions-container { margin-top: 8px; padding-top: 6px; border-top: 1px solid #edebe9; display: flex; flex-direction: column; gap: 5px; }
+        .primary-actions { display: flex; gap: 5px; flex-wrap: wrap; }
         .action-btn { border: none; border-radius: 4px; padding: 4px 8px; font-size: 10.5px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: background-color 0.15s ease; }
+        .action-btn.replace { background-color: #0078d4; color: white; }
+        .action-btn.replace:hover { background-color: #106ebe; }
         .action-btn.insert { background-color: #107c41; color: white; }
         .action-btn.insert:hover { background-color: #0b5a2f; }
-        .action-btn.copy { background-color: #ffffff; color: #323130; border: 1px solid #8a8886; }
-        .action-btn.copy:hover { background-color: #f3f2f1; }
-        .action-btn.replace { background-color: #ffffff; color: #0078d4; border: 1px solid #0078d4; }
-        .action-btn.replace:hover { background-color: #eff6fc; }
+        .action-btn.insert-current { background-color: #4f46e5; color: white; }
+        .action-btn.insert-current:hover { background-color: #4338ca; }
         
-        /* Refine details collapsible */
-        .refine-details { margin-top: 2px; }
-        .refine-summary { cursor: pointer; color: #605e5c; font-size: 10px; font-weight: 500; user-select: none; }
-        .refine-summary:hover { color: #0078d4; }
-        .refinement-chips { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
-        .refinement-chip { background-color: #f3f2f1; color: #323130; border: 1px solid #e1dfdd; border-radius: 10px; padding: 2px 6px; font-size: 9.5px; cursor: pointer; transition: all 0.15s ease; }
+        .refinement-chips-label { font-size: 9.5px; color: #605e5c; font-weight: 600; text-transform: uppercase; margin-top: 2px; }
+        .refinement-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+        .refinement-chip { background-color: #f3f2f1; color: #323130; border: 1px solid #e1dfdd; border-radius: 10px; padding: 2px 7px; font-size: 10px; cursor: pointer; transition: all 0.15s ease; }
         .refinement-chip:hover { background-color: #edebe9; border-color: #8a8886; color: #0078d4; }
 
-        /* Selection Quick Toolbar */
-        #selectionToolbar { flex-shrink: 0; display: none; background-color: #fff4ce; border: 1px solid #fce100; border-radius: 4px; padding: 4px 6px; margin-bottom: 4px; font-size: 10.5px; }
-        .selection-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; font-weight: 600; color: #795b00; }
-        .selection-preview { font-style: italic; color: #323130; margin-bottom: 3px; max-height: 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .chips-container { display: flex; flex-wrap: wrap; gap: 4px; }
+        /* Context Attachment Pill: Sleek, compact indicator above prompt input */
+        #selectionAttachmentPill {
+            flex-shrink: 0;
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            background-color: #f0f6ff;
+            border: 1px solid #c7e0f4;
+            border-radius: 6px;
+            padding: 4px 8px;
+            margin-bottom: 5px;
+            font-size: 11px;
+            color: #005a9e;
+        }
+        .selection-pill-content {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-weight: 500;
+        }
+        .selection-pill-close {
+            background: none;
+            border: none;
+            color: #605e5c;
+            cursor: pointer;
+            font-size: 12px;
+            padding: 0 4px;
+            font-weight: bold;
+            border-radius: 3px;
+        }
+        .selection-pill-close:hover {
+            background-color: #deecf9;
+            color: #a80000;
+        }
+        .dismiss-btn {
+            background: none;
+            border: none;
+            color: #005a9e;
+            cursor: pointer;
+            font-size: 12px;
+            padding: 0 4px;
+            font-weight: bold;
+        }
+        .dismiss-btn:hover {
+            color: #a80000;
+        }
         
-        /* Input Container */
-        .input-container { flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; background-color: #ffffff; padding: 6px; border-radius: 6px; border: 1px solid #d2d0ce; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
-        .input-row { display: flex; gap: 6px; align-items: stretch; }
-        textarea { flex: 1; border: 1px solid #8a8886; border-radius: 4px; padding: 6px 8px; font-size: 12px; font-family: inherit; resize: none; min-height: 38px; max-height: 75px; }
+        .input-container { flex-shrink: 0; margin-top: 0; display: flex; flex-direction: column; gap: 5px; background-color: #ffffff; padding: 7px; border-radius: 8px; border: 1px solid #e1dfdd; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+        textarea { width: 100%; border: 1px solid #8a8886; border-radius: 4px; padding: 6px 8px; font-size: 12.5px; font-family: inherit; resize: vertical; min-height: 44px; max-height: 80px; }
         textarea:focus { outline: none; border-color: #0078d4; box-shadow: 0 0 0 1px #0078d4; }
-        .send-btn { background-color: #0078d4; color: white; border: none; border-radius: 4px; padding: 0 14px; font-weight: 600; font-size: 11.5px; cursor: pointer; transition: background-color 0.2s ease; display: flex; align-items: center; justify-content: center; }
+        
+        .send-btn { width: 100%; background-color: #0078d4; color: white; border: none; border-radius: 4px; padding: 7px; font-weight: 600; font-size: 12.5px; cursor: pointer; transition: background-color 0.2s ease; }
         .send-btn:disabled { background-color: #c8c6c4; cursor: not-allowed; }
         .send-btn:hover:not(:disabled) { background-color: #106ebe; }
-        #loading { display: none; color: #0078d4; font-size: 10.5px; font-weight: 600; padding: 1px 0; }
+        
+        #loading { display: none; color: #0078d4; font-size: 11.5px; font-weight: bold; padding: 2px 0; }
+        
+        /* SSO Identity Status Bar */
+        .user-auth-bar { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; background-color: #f3f2f1; border: 1px solid #edebe9; border-radius: 6px; padding: 4px 8px; margin-bottom: 5px; font-size: 11px; color: #323130; }
+        .user-identity-container { display: flex; align-items: center; gap: 6px; overflow: hidden; }
+        .user-status-dot { width: 7px; height: 7px; border-radius: 50%; background-color: #107c41; flex-shrink: 0; }
+        .user-status-dot.offline { background-color: #a19f9d; }
+        .user-email-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: #107c41; }
+        .user-email-text.offline { color: #605e5c; font-weight: 500; }
+        .google-drive-btn { background-color: #ffffff; color: #1a73e8; border: 1px solid #dadce0; border-radius: 10px; padding: 2px 7px; font-size: 10px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; transition: all 0.15s ease; }
+        .google-drive-btn:hover { background-color: #e8f0fe; border-color: #1a73e8; }
+        .google-drive-btn.connected { background-color: #e6f4ea; color: #137333; border-color: #ceead6; }
 
-        /* Troubleshooting details at bottom */
-        .troubleshoot-panel { flex-shrink: 0; margin-top: 3px; border: 1px solid #edebe9; border-radius: 4px; background-color: #fcfcfc; font-size: 10px; color: #605e5c; }
-        .troubleshoot-summary { padding: 3px 6px; font-weight: 500; cursor: pointer; background-color: #f3f2f1; user-select: none; outline: none; }
-        .troubleshoot-summary:hover { color: #0078d4; }
-        .troubleshoot-content { padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; background-color: #ffffff; border-top: 1px solid #edebe9; max-height: 160px; overflow-y: auto; }
-        .diag-group { display: flex; flex-direction: column; gap: 4px; background-color: #faf9f8; border: 1px solid #edebe9; border-radius: 4px; padding: 6px 8px; }
-        .diag-title { font-weight: 700; font-size: 11px; color: #0078d4; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.3px; }
-        .diag-row { display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; word-break: break-all; gap: 6px; }
-        .diag-row span:first-child { color: #605e5c; flex-shrink: 0; font-weight: 500; }
-        .diag-actions { display: flex; gap: 6px; margin-top: 4px; }
-        .diag-btn { background-color: #0078d4; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 10px; font-weight: 600; cursor: pointer; transition: background-color 0.15s ease; }
-        .diag-btn:hover { background-color: #106ebe; }
-        .diag-btn.secondary { background-color: #ffffff; color: #323130; border: 1px solid #8a8886; }
-        .diag-btn.secondary:hover { background-color: #f3f2f1; }
-        .diag-log-box { background-color: #201f1e; color: #8ae234; padding: 6px 8px; border-radius: 4px; font-family: Consolas, Monaco, monospace; font-size: 10px; max-height: 90px; overflow-y: auto; white-space: pre-wrap; margin: 0; }
+        /* Feature 4: Collapsible Troubleshooting & Diagnostics Panel */
+        .troubleshoot-panel {
+            flex-shrink: 0;
+            margin-top: 5px;
+            margin-bottom: 0;
+            border: 1px solid #e1dfdd;
+            border-radius: 6px;
+            background-color: #fcfcfc;
+            font-size: 10.5px;
+            color: #323130;
+            overflow: hidden;
+        }
+        .troubleshoot-summary {
+            padding: 5px 8px;
+            font-weight: 600;
+            cursor: pointer;
+            background-color: #f3f2f1;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            outline: none;
+            color: #49454f;
+            font-size: 11px;
+            transition: background-color 0.15s ease;
+        }
+        .troubleshoot-summary:hover {
+            background-color: #edebe9;
+            color: #0078d4;
+        }
+        .troubleshoot-content {
+            padding: 6px 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            background-color: #ffffff;
+            border-top: 1px solid #edebe9;
+            max-height: 160px;
+            overflow-y: auto;
+        }
+        .diag-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            background-color: #faf9f8;
+            border: 1px solid #edebe9;
+            border-radius: 4px;
+            padding: 6px 8px;
+        }
+        .diag-title {
+            font-weight: 700;
+            font-size: 11px;
+            color: #0078d4;
+            margin-bottom: 2px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .diag-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 10.5px;
+            word-break: break-all;
+            gap: 6px;
+        }
+        .diag-row span:first-child {
+            color: #605e5c;
+            flex-shrink: 0;
+            font-weight: 500;
+        }
+        .diag-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: 4px;
+        }
+        .diag-btn {
+            background-color: #0078d4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.15s ease;
+        }
+        .diag-btn:hover {
+            background-color: #106ebe;
+        }
+        .diag-btn.secondary {
+            background-color: #ffffff;
+            color: #323130;
+            border: 1px solid #8a8886;
+        }
+        .diag-btn.secondary:hover {
+            background-color: #f3f2f1;
+        }
+        .diag-log-box {
+            background-color: #201f1e;
+            color: #8ae234;
+            padding: 6px 8px;
+            border-radius: 4px;
+            font-family: Consolas, Monaco, monospace;
+            font-size: 10px;
+            max-height: 90px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin: 0;
+        }
+
+        /* Image Zoom / Review Modal */
+        .image-zoom-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.88);
+            z-index: 99999;
+            display: flex;
+            flex-direction: column;
+            backdrop-filter: blur(4px);
+            animation: fadeInModal 0.15s ease-out;
+            padding: 12px;
+            box-sizing: border-box;
+        }
+        @keyframes fadeInModal {
+            from { opacity: 0; transform: scale(0.98); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .image-zoom-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: #ffffff;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .image-zoom-close {
+            background: rgba(255, 255, 255, 0.15);
+            color: #ffffff;
+            border: none;
+            border-radius: 4px;
+            width: 26px;
+            height: 26px;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.15s ease;
+        }
+        .image-zoom-close:hover {
+            background: rgba(239, 68, 68, 0.85);
+        }
+        .image-zoom-body {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            overflow: auto;
+            padding: 16px;
+            cursor: grab;
+            user-select: none;
+            -webkit-overflow-scrolling: touch;
+        }
+        .image-zoom-body:active {
+            cursor: grabbing;
+        }
+        .image-zoom-body img {
+            border-radius: 6px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+            background: #ffffff;
+            transition: width 0.15s ease, min-width 0.15s ease;
+            margin: auto;
+        }
+        .image-zoom-body.zoom-fit img {
+            max-width: 95%;
+            max-height: 70vh;
+            width: auto;
+            object-fit: contain;
+        }
+        .image-zoom-body.zoom-2x img {
+            min-width: 580px;
+            width: 190%;
+            max-width: none;
+            height: auto;
+        }
+        .image-zoom-body.zoom-3x img {
+            min-width: 880px;
+            width: 280%;
+            max-width: none;
+            height: auto;
+        }
+        .image-zoom-footer {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+            flex-wrap: wrap;
+        }
+        .image-zoom-btn {
+            background-color: #0078d4;
+            color: #ffffff;
+            border: none;
+            border-radius: 5px;
+            padding: 8px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.15s ease;
+        }
+        .image-zoom-btn:hover {
+            background-color: #106ebe;
+        }
+        .image-zoom-btn.secondary {
+            background-color: rgba(255, 255, 255, 0.2);
+            color: #ffffff;
+        }
+        .image-zoom-btn.secondary:hover {
+            background-color: rgba(255, 255, 255, 0.35);
+        }
+        .image-zoom-btn.success {
+            background-color: #107c41;
+        }
+        .office-preview-img:hover {
+            opacity: 0.95;
+            box-shadow: 0 4px 12px rgba(0, 120, 212, 0.25);
+        }
+        .img-zoom-btn {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            background: rgba(15, 23, 42, 0.85);
+            color: #ffffff;
+            border: none;
+            border-radius: 4px;
+            padding: 5px 9px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            backdrop-filter: blur(4px);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            z-index: 10;
+            transition: all 0.15s ease;
+        }
+        .img-zoom-btn:hover {
+            background: rgba(15, 23, 42, 1);
+            transform: scale(1.05);
+        }
+        .img-action-btn-zoom {
+            background: #0078d4;
+            color: #ffffff;
+            border: none;
+            border-radius: 4px;
+            padding: 5px 12px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+            transition: all 0.15s ease;
+        }
+        .img-action-btn-zoom:hover {
+            background: #106ebe;
+            transform: scale(1.02);
+        }
+
     </style>
 </head>
 <body>
     <div class="header">
-        <div class="header-left">
-            <h3>✨ Ask Gemini <span class="header-badge">Enterprise</span></h3>
-            <span class="user-status-dot" id="userStatusDot" title="SSO Connected"></span>
+        <h3>✨ Ask Gemini <span class="header-badge">Enterprise</span></h3>
+        <button id="clearSession" class="secondary">New Chat</button>
+    </div>
+
+    <!-- SSO Authenticated Identity Indicator & Google Connector -->
+    <div class="user-auth-bar" id="userAuthBar" title="Microsoft 365 Single Sign-On Identity">
+        <div class="user-identity-container">
+            <span class="user-status-dot" id="userStatusDot" title="Microsoft 365 Status"></span>
+            <span class="user-email-text" id="userEmailText">Connecting to Office SSO...</span>
         </div>
-        <div class="header-right">
-            <button class="google-drive-btn" id="googleDriveBtn" style="display: none;" title="Identity Status">Drive</button>
-            <button id="clearSession" class="secondary" title="Start new session">New Chat</button>
+        <div>
+            <button class="google-drive-btn" id="googleDriveBtn" style="display: none;" title="Identity Status">Connecting...</button>
         </div>
     </div>
 
-    <!-- Hidden compatibility elements to maintain unbroken JS queries -->
-    <div id="userAuthBar" style="display:none;"><span id="userEmailText"></span></div>
-    <div id="tipBanner" style="display:none;"><div id="tipBannerText"></div><button id="scanInDoc"></button></div>
-    <div id="debugStatus" style="display:none;"></div>
-    <div id="docToolsTitle" style="display:none;"></div>
-    
-    <div id="chatHistory">
-        <div class="empty-state" id="emptyState">
-            <div class="empty-state-icon">✨</div>
-            <div class="empty-state-title" id="emptyStateTitle">Gemini Enterprise Assistant</div>
-            <div class="empty-state-sub" id="emptyStateSub">Ask questions, create slides, or pick a starter prompt:</div>
-            <div class="empty-state-chips">
-                <button class="quick-chip" id="chipSummarize">📊 Summarize Slides</button>
-                <button class="quick-chip" id="chipRisks">⚠️ Key Risks</button>
-                <button class="quick-chip" id="chipActionItems">✅ Action Items</button>
-                <button class="quick-chip" id="chipExecBox">🎯 Slide Takeaways</button>
-            </div>
-            <div class="empty-state-hint">💡 Tip: Type <code>@gemini &lt;prompt&gt;</code> directly in any slide</div>
-        </div>
-        <div class="chat-bubble system" id="welcomeSystemBubble" style="display:none;"></div>
-    </div>
 
-    <!-- Dynamic Selection Quick Toolbar -->
-    <div id="selectionToolbar">
-        <div class="selection-header">
-            <span id="selectionTitle">✨ Selected Text Detected</span>
-            <span id="selectionWordCount">0 words</span>
+    <!-- Feature 1: Adaptive Context & Action Bar -->
+    <div class="doc-tools-bar" id="docToolsBar">
+        <div class="doc-tools-title">
+            <span id="docToolsTitle">⚡ <strong>Chat Assistant:</strong></span>
+            <span id="debugStatus">Connecting...</span>
         </div>
-        <div id="selectionPreviewText" class="selection-preview">"..."</div>
-        <div class="chips-container">
-            <button class="quick-chip" id="selRewrite">🪄 Rewrite</button>
-            <button class="quick-chip" id="selProfessional">💼 Professional</button>
-            <button class="quick-chip" id="selShorten">📉 Shorten</button>
-            <button class="quick-chip" id="selBullets">🎯 Bullet Points</button>
-            <button class="quick-chip" id="selTable">📊 Table</button>
+        <div class="chips-container" id="docToolsChipsContainer">
+            <button class="quick-chip" id="chipSummarize">📑 Summarize Doc</button>
+            <button class="quick-chip" id="chipRisks">⚠️ Key Risks</button>
+            <button class="quick-chip" id="chipActionItems">✅ Action Items</button>
+            <button class="quick-chip" id="chipExecBox">💡 Executive Card</button>
         </div>
     </div>
     
+    <div id="chatHistory">
+        <div class="chat-bubble system" id="welcomeSystemBubble">
+            Type a prompt below, click an action chip above, or select content in Office!
+        </div>
+    </div>
+
+    <!-- Context Attachment Pill: Sleek, compact indicator that shows when slides or text are selected -->
+    <div id="selectionAttachmentPill">
+        <div class="selection-pill-content">
+            <span>📌</span>
+            <span id="selectionPillLabel">Attached Context: Slide 1 (196 words)</span>
+        </div>
+        <button id="clearSelectionBtn" class="selection-pill-close" title="Clear selection context">✕</button>
+    </div>
+    
+    <!-- Hidden File Input for "Transform Doc to Deck" -->
+    <input type="file" id="docToDeckFileInput" multiple accept=".docx,.pdf,.doc,.txt,.md,.rtf" style="display:none;" />
+
     <div class="input-container">
         <div id="loading">⚡ Gemini Enterprise is thinking...</div>
-        <div class="input-row">
-            <textarea id="promptText" rows="1" placeholder="Ask Gemini anything or type instructions..."></textarea>
-            <button id="run" class="send-btn">Send</button>
-        </div>
+        <textarea id="promptText" placeholder="Ask Gemini anything or type instructions..."></textarea>
+        <button id="run" class="send-btn">Send</button>
     </div>
 
     <!-- Feature 4: Collapsible Troubleshooting & Diagnostics Panel -->
     <details class="troubleshoot-panel" id="troubleshootPanel">
-        <summary class="troubleshoot-summary">🔧 Diagnostics</summary>
+        <summary class="troubleshoot-summary">🔧 Troubleshooting & Diagnostics</summary>
         <div class="troubleshoot-content">
             <div class="diag-group">
                 <div class="diag-title">Microsoft 365 Entra SSO</div>
@@ -228,5 +538,6 @@
             </div>
         </div>
     </details>
+
 </body>
 </html>

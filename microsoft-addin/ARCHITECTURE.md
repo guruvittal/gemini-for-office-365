@@ -1,5 +1,5 @@
 # Architecture & System Design: Gemini for Microsoft 365
-**Author:** Sathya AG, Principal Architect, Google  
+**Author:** Carlos Augusto, Principal Architect, Google  
 **License:** Apache-2.0  
 
 ---
@@ -44,9 +44,9 @@ graph TB
         FlashModel["Gemini 2.5 Flash<br/>(Grounded Generative Text Model)"]
         ImageModel["Gemini 2.5 Flash Image<br/>(Nano Banana Visual Chart Generator)"]
         
-        ProxyFunction -->|A. Grounded RAG Query| FlashModel
-        FlashModel <-->|B. Semantic Retrieval & Citations| SearchDS
-        ProxyFunction -->|C. Balanced Regex Extractor| ImageModel
+        ProxyFunction -->|"A. Grounded RAG Query"| FlashModel
+        FlashModel ---|"B. Semantic Retrieval & Citations"| SearchDS
+        ProxyFunction -->|"C. Balanced Regex Extractor"| ImageModel
     end
 
     subgraph OutputPipeline ["Client Rendering & Document Injection"]

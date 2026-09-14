@@ -7,8 +7,8 @@
  * @author Sathya AG, Principal Architect, Google
  */
 
-import { parseSlides } from './ppt/slideParser.js';
-import { buildPresentation, compressImageForPowerPoint } from './ppt/slideBuilder.js';
+import { parseSlides, extractCleanBulletPoints } from './ppt/slideParser.js';
+import { buildPresentation, compressImageForPowerPoint, insertOnCurrentSlide } from './ppt/slideBuilder.js';
 import { initSlidePreviewObserver, injectPowerPointStyles } from './ppt/slidePreviewUI.js';
 import { initPromptEnhancer, enhancePromptForPowerPoint } from './ppt/promptEnhancer.js';
 import { initPowerPointDiagnostics } from './ppt/pptDiagnostics.js';
@@ -27,55 +27,356 @@ export class PPTAdapter {
     }
   }
 
-  // Read currently highlighted text frame or shape text in PowerPoint
-  async getSelectedText() {
-    let selectedText = "";
+  /**
+   * Safely extracts all text and table contents from a PowerPoint slide object.
+   * Completely resilient against non-text shapes, groups, and API version differences.
+   */
+  async extractSlideText(slide, slideNum, context) {
+    const slideLines = [];
+    try {
+      const shapes = slide.shapes;
+      shapes.load("items/id,items/type,items/name");
+      await context.sync();
+
+      if (!shapes.items || shapes.items.length === 0) {
+        return { slideNumber: slideNum, id: slide.id || `slide-${slideNum}`, text: "" };
+      }
+
+      // Track text ranges and tables safely based on verified shape type
+      const textItemTrackers = [];
+      const tableItemTrackers = [];
+
+      for (const shape of shapes.items) {
+        try {
+          const type = shape.type;
+          // Check for Table shape (starting in PowerPointApi 1.8)
+          if (type === "Table" || (typeof PowerPoint !== "undefined" && PowerPoint.ShapeType && type === PowerPoint.ShapeType.table)) {
+            if (typeof shape.getTable === "function") {
+              const table = shape.getTable();
+              table.load("values");
+              tableItemTrackers.push(table);
+            }
+          } else if (
+            type === "TextBox" || 
+            type === "GeometricShape" || 
+            type === "Placeholder" || 
+            type === "Callout" ||
+            !type // Fallback if type property was not populated
+          ) {
+            // Text-bearing shapes
+            if (shape.textFrame) {
+              const tr = shape.textFrame.textRange;
+              tr.load("text");
+              textItemTrackers.push(tr);
+            }
+          }
+        } catch (shapeErr) {
+          console.warn(`[PPTAdapter] Shape pre-check skipped on slide ${slideNum}:`, shapeErr);
+        }
+      }
+
+      // Try batch sync for efficiency
+      let batchSuccess = false;
+      if (textItemTrackers.length > 0 || tableItemTrackers.length > 0) {
+        try {
+          await context.sync();
+          batchSuccess = true;
+        } catch (batchErr) {
+          console.warn(`[PPTAdapter] Batch shape sync failed on slide ${slideNum}, falling back to per-shape sync:`, batchErr);
+        }
+      }
+
+      if (batchSuccess) {
+        for (const tr of textItemTrackers) {
+          try {
+            const val = (tr.text || "").trim();
+            if (val) slideLines.push(val);
+          } catch (_) {}
+        }
+        for (const tb of tableItemTrackers) {
+          try {
+            if (tb.values && Array.isArray(tb.values)) {
+              for (const row of tb.values) {
+                if (Array.isArray(row)) {
+                  const rowStr = row.map(c => String(c ?? "").trim()).join(" | ");
+                  if (rowStr.replace(/[|\s]/g, "")) {
+                    slideLines.push(`| ${rowStr} |`);
+                  }
+                }
+              }
+            }
+          } catch (_) {}
+        }
+      } else {
+        // Fallback: Per-shape isolated extraction so a problematic shape never blocks other shapes
+        for (const shape of shapes.items) {
+          try {
+            if (shape.type === "Table" && typeof shape.getTable === "function") {
+              const table = shape.getTable();
+              table.load("values");
+              await context.sync();
+              if (table.values && Array.isArray(table.values)) {
+                for (const row of table.values) {
+                  if (Array.isArray(row)) {
+                    const rowStr = row.map(c => String(c ?? "").trim()).join(" | ");
+                    if (rowStr.replace(/[|\s]/g, "")) slideLines.push(`| ${rowStr} |`);
+                  }
+                }
+              }
+            } else if (shape.textFrame) {
+              const tr = shape.textFrame.textRange;
+              tr.load("text");
+              await context.sync();
+              const val = (tr.text || "").trim();
+              if (val) slideLines.push(val);
+            }
+          } catch (innerErr) {
+            // Silently swallow per-shape errors so other shapes succeed
+          }
+        }
+      }
+    } catch (slideErr) {
+      console.warn(`[PPTAdapter] Error extracting text from slide ${slideNum}:`, slideErr);
+    }
+
+    const slideText = slideLines.join("\n").trim();
+    console.log(`📊 [PPTAdapter] Extracted ${slideLines.length} text/table blocks from Slide ${slideNum} (${slideText.length} chars)`);
+    return {
+      slideNumber: slideNum,
+      id: slide.id || `slide-${slideNum}`,
+      text: slideText
+    };
+  }
+
+  // On-demand selection extraction (strictly user-triggered on button click, NO background event listeners)
+  async getSelectedSlidesText() {
+    const selectedSlidesData = [];
     try {
       if (typeof PowerPoint !== 'undefined') {
         await PowerPoint.run(async (context) => {
-          const selection = context.presentation.getSelectedShapes();
-          selection.load("items");
+          // Map all slide IDs in presentation to determine real 1-based slide numbers
+          const allSlides = context.presentation.slides;
+          allSlides.load("items/id");
+
+          let selectedSlides = null;
+          if (context.presentation.getSelectedSlides) {
+            selectedSlides = context.presentation.getSelectedSlides();
+            selectedSlides.load("items/id");
+          }
           await context.sync();
 
-          if (selection.items && selection.items.length > 0) {
-            const shape = selection.items[0];
-            if (shape.textFrame) {
-              const textRange = shape.textFrame.textRange;
-              textRange.load("text");
-              await context.sync();
-              selectedText = textRange.text ? textRange.text.trim() : "";
+          const slideIndexMap = {};
+          if (allSlides.items) {
+            allSlides.items.forEach((s, idx) => {
+              if (s.id) slideIndexMap[s.id] = idx + 1;
+            });
+          }
+
+          if (selectedSlides && selectedSlides.items && selectedSlides.items.length > 0) {
+            for (let i = 0; i < selectedSlides.items.length; i++) {
+              try {
+                const slide = selectedSlides.items[i];
+                const slideNum = (slide.id && slideIndexMap[slide.id]) ? slideIndexMap[slide.id] : (i + 1);
+                const slideData = await this.extractSlideText(slide, slideNum, context);
+                selectedSlidesData.push(slideData);
+              } catch (slideLoopErr) {
+                console.warn(`[PPTAdapter] Error in selected slide loop item ${i}:`, slideLoopErr);
+              }
             }
           }
         });
       }
     } catch (err) {
-      console.warn("PowerPoint selection read error:", err);
+      console.warn("PowerPoint getSelectedSlidesText warning:", err);
+    }
+    return selectedSlidesData;
+  }
+
+  // Read currently highlighted shape(s), text frame, or table on the active slide on demand
+  async getSelectedShapeText() {
+    let selectedText = "";
+    try {
+      if (typeof PowerPoint !== 'undefined') {
+        await PowerPoint.run(async (context) => {
+          // 1. Try reading actively highlighted text range first (PowerPointApi 1.5+)
+          if (context.presentation && typeof context.presentation.getSelectedTextRangeOrNullObject === 'function') {
+            try {
+              const textRange = context.presentation.getSelectedTextRangeOrNullObject();
+              textRange.load("text");
+              await context.sync();
+              if (!textRange.isNullObject && textRange.text && textRange.text.trim().length > 0) {
+                selectedText = textRange.text.trim();
+                return;
+              }
+            } catch (trErr) {
+              // Ignore if no text range or not supported in this host version
+            }
+          }
+
+          // 2. Read selected shapes (text boxes, shapes, or tables)
+          if (context.presentation.getSelectedShapes) {
+            const selection = context.presentation.getSelectedShapes();
+            selection.load("items");
+            await context.sync();
+
+            if (selection.items && selection.items.length > 0) {
+              const textTrackers = [];
+              const tableTrackers = [];
+
+              for (const shape of selection.items) {
+                try {
+                  const type = shape.type;
+                  const isTable = type === "Table" || 
+                                  (typeof PowerPoint !== "undefined" && PowerPoint.ShapeType && type === PowerPoint.ShapeType.table);
+
+                  if (isTable) {
+                    if (typeof shape.getTable === "function") {
+                      const table = shape.getTable();
+                      table.load("values");
+                      tableTrackers.push(table);
+                    }
+                  } else {
+                    if (shape.textFrame) {
+                      const tr = shape.textFrame.textRange;
+                      tr.load("text");
+                      textTrackers.push(tr);
+                    }
+                  }
+                } catch (_) {}
+              }
+
+              if (textTrackers.length > 0 || tableTrackers.length > 0) {
+                let syncSuccess = false;
+                try {
+                  await context.sync();
+                  syncSuccess = true;
+                } catch (batchErr) {
+                  console.warn("[PPTAdapter] Batch shape sync failed in getSelectedShapeText, falling back to per-shape sync:", batchErr);
+                }
+
+                const texts = [];
+                if (syncSuccess) {
+                  for (const tr of textTrackers) {
+                    try {
+                      const val = (tr.text || "").trim();
+                      if (val) texts.push(val);
+                    } catch (_) {}
+                  }
+                  for (const tb of tableTrackers) {
+                    try {
+                      if (tb.values && Array.isArray(tb.values)) {
+                        const tableRows = [];
+                        for (let r = 0; r < tb.values.length; r++) {
+                          const row = tb.values[r];
+                          if (Array.isArray(row)) {
+                            const rowStr = row.map(c => String(c ?? "").trim()).join(" | ");
+                            if (rowStr.replace(/[|\s]/g, "")) {
+                              tableRows.push(`| ${rowStr} |`);
+                              if (r === 0 && tb.values.length > 1) {
+                                const sep = row.map(() => "---").join(" | ");
+                                tableRows.push(`| ${sep} |`);
+                              }
+                            }
+                          }
+                        }
+                        if (tableRows.length > 0) {
+                          texts.push(tableRows.join("\n"));
+                        }
+                      }
+                    } catch (_) {}
+                  }
+                } else {
+                  // Fallback per-shape isolated extraction
+                  for (const shape of selection.items) {
+                    try {
+                      const type = shape.type;
+                      const isTable = type === "Table" || 
+                                      (typeof PowerPoint !== "undefined" && PowerPoint.ShapeType && type === PowerPoint.ShapeType.table);
+
+                      if (isTable && typeof shape.getTable === "function") {
+                        const table = shape.getTable();
+                        table.load("values");
+                        await context.sync();
+                        if (table.values && Array.isArray(table.values)) {
+                          const tableRows = [];
+                          for (let r = 0; r < table.values.length; r++) {
+                            const row = table.values[r];
+                            if (Array.isArray(row)) {
+                              const rowStr = row.map(c => String(c ?? "").trim()).join(" | ");
+                              if (rowStr.replace(/[|\s]/g, "")) {
+                                tableRows.push(`| ${rowStr} |`);
+                                if (r === 0 && table.values.length > 1) {
+                                  const sep = row.map(() => "---").join(" | ");
+                                  tableRows.push(`| ${sep} |`);
+                                }
+                              }
+                            }
+                          }
+                          if (tableRows.length > 0) texts.push(tableRows.join("\n"));
+                        }
+                      } else if (shape.textFrame) {
+                        const tr = shape.textFrame.textRange;
+                        tr.load("text");
+                        await context.sync();
+                        const val = (tr.text || "").trim();
+                        if (val) texts.push(val);
+                      }
+                    } catch (_) {}
+                  }
+                }
+
+                selectedText = texts.join("\n\n").trim();
+              }
+            }
+          }
+        });
+      }
+    } catch (err) {
+      console.warn("PowerPoint getSelectedShapeText error:", err);
     }
     return selectedText;
   }
 
-  // Read full presentation text across all slides and shapes
+  // Read currently highlighted text or selected text shape on demand via PowerPoint.run
+  async getSelectedText() {
+    // Read selected shape(s) text cleanly through PowerPoint Rich API
+    // Avoids Office.context.document.getSelectedDataAsync which triggers Chrome Enterprise SDP/DLP popups
+    const shapeText = await this.getSelectedShapeText();
+    if (shapeText && shapeText.trim().length > 0) {
+      return shapeText.trim();
+    }
+
+    // Return empty string if no specific text shape is selected
+    // (Multi-slide text extraction is handled cleanly on demand by getSelectedSlidesText)
+    return "";
+  }
+
+  // Read full presentation text across all slides and shapes safely using index-based traversal
   async getFullDocumentText() {
     let fullText = "";
     try {
       if (typeof PowerPoint !== 'undefined') {
         await PowerPoint.run(async (context) => {
           const slides = context.presentation.slides;
-          slides.load("items");
+          const countResult = slides.getCount();
           await context.sync();
-          for (const s of slides.items) {
-            const shapes = s.shapes;
-            shapes.load("items");
-            await context.sync();
-            for (const shape of shapes.items) {
-              if (shape.textFrame) {
-                const tr = shape.textFrame.textRange;
-                tr.load("text");
-                await context.sync();
-                if (tr.text) fullText += tr.text + "\n";
+
+          const total = countResult.value || 0;
+          const slideTexts = [];
+
+          for (let i = 0; i < total; i++) {
+            try {
+              const slide = slides.getItemAt(i);
+              const slideData = await this.extractSlideText(slide, i + 1, context);
+              if (slideData.text && slideData.text.length > 0) {
+                slideTexts.push(`[Slide ${i + 1}]:\n${slideData.text}`);
               }
+            } catch (slideErr) {
+              console.warn(`[PPTAdapter] Error in getFullDocumentText slide ${i + 1}:`, slideErr);
             }
           }
+
+          fullText = slideTexts.join("\n\n---\n\n");
         });
       }
     } catch (e) {
@@ -85,210 +386,108 @@ export class PPTAdapter {
   }
 
   // Parse HTML or Markdown content into executive slide structures
-  async parseSlidesFromHtml(htmlContent, rawText = "") {
-    return parseSlides(htmlContent, rawText);
-  }
-
-  // Build an executive PowerPoint presentation (.pptx) as a Base64 string using PptxGenJS
-  async generatePptxBase64(slideStructures, rawText = "") {
-    const PptxConstructor = (typeof window !== 'undefined' && window.PptxGenJS) ? window.PptxGenJS : null;
-    if (!PptxConstructor) {
-      throw new Error("PptxGenJS browser bundle is not loaded.");
-    }
-
-    const pres = new PptxConstructor();
-    pres.layout = "LAYOUT_16x9";
-    pres.author = "Gemini Enterprise";
-    pres.title = "Executive Presentation";
-
-    for (let idx = 0; idx < slideStructures.length; idx++) {
-      const slideData = slideStructures[idx];
-      const slide = pres.addSlide();
-      const isTitle = idx === 0 && slideStructures.length > 1;
-      slide.background = { color: isTitle ? "F8F9FA" : "FFFFFF" };
-
-      const hasImages = slideData.compressedImages && slideData.compressedImages.length > 0;
-      const imagesToInsert = hasImages ? slideData.compressedImages : (slideData.base64Images || []);
-
-      if (isTitle) {
-        // Executive Title Slide
-        slide.addShape(pres.ShapeType.roundRect, {
-          x: 0.8,
-          y: 1.2,
-          w: 11.7,
-          h: 4.8,
-          fill: { color: "FFFFFF" },
-          line: { color: "E1DFDD", width: 1 }
-        });
-
-        slide.addShape(pres.ShapeType.rect, {
-          x: 0.8,
-          y: 1.2,
-          w: 11.7,
-          h: 0.12,
-          fill: { color: "0078D4" }
-        });
-
-        slide.addText(slideData.title || "Executive Briefing", {
-          x: 1.2,
-          y: 1.8,
-          w: 10.9,
-          h: 1.4,
-          fontSize: 30,
-          bold: true,
-          color: "0078D4",
-          align: "left"
-        });
-
-        const subTitleText = slideData.body ? slideData.body.replace(/^[•\s*-]+/gm, "").trim() : "Strategic Overview & Executive Summary";
-        slide.addText(subTitleText, {
-          x: 1.2,
-          y: 3.3,
-          w: 10.9,
-          h: 1.2,
-          fontSize: 16,
-          color: "605E5C",
-          align: "left"
-        });
-
-        slide.addText("Generated by Gemini Enterprise • Powered by Google Cloud", {
-          x: 1.2,
-          y: 5.2,
-          w: 10.9,
-          h: 0.4,
-          fontSize: 11,
-          color: "8A8886",
-          align: "left"
-        });
-
-      } else {
-        // Executive Content Slide
-        slide.addText(slideData.title || `Slide ${idx + 1}`, {
-          x: 0.8,
-          y: 0.4,
-          w: 11.7,
-          h: 0.7,
-          fontSize: 22,
-          bold: true,
-          color: "0078D4"
-        });
-
-        slide.addShape(pres.ShapeType.rect, {
-          x: 0.8,
-          y: 1.15,
-          w: 11.7,
-          h: 0.04,
-          fill: { color: "0078D4" }
-        });
-
-        const bodyLines = (slideData.body || "").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-        const isTable = bodyLines.some(l => l.includes(":") || l.includes("—") || l.startsWith("|"));
-        const contentWidth = imagesToInsert.length > 0 ? 6.5 : 11.7;
-
-        if (isTable && bodyLines.length >= 2) {
-          const tableRows = [];
-          for (const line of bodyLines) {
-            const clean = line.replace(/^[•*\-\s|]+/, "").replace(/[|\s]+$/, "");
-            const parts = clean.split(/[:—|]/).map(p => p.trim()).filter(Boolean);
-            if (parts.length >= 2) {
-              tableRows.push([
-                { text: parts[0], options: { fill: { color: tableRows.length % 2 === 0 ? "F8F9FA" : "FFFFFF" }, color: "004578", bold: true, fontSize: 12, valign: "middle" } },
-                { text: parts.slice(1).join(" — "), options: { fill: { color: tableRows.length % 2 === 0 ? "F8F9FA" : "FFFFFF" }, color: "323130", fontSize: 12, valign: "middle" } }
-              ]);
-            } else if (parts.length === 1) {
-              tableRows.push([
-                { text: "•", options: { fill: { color: "FFFFFF" }, color: "0078D4", bold: true, fontSize: 12 } },
-                { text: parts[0], options: { fill: { color: "FFFFFF" }, color: "323130", fontSize: 12 } }
-              ]);
-            }
-          }
-
-          if (tableRows.length > 0) {
-            slide.addTable(tableRows, {
-              x: 0.8,
-              y: 1.4,
-              w: contentWidth,
-              colW: imagesToInsert.length > 0 ? [2.0, 4.5] : [3.0, 8.7],
-              border: { type: "solid", pt: 1, color: "E1DFDD" },
-              margin: [5, 8, 5, 8]
-            });
-          }
-        } else {
-          const bulletItems = bodyLines.map(line => {
-            const clean = line.replace(/^[-*•]\s*/, "").replace(/\*\*(.*?)\*\*/g, "$1");
-            return {
-              text: clean,
-              options: {
-                fontSize: 13,
-                color: "323130",
-                bullet: true,
-                lineSpacing: 22
-              }
-            };
-          });
-
-          if (bulletItems.length > 0) {
-            slide.addText(bulletItems, {
-              x: 0.8,
-              y: 1.4,
-              w: contentWidth,
-              h: 4.8,
-              valign: "top"
-            });
-          }
-        }
-
-        if (imagesToInsert.length > 0) {
-          const rawImg = imagesToInsert[0];
-          const cleanBase64 = rawImg.replace(/^data:image\/[^;]+;base64,/i, "").replace(/[\r\n\s]+/g, "").trim();
-          try {
-            slide.addImage({
-              data: `image/png;base64,${cleanBase64}`,
-              x: 7.6,
-              y: 1.4,
-              w: 4.9,
-              h: 4.8
-            });
-          } catch (imgErr) {
-            console.warn("PptxGenJS image insert warning:", imgErr);
-          }
-        }
-
-        slide.addText(`Slide ${idx + 1} • Gemini Enterprise`, {
-          x: 0.8,
-          y: 6.7,
-          w: 11.7,
-          h: 0.3,
-          fontSize: 10,
-          color: "8A8886",
-          align: "right"
-        });
-      }
-    }
-
-    const base64Data = await pres.write({ outputType: "base64" });
-    return base64Data;
+  async parseSlidesFromHtml(htmlContent, rawText = "", options = {}) {
+    return parseSlides(htmlContent, rawText, options);
   }
 
   // Insert AI content as executive PowerPoint slides with exact positioning & visuals
   async insertContent(htmlContent, rawText = "", options = {}) {
     const debugStatus = document.getElementById("debugStatus");
     const loadingText = document.getElementById("loading");
+    const isReplace = options.mode === "replace" || options.mode === "replace_draft";
 
     try {
+      if (window.__isGeneratingSlides) {
+        console.warn("[PPTAdapter] Slide generation already in progress. Ignoring duplicate trigger.");
+        return;
+      }
+      window.__isGeneratingSlides = true;
       if (typeof PowerPoint === 'undefined') {
         throw new Error("PowerPoint Office.js environment is not available.");
       }
 
+      // 1. If replacing and an active shape/text is selected, perform in-place text replacement in the shape
+      // UNLESS options.imageOnly is true, where we want to insert/replace with the picture
+      if (isReplace && !options.imageOnly) {
+        let shapeReplaced = false;
+        try {
+          await PowerPoint.run(async (context) => {
+            if (context.presentation.getSelectedShapes) {
+              const selection = context.presentation.getSelectedShapes();
+              selection.load("items/textFrame");
+              await context.sync();
+              if (selection.items && selection.items.length > 0) {
+                const shape = selection.items[0];
+                if (shape.textFrame) {
+                  const cleanBullets = extractCleanBulletPoints(htmlContent, rawText);
+                  shape.textFrame.textRange.text = cleanBullets;
+                  try {
+                    shape.textFrame.textRange.font.size = 14;
+                  } catch (_) {}
+                  await context.sync();
+
+                  // Bold lead-in phrases before colons
+                  try {
+                    const lines = cleanBullets.split("\n");
+                    let charOffset = 0;
+                    for (const l of lines) {
+                      const colonIdx = l.indexOf(":");
+                      const dashIdx = l.indexOf("—");
+                      const sepIdx = colonIdx > 0 ? colonIdx : (dashIdx > 0 ? dashIdx : -1);
+                      if (sepIdx > 0 && sepIdx < 45 && typeof shape.textFrame.textRange.getSubstring === "function") {
+                        try {
+                          const leadIn = shape.textFrame.textRange.getSubstring(charOffset, sepIdx + 1);
+                          leadIn.font.bold = true;
+                        } catch (_) {}
+                      }
+                      charOffset += l.length + 1;
+                    }
+                  } catch (_) {}
+
+                  shapeReplaced = true;
+                }
+              }
+            }
+          });
+        } catch (shapeErr) {
+          console.warn("Shape replacement check:", shapeErr);
+        }
+
+        if (shapeReplaced) {
+          if (debugStatus) debugStatus.innerText = "✅ Replaced text in slide!";
+          if (loadingText) loadingText.style.display = "none";
+          return [{ title: "Updated Shape", body: rawText }];
+        }
+      }
+
+      // 1b. If inserting on current slide
+      const isInsertCurrent = options.mode === "insert_current" || options.mode === "insert_current_slide";
+      if (isInsertCurrent) {
+        if (debugStatus) debugStatus.innerText = "Inserting content onto current slide...";
+        if (loadingText) {
+          loadingText.innerText = "⚡ Inserting onto current slide...";
+          loadingText.style.display = "block";
+        }
+        const slideStructures = await this.parseSlidesFromHtml(htmlContent, rawText, options);
+        if (!slideStructures || slideStructures.length === 0) {
+          throw new Error("Slide parser returned 0 slide structures.");
+        }
+        await insertOnCurrentSlide(slideStructures, options);
+        if (debugStatus) debugStatus.innerText = "✅ Inserted on current slide!";
+        if (loadingText) loadingText.style.display = "none";
+        return slideStructures;
+      }
+
+      // 2. Otherwise parse slide structures and build / replace slide(s)
       if (debugStatus) debugStatus.innerText = "Parsing presentation structure...";
-      const slideStructures = await this.parseSlidesFromHtml(htmlContent, rawText);
+      const slideStructures = await this.parseSlidesFromHtml(htmlContent, rawText, options);
 
       if (!slideStructures || slideStructures.length === 0) {
         throw new Error("Slide parser returned 0 slide structures.");
       }
 
       const onProgress = (prog) => {
-        const msg = `⚡ Creating slide ${prog.current}/${prog.total}: "${prog.title}"...`;
+        const msg = `⚡ ${isReplace ? 'Replacing' : 'Creating'} slide ${prog.current}/${prog.total}: "${prog.title}"...`;
         if (debugStatus) debugStatus.innerText = msg;
         if (loadingText) {
           loadingText.innerText = msg;
@@ -302,7 +501,7 @@ export class PPTAdapter {
       await buildPresentation(slideStructures, options, onProgress);
 
       if (debugStatus) {
-        debugStatus.innerText = `✅ Created ${slideStructures.length} slides in PowerPoint!`;
+        debugStatus.innerText = `✅ ${isReplace ? 'Replaced' : 'Created'} ${slideStructures.length} slide(s) in PowerPoint!`;
       }
       if (loadingText) {
         loadingText.style.display = "none";
@@ -319,6 +518,8 @@ export class PPTAdapter {
         loadingText.innerText = `🔴 Error: ${errDetail}`;
       }
       throw err;
+    } finally {
+      window.__isGeneratingSlides = false;
     }
   }
 

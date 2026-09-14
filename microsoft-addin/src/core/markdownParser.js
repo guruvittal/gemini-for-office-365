@@ -3,37 +3,281 @@
  * 
  * @author Sathya AG, Principal Architect, Google
  */
-export function parseMarkdown(text) {
+
+import { renderChartHtml } from './chartRenderer.js';
+
+/**
+ * Strips internal developer and slide layout metadata lines
+ * (Visual Concept, Color, Title Size, Subtitle Size, Layout) from raw LLM text
+ * so that business users see only clean slide titles, subtitles, bullets, and tables.
+ */
+export function cleanSlideDisplayMarkdown(text) {
+  if (!text) return "";
+  const lines = text.split(/\r?\n/);
+  const cleanLines = [];
+
+  for (const rawLine of lines) {
+    const stripped = rawLine.replace(/^[-•*]\s*/, "").replace(/\*\*/g, "").trim();
+    if (
+      /^(?:Visual(?:\s*Concept|\s*Description|\s*Prompt|\s*Idea)?|Image(?:\s*Prompt|\s*Concept|\s*Description)?):/i.test(stripped) ||
+      /^(?:Color|Colour|Color\s*Scheme|Palette|Theme\s*Color):/i.test(stripped) ||
+      /^(?:Title|Subtitle)\s*(?:Font\s*)?Size(?:\s*\(pt\))?:/i.test(stripped) ||
+      /^(?:Slide\s*)?Layout:/i.test(stripped) ||
+      /^(?:Design\s*)?Theme:/i.test(stripped)
+    ) {
+      continue;
+    }
+    cleanLines.push(rawLine);
+  }
+
+  return cleanLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
+ * Renders structured executive visual JSON (3-column metric grid or before/after comparison)
+ * into a rich visual HTML card directly inside the chat interface.
+ */
+export function renderExecutiveVisualHtml(jsonString) {
+  let data;
+  try {
+    data = typeof jsonString === 'object' ? jsonString : JSON.parse(jsonString);
+  } catch (_) {
+    return null;
+  }
+  if (!data || !data.visualType) return null;
+
+  if (data.visualType === "metric_grid_3col") {
+    const cards = data.cards || [];
+    const cardHtml = cards.map(c => `
+      <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:10px; display:flex; flex-direction:column; gap:4px; flex:1; min-width:140px; box-sizing:border-box;">
+        <div style="font-size:22px; font-weight:800; color:#0284c7; line-height:1.1;">${c.metric || ''}</div>
+        <div style="font-size:12px; font-weight:700; color:#0f172a;">${c.title || ''}</div>
+        ${c.subtitle ? `<div style="font-size:10px; color:#64748b; font-style:italic;">${c.subtitle}</div>` : ''}
+        <ul style="margin:6px 0 0 14px; padding:0; font-size:11px; color:#334155; line-height:1.35;">
+          ${(c.bullets || []).map(b => `<li>${b}</li>`).join('')}
+        </ul>
+      </div>
+    `).join('');
+
+    return `
+      <div class="rendered-visual-container" style="background:#ffffff; border:1px solid #e2e8f0; border-radius:10px; padding:12px; margin:14px 0; box-shadow:0 2px 8px rgba(0,0,0,0.04);">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+          <div style="font-size:13.5px; font-weight:700; color:#0f172a;">${data.title || 'Executive Performance Metrics'}</div>
+          <span style="background:#e0f2fe; color:#0369a1; font-size:9.5px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase;">📊 Metric Grid</span>
+        </div>
+        ${data.subtitle ? `<div style="font-size:11px; color:#64748b; margin-bottom:10px; font-style:italic;">${data.subtitle}</div>` : ''}
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          ${cardHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  if (data.visualType === "before_after") {
+    const before = data.before || { title: "Current State", bullets: [] };
+    const after = data.after || { title: "Target State", bullets: [] };
+
+    return `
+      <div class="rendered-visual-container" style="background:#ffffff; border:1px solid #e2e8f0; border-radius:10px; padding:12px; margin:14px 0; box-shadow:0 2px 8px rgba(0,0,0,0.04);">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+          <div style="font-size:13.5px; font-weight:700; color:#0f172a;">${data.title || 'Operational Transformation'}</div>
+          <span style="background:#fee2e2; color:#991b1b; font-size:9.5px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase;">⚖️ Comparison</span>
+        </div>
+        ${data.subtitle ? `<div style="font-size:11px; color:#64748b; margin-bottom:10px; font-style:italic;">${data.subtitle}</div>` : ''}
+        <div style="display:flex; gap:10px; flex-direction:column;">
+          <div style="background:#fff8f8; border:1px solid #fecaca; border-radius:8px; padding:10px;">
+            <div style="font-size:11.5px; font-weight:700; color:#991b1b; margin-bottom:4px;">🔴 BEFORE: ${before.title || 'Current State'}</div>
+            <ul style="margin:2px 0 0 14px; padding:0; font-size:11px; color:#450a0a; line-height:1.35;">
+              ${(before.bullets || []).map(b => `<li>${b}</li>`).join('')}
+            </ul>
+          </div>
+          <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:10px;">
+            <div style="font-size:11.5px; font-weight:700; color:#166534; margin-bottom:4px;">🟢 AFTER: ${after.title || 'Target State'}</div>
+            <ul style="margin:2px 0 0 14px; padding:0; font-size:11px; color:#052e16; line-height:1.35;">
+              ${(after.bullets || []).map(b => `<li>${b}</li>`).join('')}
+            </ul>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  return null;
+}
+
+export function parseMarkdown(text, options = {}) {
   if (!text) return "";
 
+  // Strip internal slide/layout metadata for clean display
+  const cleanedText = cleanSlideDisplayMarkdown(text);
+
   // 1. Sanitize raw scripts and broken SVGs
-  let sanitized = text.replace(/<script[\s\S]*?<\/script>/gi, '');
+  let sanitized = cleanedText.replace(/<script[\s\S]*?<\/script>/gi, '');
   sanitized = sanitized.replace(/<svg[\s\S]*?<\/svg>/gi, '');
   sanitized = sanitized.replace(/<!--[\s\S]*?-->/g, '');
 
   const visualTokens = [];
 
   // 2. Pre-extract existing HTML <img> or <div style="..."><img ...></div> blocks
-  sanitized = sanitized.replace(/<div[^>]*><img[^>]*><\/div>/gi, (match) => {
+  sanitized = sanitized.replace(/<div[^>]*>[\s\S]*?<img[^>]+>[\s\S]*?<\/div>/gi, (match) => {
+    if (match.includes("office-visual-image-card") || match.includes("img-zoom-btn")) {
+      const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
+      visualTokens.push(match);
+      return `\n\n${token}\n\n`;
+    }
+    const imgSrcMatch = match.match(/src=["']([^"']+)["']/i);
+    const src = imgSrcMatch ? imgSrcMatch[1] : "";
+    const altMatch = match.match(/alt=["']([^"']*)["']/i);
+    const alt = altMatch ? altMatch[1] : "Generated Visual";
+
     const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
-    visualTokens.push(match);
+    const wrapped = `<div class="office-visual-image-card" data-card-img-src="${src}" style="margin:14px 0; text-align:center; background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:10px; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="position:relative; display:inline-block; max-width:100%;">
+        ${match}
+        <button type="button" class="img-zoom-btn" data-img-src="${src}" data-img-alt="${alt}" title="Zoom and review image" style="position:absolute; bottom:8px; right:8px; background:rgba(15,23,42,0.85); color:#ffffff; border:none; border-radius:4px; padding:5px 9px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px; backdrop-filter:blur(4px); box-shadow:0 2px 4px rgba(0,0,0,0.3); z-index:10;">🔍 Zoom</button>
+      </div>
+      <div style="margin-top:8px; display:flex; justify-content:center; gap:6px; flex-wrap:wrap;">
+        <button type="button" class="img-action-btn-zoom" data-img-src="${src}" data-img-alt="${alt}" style="background:#0078d4; color:#ffffff; border:none; border-radius:4px; padding:5px 14px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">🔍 Zoom & Review</button>
+      </div>
+    </div>`;
+    visualTokens.push(wrapped);
     return `\n\n${token}\n\n`;
   });
 
   sanitized = sanitized.replace(/<img[^>]+>/gi, (match) => {
+    const imgSrcMatch = match.match(/src=["']([^"']+)["']/i);
+    const src = imgSrcMatch ? imgSrcMatch[1] : "";
+    const altMatch = match.match(/alt=["']([^"']*)["']/i);
+    const alt = altMatch ? altMatch[1] : "Generated Visual";
+
     const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
-    const wrapped = `<div style="margin:16px 0; text-align:center;">${match}</div>`;
+    const wrapped = `<div class="office-visual-image-card" data-card-img-src="${src}" style="margin:14px 0; text-align:center; background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:10px; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="position:relative; display:inline-block; max-width:100%;">
+        <img src="${src}" alt="${alt}" class="office-preview-img" style="max-width:100%; max-height:260px; border-radius:6px; display:block; cursor:pointer;" title="Click to zoom / review image" />
+        <button type="button" class="img-zoom-btn" data-img-src="${src}" data-img-alt="${alt}" title="Zoom and review image" style="position:absolute; bottom:8px; right:8px; background:rgba(15,23,42,0.85); color:#ffffff; border:none; border-radius:4px; padding:5px 9px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px; backdrop-filter:blur(4px); box-shadow:0 2px 4px rgba(0,0,0,0.3); z-index:10;">🔍 Zoom</button>
+      </div>
+      <div style="margin-top:8px; display:flex; justify-content:center; gap:6px; flex-wrap:wrap;">
+        <button type="button" class="img-action-btn-zoom" data-img-src="${src}" data-img-alt="${alt}" style="background:#0078d4; color:#ffffff; border:none; border-radius:4px; padding:5px 14px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">🔍 Zoom & Review</button>
+      </div>
+    </div>`;
     visualTokens.push(wrapped);
     return `\n\n${token}\n\n`;
   });
 
   // 3. Pre-extract Markdown images ![alt](url)
-  sanitized = sanitized.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s\)]+|data:image\/[^\s\)]+)\)/g, (match, alt, url) => {
+  sanitized = sanitized.replace(/!\[([^\]]*)\]\(\s*<?(https?:\/\/[^\s\)>]+|data:image\/[^\s\)>]+)>?\s*(?:"[^"]*")?\s*\)/g, (match, alt, url) => {
     const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
-    const imgHtml = `<div style="margin:16px 0; text-align:center;"><img src="${url}" alt="${alt || 'Image'}" style="max-width:100%; border-radius:6px; border:1px solid #c7e0f4; box-shadow:0 2px 8px rgba(0,0,0,0.06);" /></div>`;
+    const imgHtml = `<div class="office-visual-image-card" data-card-img-src="${url}" style="margin:14px 0; text-align:center; background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:8px; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="position:relative; display:inline-block; max-width:100%;">
+        <img src="${url}" alt="${alt || 'Generated Image'}" class="office-preview-img" style="max-width:100%; max-height:260px; border-radius:6px; display:block; cursor:pointer;" title="Click to zoom / review image" />
+        <button type="button" class="img-zoom-btn" data-img-src="${url}" data-img-alt="${alt || 'Generated Image'}" title="Zoom and review image" style="position:absolute; bottom:8px; right:8px; background:rgba(15,23,42,0.8); color:#ffffff; border:none; border-radius:4px; padding:4px 8px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px; backdrop-filter:blur(4px); box-shadow:0 2px 4px rgba(0,0,0,0.3);">🔍 Zoom</button>
+      </div>
+      <div style="margin-top:6px; display:flex; justify-content:center; gap:6px; flex-wrap:wrap;">
+        <button type="button" class="img-action-btn-zoom" data-img-src="${url}" data-img-alt="${alt || 'Generated Image'}" style="background:#0078d4; color:#ffffff; border:none; border-radius:4px; padding:4px 12px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">🔍 Zoom & Review</button>
+      </div>
+    </div>`;
     visualTokens.push(imgHtml);
     return `\n\n${token}\n\n`;
   });
+
+  // 3b. Pre-extract any standalone data:image URIs that were output directly without markdown or HTML tags
+  sanitized = sanitized.replace(/(?:^|\n)(data:image\/(?:png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]{100,})(?:\n|$)/gi, (match, dataUri) => {
+    const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
+    const imgHtml = `<div class="office-visual-image-card" data-card-img-src="${dataUri}" style="margin:14px 0; text-align:center; background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:8px; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="position:relative; display:inline-block; max-width:100%;">
+        <img src="${dataUri}" alt="Generated Image" class="office-preview-img" style="max-width:100%; max-height:260px; border-radius:6px; display:block; cursor:pointer;" title="Click to zoom / review image" />
+        <button type="button" class="img-zoom-btn" data-img-src="${dataUri}" title="Zoom and review image" style="position:absolute; bottom:8px; right:8px; background:rgba(15,23,42,0.8); color:#ffffff; border:none; border-radius:4px; padding:4px 8px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px; backdrop-filter:blur(4px); box-shadow:0 2px 4px rgba(0,0,0,0.3);">🔍 Zoom</button>
+      </div>
+      <div style="margin-top:6px; display:flex; justify-content:center; gap:6px; flex-wrap:wrap;">
+        <button type="button" class="img-action-btn-zoom" data-img-src="${dataUri}" style="background:#0078d4; color:#ffffff; border:none; border-radius:4px; padding:4px 12px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">🔍 Zoom & Review</button>
+      </div>
+    </div>`;
+    visualTokens.push(imgHtml);
+    return `\n\n${token}\n\n`;
+  });
+
+  // Check if an image version is already present in visualTokens (e.g. high-resolution image generated by Gemini Enterprise)
+  const hasGeneratedChartImage = visualTokens.some(tok => tok.includes('<img'));
+
+  // 4. Pre-extract and render structured Chart JSON blocks (Pie, Doughnut, Bar, Column, Line)
+  // RULE: If an image version is already present, prioritize that image version and omit the lower-resolution duplicate client canvas chart.
+  sanitized = sanitized.replace(/```(?:json|chart|pie|bar|line|doughnut|donut|column|vega|vega-lite)?\s*([\s\S]*?)```/gi, (fullMatch, codeContent) => {
+    const trimmedCode = (codeContent || '').trim();
+    if (trimmedCode.startsWith('{') && (
+      trimmedCode.includes('chartType') ||
+      trimmedCode.includes('chart_type') ||
+      trimmedCode.includes('"pie"') ||
+      trimmedCode.includes('"bar"') ||
+      trimmedCode.includes('"doughnut"') ||
+      trimmedCode.includes('"line"') ||
+      (trimmedCode.includes('"data"') && trimmedCode.includes('"value"'))
+    )) {
+      try {
+        const chartHtml = renderChartHtml(trimmedCode);
+        if (chartHtml) {
+          const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
+          visualTokens.push(chartHtml);
+          return `\n\n${token}\n\n`;
+        }
+      } catch (e) {
+        console.warn("Client chart rendering failed:", e);
+      }
+    }
+    return fullMatch;
+  });
+
+  // 5. Pre-extract standalone JSON chart objects without code fences
+  sanitized = sanitized.replace(/\{\s*"(?:chartType|chart_type|type)"\s*:\s*"(?:pie|bar|line|doughnut|donut|column)"[\s\S]*?\n\s*\}/gi, (match) => {
+    try {
+      const chartHtml = renderChartHtml(match);
+      if (chartHtml) {
+        const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
+        visualTokens.push(chartHtml);
+        return `\n\n${token}\n\n`;
+      }
+    } catch (_) {}
+    return match;
+  });
+
+  // 6. Pre-extract and render structured Executive Visual JSON blocks (3-Column Metric Grid or Before/After)
+  sanitized = sanitized.replace(/```(?:json)?\s*(\{[\s\S]*?"visualType"\s*:\s*"(?:metric_grid_3col|before_after)"[\s\S]*?\})\s*```/gi, (fullMatch, codeContent) => {
+    try {
+      const visualHtml = renderExecutiveVisualHtml(codeContent);
+      if (visualHtml) {
+        const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
+        visualTokens.push(visualHtml);
+        return `\n\n${token}\n\n`;
+      }
+    } catch (_) {}
+    return fullMatch;
+  });
+
+  // 7. Pre-extract standalone Executive Visual JSON objects without code fences
+  sanitized = sanitized.replace(/\{\s*"visualType"\s*:\s*"(?:metric_grid_3col|before_after)"[\s\S]*?\n\s*\}/gi, (match) => {
+    try {
+      const visualHtml = renderExecutiveVisualHtml(match);
+      if (visualHtml) {
+        const token = `%%OFFICE_VISUAL_TOKEN_${visualTokens.length}%%`;
+        visualTokens.push(visualHtml);
+        return `\n\n${token}\n\n`;
+      }
+    } catch (_) {}
+    return match;
+  });
+
+  // After chart & visual extraction: Check if high-resolution chart was successfully rendered
+  const hasRenderedHighResChart = visualTokens.some(tok => tok && tok.includes('class="rendered-chart-container"'));
+
+  // RULE: If high-resolution chart is rendered, suppress duplicate lower-res tool chart image attachments
+  // UNLESS the user explicitly asked for distinct non-chart image content (e.g. photos, illustrations, logos)
+  if (hasRenderedHighResChart && !options?.hasDistinctNonChartImageIntent) {
+    for (let i = 0; i < visualTokens.length; i++) {
+      if (visualTokens[i] && visualTokens[i].includes('class="office-visual-image-container"') && !visualTokens[i].includes('class="rendered-chart-container"')) {
+        visualTokens[i] = ''; // Suppress duplicate lower-res tool chart
+      }
+    }
+  }
+
 
   // 3. Block-level parsing (Headings, Lists, Tables, Blockquotes, Paragraphs)
   const lines = sanitized.split(/\r?\n/);

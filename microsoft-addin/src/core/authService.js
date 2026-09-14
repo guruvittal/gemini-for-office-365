@@ -118,8 +118,8 @@ export async function getOfficeAuthToken(forceRefresh = false) {
   try {
     console.log('Acquiring Microsoft Entra ID SSO token via Office.auth.getAccessToken()...');
     const token = await Office.auth.getAccessToken({
-      allowSignInPrompt: true,
-      allowConsentPrompt: true,
+      allowSignInPrompt: forceRefresh,
+      allowConsentPrompt: forceRefresh,
       forMSGraphAccess: false
     });
 
@@ -202,7 +202,7 @@ export function getProxyBaseUrl() {
       return 'https://auth-proxy-16933400417.us-central1.run.app';
     }
   }
-  return 'https://auth-proxy-j43mxpthfa-uc.a.run.app';
+  return 'https://auth-proxy-16933400417.us-central1.run.app';
 }
 
 /**

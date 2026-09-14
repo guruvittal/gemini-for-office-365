@@ -1,5 +1,5 @@
 # Architecture & System Design: Gemini for Microsoft 365
-**Author:** Sathya AG, Principal Architect, Google  
+**Author:** Carlos Augusto, Principal Architect, Google  
 **License:** Apache-2.0  
 
 ---
@@ -14,9 +14,367 @@ The system combines:
 3. **Multimodal Visual Synthesis** via **Gemini 2.5 Flash Image** (Nano Banana) for dynamic 2D flat vector financial charts and infographics.
 4. **Native Host Adapters** for Microsoft Word (inline `@gemini` insertion, text transformation), PowerPoint (multi-slide executive decks with native macOS WKWebView dual-pipeline image rendering), and Excel (range analysis, anomaly detection, KPI metric cards).
 
+> 📖 **Decoupled Auth & S2S System Architecture:** For a deep dive into the decoupled Microsoft Entra ID authentication gateway, Google Cloud Service-to-Service IAM model, and implementation blueprints, see [DEVELOPER_ARCHITECTURE_GUIDE.md](DEVELOPER_ARCHITECTURE_GUIDE.md) and [DEPLOYMENT_INSTRUCTIONS.md](DEPLOYMENT_INSTRUCTIONS.md).
+
 ---
 
-## 🏛️ High-Level System Architecture
+## 🏛️ Enterprise Multi-Tier Architecture (Milestones 2 & 3)
+
+The enterprise deployment separates concerns into dedicated, independently scalable, least-privilege tiers across **Microsoft 365**, **Microsoft Entra ID**, and **Google Cloud Platform**:
+
+```mermaid
+graph TB
+    subgraph OfficeClientTier ["1. Microsoft 365 Office Client Tier"]
+        WordApp["Microsoft Word<br/>(Desktop & Web)"]
+        PPTApp["Microsoft PowerPoint<br/>(Desktop & Web)"]
+        ExcelApp["Microsoft Excel<br/>(Desktop & Web)"]
+        OfficeSSO["Office.js SSO Runtime<br/>(Office.auth.getAccessToken)"]
+        TaskpaneUI["Add-in Taskpane UI<br/>(HTML5 / Vanilla JS / CSS)"]
+        GoogleDialog["Office Dialog API<br/>(google-auth.html / google-callback.html)"]
+        
+        WordApp <--> TaskpaneUI
+        PPTApp <--> TaskpaneUI
+        ExcelApp <--> TaskpaneUI
+        TaskpaneUI <--> OfficeSSO
+        TaskpaneUI <--> GoogleDialog
+    end
+
+    subgraph IdentityTier ["2. Microsoft Entra ID & Google Identity Tier"]
+        EntraApp["Entra ID App Registration<br/>(App ID: e871aa77-...)"]
+        AppUri["Application ID URI<br/>api://gemini-frontend-...run.app/e871aa77-..."]
+        GoogleOAuth["Google Cloud OAuth 2.0 Web Client<br/>(Client ID: 497524937986-...apps.googleusercontent.com)"]
+        
+        OfficeSSO -->|"1. Silent SSO Token Request"| EntraApp
+        EntraApp -->|"2. Signed Microsoft JWT"| OfficeSSO
+        GoogleDialog -->|"3-Legged Consent Flow"| GoogleOAuth
+        GoogleOAuth -->|"Google User OAuth Token google_token..."| GoogleDialog
+    end
+
+    subgraph GCPInfrastructure ["3. Google Cloud Platform (Project: agentspace-452714)"]
+        FrontendRun["gemini-frontend (Cloud Run)<br/>Nginx Static Assets & Taskpane<br/>(Public HTTPS)"]
+        
+        subgraph AuthGatewayTier ["Auth & Token Translation Gateway"]
+            AuthProxy["auth-proxy (Cloud Run)<br/>Python 3.11 / FastAPI<br/>Runtime SA: gemini-office365-sa"]
+            ConfigEndpoint["Dynamic Config Gateway<br/>GET /api/config"]
+            IdpDiscovery["Dynamic IdP Auto-Discovery<br/>GET /v1/.../aclConfig"]
+        end
+        
+        subgraph PrivateBackendTier ["Private Core Inference Backend (Private S2S Only)"]
+            BackendProxy["askgemini-proxy (Cloud Run)<br/>Node.js 20 Express Microservice<br/>(--no-allow-unauthenticated)"]
+        end
+        
+        TaskpaneUI -->|"Loads Static Assets"| FrontendRun
+        TaskpaneUI -->|"Fetches Dynamic Config"| ConfigEndpoint
+        TaskpaneUI -->|"3. POST /askGeminiEnterprise + Entra Bearer JWT + X-End-User-Google-Token"| AuthProxy
+        AuthProxy ---|"4. Discovers IdP Type (GSUITE vs THIRD_PARTY)"| IdpDiscovery
+        AuthProxy -->|"5. Forward Request + Google S2S IAM Token + User Tokens"| BackendProxy
+    end
+
+    subgraph GeminiEnterpriseTier ["4. Google Cloud Discovery Engine / Gemini Enterprise"]
+        StreamAssist["Discovery Engine API<br/>POST /v1/.../engines/gemini-enterprise-dummy-ap/assistants/default_assistant:streamAssist"]
+        EnterpriseCorpus["Enterprise Grounding Corpus<br/>(Google Drive, GCS, Spanner, BigQuery)"]
+        
+        BackendProxy -->|"6. StreamAssist Request with User Context (Authorization: Bearer <google_token...>) + toolsSpec"| StreamAssist
+        StreamAssist ---|"7. Semantic Grounding & User-Level Drive Search"| EnterpriseCorpus
+        StreamAssist -.->|"8. Server-Sent Events (SSE) Stream"| BackendProxy
+        BackendProxy -.->|"9. SSE Chunks"| AuthProxy
+        AuthProxy -.->|"10. Stream to Client"| TaskpaneUI
+    end
+
+    style OfficeClientTier fill:#e8f0fe,stroke:#1a73e8,stroke-width:2px;
+    style IdentityTier fill:#f3e8fd,stroke:#7b1fa2,stroke-width:2px;
+    style GCPInfrastructure fill:#e6f4ea,stroke:#137333,stroke-width:2px;
+    style AuthGatewayTier fill:#e0f2f1,stroke:#00796b,stroke-width:2px;
+    style PrivateBackendTier fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+    style GeminiEnterpriseTier fill:#fef7e0,stroke:#f9ab00,stroke-width:2px;
+```
+
+---
+
+## 🔄 End-to-End Execution Flows
+
+The platform supports two distinct identity execution paths depending on enterprise IdP configuration.
+
+### Track 1: Workforce Identity Federation (WIF) Silent Token Exchange
+
+In Track 1, users experience seamless Single Sign-On with zero Google login prompts. Their Microsoft Entra ID JWT is exchanged on the fly for a Google STS federated token via RFC 8693.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Corporate User
+    participant Office as Office Taskpane UI
+    participant Entra as Microsoft Entra ID
+    participant Auth as Cloud Run: auth-proxy
+    participant STS as Google STS (sts.googleapis.com)
+    participant Meta as GCP Metadata Server
+    participant Backend as Cloud Run: askgemini-proxy
+    participant Engine as Gemini / StreamAssist
+
+    User->>Office: Submits prompt: "Summarize Q3 earnings"
+    
+    rect rgb(240, 248, 255)
+        Note over Office,Entra: Phase 1: Silent Entra ID Token Acquisition
+        Office->>Entra: Office.auth.getAccessToken({ forMSGraphAccess: false })
+        Entra-->>Office: Returns Microsoft Entra ID JWT Bearer Token
+    end
+
+    rect rgb(255, 250, 235)
+        Note over Office,Auth: Phase 2: Auth Gateway Validation & STS Exchange
+        Office->>Auth: POST /askGeminiEnterprise<br/>Authorization: Bearer [Entra_JWT]<br/>Body: { prompt, history, sessionId }
+        Auth->>Entra: Fetch/Match RS256 Public Key via JWKS cache
+        Auth->>Auth: Verify signature, expiration (exp), audience (aud), tenant (tid)
+        Auth->>Auth: Extract claims (user_id, email, name, tenant_id, oid)
+        Auth->>STS: POST /v1/token (RFC 8693 Token Exchange)<br/>subject_token=[Entra_JWT], audience=[//iam.googleapis.com/workforcePools/...]
+        STS-->>Auth: Returns Federated Google Access Token (google_token...)
+    end
+
+    rect rgb(235, 255, 235)
+        Note over Auth,Backend: Phase 3: Google S2S IAM Token Exchange & Forwarding
+        Auth->>Meta: GET /instance/service-accounts/default/identity?audience=https://askgemini-proxy-...
+        Meta-->>Auth: Returns short-lived Google OIDC ID Token
+        Auth->>Backend: POST /askGeminiEnterprise<br/>Authorization: Bearer [Google_ID_Token]<br/>Headers: X-End-User-Id, X-End-User-Email, X-End-User-Google-Token: google_token...<br/>Body: { prompt, sessionId, userPseudoId, authenticatedUser }
+    end
+
+    rect rgb(255, 240, 245)
+        Note over Backend,Engine: Phase 4: Grounded Execution & Attribution
+        Backend->>Engine: StreamAssist API Call with user attribution & STS token
+        Engine-->>Backend: Grounded answer + citations
+        Backend-->>Auth: HTTP 200 OK with AI result and citations
+    end
+
+    Auth-->>Office: HTTP 200 OK with authenticated AI payload
+    Office-->>User: Renders formatted grounded response & citations
+```
+
+#### 💡 Deep Dive: How WIF Token Exchange & StreamAssist Grounding Work
+
+```
+[Microsoft Office 365 Client]
+          │
+          │ 1. Office.auth.getAccessToken()
+          ▼
+   [Microsoft Entra ID]
+          │
+          │ 2. Returns Entra ID JWT (claims: upn, email, oid, tid)
+          ▼
+   [Cloud Run: auth-proxy]
+          │
+          │ 3. POST https://sts.googleapis.com/v1/token (RFC 8693)
+          │    subject_token = Entra_JWT
+          │    audience = //iam.googleapis.com/.../workforcePools/{POOL}/providers/{PROVIDER}
+          ▼
+   [Google Security Token Service (STS)]
+          │
+          │ 4. Maps Microsoft UPN -> Google Principal & returns Google STS Token (google-sts-token-...)
+          ▼
+   [Cloud Run: auth-proxy]
+          │
+          │ 5. POST /askGeminiEnterprise to askgemini-proxy
+          │    Authorization: Bearer <Google_S2S_IAM_Token> (Service Account token)
+          │    X-End-User-Google-Token: google-sts-token-... (The Federated User Token)
+          ▼
+   [Cloud Run: askgemini-proxy]
+          │
+          │ 6. POST https://discoveryengine.googleapis.com/.../assistants/default_assistant:streamAssist
+          │    Authorization: Bearer google-sts-token-... ◄── [FEDERATED END-USER TOKEN]
+          ▼
+[Google Discovery Engine / Gemini Enterprise]
+```
+
+1. **The Token Translation Chain (RFC 8693):**
+   - In Track 1, enterprise users log into Microsoft 365 using corporate Entra ID accounts (`alex@contoso.com`). They do not maintain separate Google credentials.
+   - `auth-proxy` validates the Entra JWT signature via Microsoft JWKS, then calls Google Security Token Service (`sts.googleapis.com/v1/token`) presenting the Entra JWT as a `subject_token`.
+   - Google STS validates the Microsoft signature against Entra ID's OpenID discovery metadata, evaluates the Workforce Pool attribute mapping (`assertion.upn -> google.subject`), and returns a short-lived **Google STS Federated Access Token (`google-sts-token-...`)**.
+
+2. **What Bearer Token is Passed to `streamAssist`?**
+   - When `askgemini-proxy` invokes the Discovery Engine `streamAssist` API:
+     ```http
+     POST https://discoveryengine.googleapis.com/v1alpha/projects/PROJECT_ID/locations/global/collections/default_collection/engines/ENGINE_ID/assistants/default_assistant:streamAssist
+     Authorization: Bearer google-sts-token-...
+     X-Goog-User-Project: PROJECT_ID
+     Content-Type: application/json
+     ```
+   - The token in the `Authorization: Bearer` header is the **Google STS Federated Access Token (`google-sts-token-...`)**.
+   - It represents the authenticated workforce principal:
+     `principal://iam.googleapis.com/locations/global/workforcePools/{POOL}/subject/alex@contoso.com`
+
+3. **How Discovery Engine / StreamAssist Uses the End-User Token to Query:**
+   - **Identity & License Verification:** Google Cloud's API gateway parses the workforce principal from the STS token, validates that the user holds `roles/discoveryengine.viewer` or `roles/discoveryengine.editor`, and consumes an assigned Gemini Enterprise seat license.
+   - **User-Level ACL Grounding (Zero-Trust Retrieval):** When Discovery Engine searches connected enterprise data sources (SharePoint, Jira, Confluence, Salesforce, Google Drive, or indexed datastores), every document in the search index carries an Access Control List (ACL). Discovery Engine filters search results against the caller's verified identity before feeding retrieved context into Gemini. If `alex@contoso.com` lacks read access to a document, that document is filtered out prior to prompt assembly.
+   - **Session Isolation & Audit Trail:** Discovery Engine isolates conversation state by workforce principal and logs queries with attributed user telemetry in Cloud Logging.
+
+---
+
+### Track 2: Cloud Identity 3-Legged Google User OAuth & S2S IAM
+
+The sequence below illustrates the complete token acquisition, dynamic configuration retrieval, 3-legged Google user authorization, service-to-service IAM minting, and streaming grounding lifecycle:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Enterprise User (scim@...)
+    participant PPT as Microsoft Office Client (PowerPoint/Word/Excel)
+    participant FE as gemini-frontend (Cloud Run)
+    participant Entra as Microsoft Entra ID (IdP)
+    participant AP as auth-proxy Gateway (Cloud Run)
+    participant Dialog as Office Dialog API (google-auth.html)
+    participant GoogleAuth as accounts.google.com
+    participant Callback as google-callback.html
+    participant GP as askgemini-proxy (Private Cloud Run)
+    participant GE as Gemini Enterprise (streamAssist)
+
+    User->>PPT: Opens 'Gemini Assistant' in Office Ribbon
+    PPT->>FE: Fetches taskpane.html, JS bundles & assets
+    FE-->>PPT: Renders Taskpane UI (Status: Connecting...)
+    
+    rect rgb(240, 248, 255)
+        Note over PPT,Entra: Phase 1: Microsoft 365 Office SSO Token Acquisition
+        PPT->>PPT: Office.auth.getAccessToken({ forMSGraphAccess: false })
+        PPT->>Entra: Requests access token for api://gemini-frontend-.../e871aa77-...
+        Entra-->>PPT: Returns signed Microsoft Entra ID JWT (claims: upn, email, tid, aud)
+        PPT->>PPT: Updates UI header: scim@jeansson.demo.altostrat.com [Logged in]
+    end
+
+    rect rgb(230, 245, 255)
+        Note over PPT,AP: Phase 2: Dynamic Config & Google User Authorization (Cloud Identity Mode)
+        PPT->>AP: GET /api/config
+        AP-->>PPT: Returns { google_oauth_client_id: "497524937986-...", user_auth_mode: "cloud_identity" }
+        User->>PPT: Clicks "📁 Connect Drive"
+        PPT->>Dialog: Office.context.ui.displayDialogAsync(google-auth.html?client_id=...&login_hint=scim@...)
+        Dialog->>GoogleAuth: Interactive Consent for drive.readonly + cloud-platform scopes
+        User->>GoogleAuth: Grants Consent
+        GoogleAuth->>Callback: Redirects to /google-callback.html#access_token=google_token...
+        Callback->>PPT: Office.context.ui.messageParent({ google_token: "google_token..." })
+        Callback->>Callback: Closes dialog
+        PPT->>PPT: Caches token (Status: ✅ Drive Linked)
+    end
+
+    User->>PPT: Submits prompt: "Do you see documents referring api://...?"
+    
+    rect rgb(240, 255, 240)
+        Note over PPT,AP: Phase 3: Gateway Verification & Header Pass-Through
+        PPT->>AP: POST /askGeminiEnterprise (Headers: Authorization: Bearer <Entra_JWT>, X-End-User-Google-Token: google_token...)
+        AP->>AP: Verifies Microsoft signature via JWKS & validates aud/tid
+        AP->>AP: Attaches verified user claims (X-End-User-Email, X-End-User-ID) and forwards X-End-User-Google-Token
+    end
+
+    rect rgb(255, 248, 240)
+        Note over AP,GP: Phase 4: Service-to-Service Google IAM Authentication
+        AP->>AP: Fetches Google OIDC ID token for audience: https://askgemini-proxy...
+        AP->>GP: POST /askGeminiEnterprise (Headers: Authorization: Bearer <Google_IAM_Token>, X-End-User-Google-Token: google_token...)
+        GP->>GP: Cloud Run IAM validates gemini-office365-sa has roles/run.invoker
+    end
+
+    rect rgb(255, 255, 240)
+        Note over GP,GE: Phase 5: Gemini Enterprise Grounded Stream
+        GP->>GE: POST /v1alpha/.../assistants/default_assistant:streamAssist (Headers: Authorization: Bearer <google_token...>, toolsSpec: { vertexAiSearchSpec: {} })
+        GE->>GE: Grounded retrieval across user-accessible Google Drive files
+        GE-->>GP: Streams SSE chunks with answers, citations, and grounding references
+        GP-->>AP: Streams SSE response
+        AP-->>PPT: Streams SSE response
+    end
+
+    PPT->>PPT: Renders answer incrementally in Taskpane UI
+    PPT->>User: Displays formatted markdown, citations, and Insert Slide action buttons
+```
+
+#### 💡 Deep Dive: How Cloud Identity / Google Workspace OAuth & StreamAssist Grounding Work
+
+```
+[Microsoft Office 365 Client]
+          │
+          │ 1. Office.context.ui.displayDialogAsync(google-auth.html)
+          ▼
+   [accounts.google.com]
+          │
+          │ 2. Interactive Consent for drive.readonly + cloud-platform scopes
+          │    User logs in with Google Workspace identity (e.g. scim@domain.com)
+          ▼
+   [Office Dialog Callback]
+          │
+          │ 3. messageParent({ google_token: "google_token..." }) -> Cached in client
+          ▼
+   [Office Taskpane Client]
+          │
+          │ 4. POST /askGeminiEnterprise
+          │    Authorization: Bearer <Entra_JWT> (Perimeter Security)
+          │    X-End-User-Google-Token: google_token... (Google User Token)
+          ▼
+   [Cloud Run: auth-proxy]
+          │
+          │ 5. Validates Entra JWT signature & forwards google_token... via S2S IAM channel
+          ▼
+   [Cloud Run: askgemini-proxy]
+          │
+          │ 6. POST https://discoveryengine.googleapis.com/.../assistants/default_assistant:streamAssist
+          │    Authorization: Bearer google_token... ◄── [GOOGLE WORKSPACE USER TOKEN]
+          │    toolsSpec: { vertexAiSearchSpec: {} }
+          ▼
+[Google Discovery Engine / Gemini Enterprise]
+```
+
+1. **The Dual-Boundary Authentication Model:**
+   - **Perimeter Gatekeeper (Microsoft Entra ID):** Entra ID SSO ensures that only authorized corporate Microsoft 365 users can connect to the Cloud Run gateway.
+   - **Data Grounding Gatekeeper (Google Cloud Identity / Workspace):** The 3-legged Google OAuth token authorizes Discovery Engine to search and read the specific user's Google Drive files and Google Workspace data.
+
+2. **What Bearer Token is Passed to `streamAssist`?**
+   - When `askgemini-proxy` invokes Discovery Engine `streamAssist`, it supplies the Google OAuth access token acquired from the user consent dialog:
+     ```http
+     POST https://discoveryengine.googleapis.com/v1alpha/projects/PROJECT_ID/locations/global/collections/default_collection/engines/ENGINE_ID/assistants/default_assistant:streamAssist
+     Authorization: Bearer <google-user-oauth-token>
+     X-Goog-User-Project: PROJECT_ID
+     Content-Type: application/json
+     ```
+   - The token carries the `https://www.googleapis.com/auth/drive.readonly` and `https://www.googleapis.com/auth/cloud-platform` scopes for `scim@domain.com`.
+
+3. **How Discovery Engine / StreamAssist Uses the End-User Token to Query:**
+   - **Delegated Google Drive Grounding:** Discovery Engine uses the user's `google_token...` token to execute on-the-fly semantic queries against the user's personal Google Drive, shared corporate drives, and shared-with-me documents.
+   - **Native Google Workspace ACL Enforcement:** Discovery Engine only indexes and retrieves documents where `scim@domain.com` is an authorized viewer/editor in Google Drive. Confidential files belonging to other users or restricted teams remain completely invisible.
+   - **User Attribution & History:** `askgemini-proxy` binds conversation sessions to `userPseudoId: scim@domain.com`, preserving chat history across Office sessions while maintaining strict multi-tenant isolation.
+
+---
+
+### 📊 Token & Security Comparison: WIF vs. Cloud Identity
+
+| Dimension | Track 1: Workforce Identity Federation (WIF) | Track 2: Cloud Identity / Google Workspace |
+| :--- | :--- | :--- |
+| **End-User Login Experience** | **100% Silent SSO** (zero Google login popups). | **1-Click Google Sign-In** via Office Dialog API. |
+| **Token in Office Add-in** | Microsoft Entra ID JWT only. | Microsoft Entra ID JWT + Google User OAuth Token (`google_token...`). |
+| **Token Minting Mechanism** | Google STS RFC 8693 token exchange on `auth-proxy`. | Standard Google OAuth 2.0 Authorization Code flow. |
+| **Bearer Token to `streamAssist`** | Google STS Federated Access Token (`google-sts-token-...`). | Google User 3-Legged OAuth Access Token (`google-user-token-...`). |
+| **Caller Identity in Google Cloud** | `principal://iam.googleapis.com/.../workforcePools/...` | `scim@company.com` (Google Workspace user account). |
+| **Target Data Sources** | Datastores, SharePoint, Jira, Confluence, Salesforce, ACL-indexed repositories. | Personal & Shared Google Drive, Google Workspace docs, and Datastores. |
+| **Enterprise Identity Authority** | Microsoft Entra ID (Single Source of Truth). | Dual Authority: Entra ID (Office client) + Cloud Identity (Google services). |
+
+---
+
+## 🔒 Key Architectural Principles & Invariants
+
+### 1. The Office.js SSO Domain-Matching Rule
+Microsoft Office Add-in SSO requires that the **`<SourceLocation>`** domain, the **`<WebApplicationInfo><Resource>`**, and the **Entra ID Application ID URI** match identically:
+$$\text{Domain in } \langle\text{SourceLocation}\rangle \equiv \text{Domain in } \langle\text{Resource}\rangle \equiv \text{Entra ID Application ID URI}$$
+
+* **Frontend Hosting URL:** `https://gemini-frontend-16933400417.us-central1.run.app/taskpane.html`
+* **Manifest `<Resource>`:** `api://gemini-frontend-16933400417.us-central1.run.app/b990d644-e47b-4575-97b3-2067c488042b`
+* **Entra ID Application ID URI:** `api://gemini-frontend-16933400417.us-central1.run.app/b990d644-e47b-4575-97b3-2067c488042b`
+
+If the Application ID URI points to a backend or proxy domain (`auth-proxy`), Office detects a domain mismatch and immediately triggers **Office SSO Error 13007: Invalid resource Url specified in the manifest**.
+
+### 2. Pre-Authorized Client Applications in Entra ID
+To enable silent SSO without consent prompts across all Office platforms, the following 3 client IDs must be pre-authorized under **Expose an API**:
+1. `ea5a67f6-b6f3-4338-b240-c655ddc3cc8e` (Microsoft Office on the Web - Word/PPT/Excel Online)
+2. `d3590ed6-52b3-4102-aeff-aad2292ab01c` (Office on the Web Companion / Outlook)
+3. `00000002-0000-0ff1-ce00-000000000000` (Microsoft Office Desktop Client across macOS & Windows)
+
+### 3. Decoupled Token Translation & Least Privilege
+* **No Direct Internet Access to Core Backend:** `askgemini-proxy` is locked down with `--no-allow-unauthenticated`.
+* **Runtime Service Account Identity:** `auth-proxy` runs as `gemini-office365-sa@agentspace-452714.iam.gserviceaccount.com` and only holds:
+  - `roles/logging.logWriter` (Structured Cloud Logging)
+  - `roles/discoveryengine.viewer` (Dynamic `aclConfig` auto-discovery)
+  - `roles/run.invoker` on Cloud Run service `askgemini-proxy` (Private S2S communication)
+
+---
 
 ```mermaid
 graph TB
@@ -35,8 +393,8 @@ graph TB
         FrontendRun["Cloud Run: gemini-frontend<br/>(Nginx Container / Port 80)"]
         ProxyFunction["Cloud Function Gen 2: askGemini<br/>(Node.js 20 Microservice)"]
         
-        TaskpaneUI -->|1. Loads Static Assets & JS Bundle| FrontendRun
-        TaskpaneUI -->|2. HTTPS POST /askGemini JSON| ProxyFunction
+        TaskpaneUI -->|"1. Loads Static Assets & JS Bundle"| FrontendRun
+        TaskpaneUI -->|"2. HTTPS POST /askGemini JSON"| ProxyFunction
     end
 
     subgraph VertexAIEngine ["Google Cloud Vertex AI Enterprise Backend"]
@@ -44,16 +402,16 @@ graph TB
         FlashModel["Gemini 2.5 Flash<br/>(Grounded Generative Text Model)"]
         ImageModel["Gemini 2.5 Flash Image<br/>(Nano Banana Visual Chart Generator)"]
         
-        ProxyFunction -->|A. Grounded RAG Query| FlashModel
-        FlashModel <-->|B. Semantic Retrieval & Citations| SearchDS
-        ProxyFunction -->|C. Balanced Regex Extractor| ImageModel
+        ProxyFunction -->|"A. Grounded RAG Query"| FlashModel
+        FlashModel ---|"B. Semantic Retrieval & Citations"| SearchDS
+        ProxyFunction -->|"C. Balanced Regex Extractor"| ImageModel
     end
 
     subgraph OutputPipeline ["Client Rendering & Document Injection"]
-        ProxyFunction -->|3. Grounded Text + Base64 PNGs| TaskpaneUI
-        TaskpaneUI -->|Word.run / OOXML| WordApp
-        TaskpaneUI -->|PowerPoint.run + setSelectedDataAsync| PPTApp
-        TaskpaneUI -->|Excel.run| ExcelApp
+        ProxyFunction -->|"3. Grounded Text + Base64 PNGs"| TaskpaneUI
+        TaskpaneUI -->|"Word.run / OOXML"| WordApp
+        TaskpaneUI -->|"PowerPoint.run + setSelectedDataAsync"| PPTApp
+        TaskpaneUI -->|"Excel.run"| ExcelApp
     end
 
     style ClientTier fill:#e8f0fe,stroke:#1a73e8,stroke-width:2px;
@@ -150,12 +508,12 @@ When users request visual charts, graphs, or executive diagrams, the system util
 
 ```mermaid
 graph LR
-    UserPrompt[User Prompt: 'Show revenue chart'] --> GeminiFlash[Gemini 2.5 Flash]
-    GeminiFlash -->|Outputs Directive| Directive["![Chart](image: A modern 2D financial bar chart... ($94.5B)...)"]
-    Directive --> BalancedParser[Balanced Parenthesis Parser]
-    BalancedParser -->|Clean Prompt| NanoBanana[Gemini 2.5 Flash Image / Nano Banana]
-    NanoBanana -->|Raw Base64 PNG| DataUriEmbedder[HTML & Base64 Inliner]
-    DataUriEmbedder --> TaskpaneResponse[Taskpane / Host Document]
+    UserPrompt["User Prompt: 'Show revenue chart'"] --> GeminiFlash["Gemini 2.5 Flash"]
+    GeminiFlash -->|"Outputs Directive"| Directive["Directive: ![Chart](image: Prompt with params)"]
+    Directive --> BalancedParser["Balanced Parenthesis Parser"]
+    BalancedParser -->|"Clean Prompt"| NanoBanana["Gemini 2.5 Flash Image / Nano Banana"]
+    NanoBanana -->|"Raw Base64 PNG"| DataUriEmbedder["HTML & Base64 Inliner"]
+    DataUriEmbedder --> TaskpaneResponse["Taskpane / Host Document"]
 ```
 
 ### Balanced Parenthesis Prompt Parser
@@ -262,11 +620,115 @@ graph TD
         end
     end
     
-    OfficeClient["Microsoft 365 Client<br/>(Word / PPT / Excel)"] -->|HTTPS (TLS 1.3)| Frontend
-    OfficeClient -->|HTTPS JSON (CORS)| Backend
-    Backend -->|Native IAM Token| DatastoreRes
+    OfficeClient["Microsoft 365 Client<br/>(Word / PPT / Excel)"] -->|"HTTPS (TLS 1.3)"| Frontend
+    OfficeClient -->|"HTTPS JSON (CORS)"| Backend
+    Backend -->|"Native IAM Token"| DatastoreRes
 ```
 
-1. **Zero Secret Storage:** No API keys or static credentials reside in client code or manifests. Authentication to Vertex AI is handled through Google Cloud IAM Workload Identity and Service Account delegation.
-2. **Data Residency:** All prompt tokens, document embeddings, and generated visuals remain strictly contained within the Google Cloud project (`genai-demo-catalog`, `us-central1`).
+1. **Zero Secret Storage:** No API keys or static credentials reside in client code or manifests. Authentication to Vertex AI and Gemini Enterprise is handled through Google Cloud IAM Service Account delegation and user-consented OAuth tokens.
+2. **Data Residency:** All prompt tokens, document embeddings, and generated visuals remain strictly contained within the Google Cloud project (`jeansson-gem-ent-ci`, `us-central1`).
 3. **CORS Hardened:** Strict CORS headers allow legitimate Microsoft 365 webview origins while blocking unauthenticated third-party scrapers.
+
+---
+
+## ⚙️ Deployment Ordering & OAuth Client Dependencies
+
+When deploying the solution for an environment with **Cloud Identity / Google Workspace Identity**:
+
+```mermaid
+flowchart LR
+    Step1["1. Deploy Backend & Frontend<br/>(gemini-frontend, auth-proxy, geminiproxy)"] --> Step2["2. Obtain Frontend URL<br/>(https://gemini-frontend-...run.app)"]
+    Step2 --> Step3["3. Create OAuth 2.0 Web Client<br/>(In Gemini Enterprise GCP Project)"]
+    Step3 --> Step4["4. Set GOOGLE_OAUTH_CLIENT_ID<br/>(On auth-proxy Cloud Run service)"]
+    Step4 --> Step5["5. Ready for Office 365 Users<br/>(Dynamic /api/config resolution)"]
+
+    style Step1 fill:#e8f0fe,stroke:#1a73e8,stroke-width:2px;
+    style Step2 fill:#fef7e0,stroke:#f9ab00,stroke-width:2px;
+    style Step3 fill:#e6f4ea,stroke:#137333,stroke-width:2px;
+    style Step4 fill:#f3e8fd,stroke:#7b1fa2,stroke-width:2px;
+    style Step5 fill:#f0fdf4,stroke:#10b981,stroke-width:2px;
+```
+
+### Why Deployment Ordering Matters:
+* **Redirect URI & Origin Dependency:** The Google OAuth 2.0 Web Client credentials must specify the exact JavaScript Origin (`https://gemini-frontend-...run.app`) and Redirect URI (`https://gemini-frontend-...run.app/google-callback.html`). These values are only known once the frontend Cloud Run service is deployed.
+* **Dynamic Configuration Delivery:** By passing `GOOGLE_OAUTH_CLIENT_ID` to `auth-proxy` as an environment variable, the Office 365 add-in dynamically retrieves it at runtime via `/api/config`, preventing any static credential baking or build rebuilds when migrating across environments.
+
+---
+
+## 8. 🛠️ Optional Developer Mode: Zero-Auth / Service Account Fallback
+
+> [!WARNING]
+> **Non-Production & Testing Only**: This mode completely disables Microsoft Entra ID authentication and user-level ACL enforcement. It is designed **strictly for local development**, rapid prototyping (e.g. running PowerPoint locally on `localhost:3000`), or offline test environments where Microsoft Entra ID tenant registration is not yet configured.
+
+```
+[Local PowerPoint / Word / Webview]
+          │
+          │ 1. POST /askGeminiEnterprise (No Authorization Header)
+          ▼
+   [Cloud Run: auth-proxy]
+          │ ⚙️ REQUIRE_ENTRA_AUTH=false
+          │ ⚙️ USER_AUTH_MODE=service_account
+          │
+          │ 2. Ingests request as 'anonymous_dev_user'
+          │ 3. Issues S2S IAM token for askgemini-proxy
+          ▼
+   [Cloud Run: askgemini-proxy]
+          │ ⚙️ ALLOW_SERVICE_ACCOUNT_FALLBACK=true
+          │
+          │ 4. Detects absence of end-user Google token
+          │ 5. Mints Google Cloud ADC access token from Service Account
+          ▼
+   [Discovery Engine streamAssist API]
+          │ Authorization: Bearer <Service_Account_ADC_Token>
+          ▼
+ [Grounded Gemini Response Returned]
+```
+
+### 8.1 How It Works
+1. **Perimeter Auth Bypass (`auth-proxy`):**
+   When `REQUIRE_ENTRA_AUTH=false`, `auth-proxy` skips Microsoft JWKS signature verification if no `Authorization: Bearer` header is present. The request is assigned a default development profile (`anonymous_dev_user`).
+2. **Identity Resolution Bypass:**
+   When `USER_AUTH_MODE=service_account`, `auth-proxy` skips WIF token exchange and DWD minting, forwarding the request across the Google S2S IAM boundary without an `X-End-User-Google-Token` header.
+3. **Service Account ADC Fallback (`askgemini-proxy`):**
+   When `ALLOW_SERVICE_ACCOUNT_FALLBACK=true`, `askgemini-proxy` catches the missing user token, requests a standard Google Cloud Application Default Credentials (ADC) access token for the `gemini-office365-sa` service account via `google.auth.getClient()`, and invokes `streamAssist`.
+4. **Office Add-in UI Badge:**
+   The frontend add-in detects `user_auth_mode: "service_account"` via `/api/config` and renders `🤖 Service Account Active` on the top status badge, suppressing the Google Sign-In prompt.
+
+### 8.2 Outcome of API Calls in This Mode
+
+| Capability | Behavior in Service Account Fallback Mode |
+| :--- | :--- |
+| **Discovery Engine Datastores** (GCS, Web Search, BigQuery, Unstructured docs) | **Fully functional** — Grounding operates normally against all datastores attached to the engine that the Service Account has permissions to read. |
+| **Multi-turn Chat & Conversational Memory** | **Fully functional** — Session continuity works across turns within the active session. |
+| **Personal Google Drive Grounding** | **Bypassed / Not Accessible** — The Service Account cannot access individual users' private Google Drive files unless those files are explicitly shared with the service account email. |
+| **Zero-Trust User ACL Filtering** | **Bypassed** — Results returned reflect the Service Account's global access permissions rather than individual user permissions. |
+| **User Seat Licensing Attribution** | **Unattributed** — Queries are logged in Google Cloud under the Service Account identity rather than individual employee UPNs. |
+
+### 8.3 Enabling & Disabling via Environment Variables
+
+To enable Zero-Auth Dev Mode:
+```bash
+# 1. Disable Entra ID requirement and set auth mode on auth-proxy
+gcloud run services update auth-proxy \
+  --set-env-vars="REQUIRE_ENTRA_AUTH=false,USER_AUTH_MODE=service_account" \
+  --region=us-central1
+
+# 2. Allow Service Account ADC fallback on askgemini-proxy
+gcloud run services update askgemini-proxy \
+  --set-env-vars="ALLOW_SERVICE_ACCOUNT_FALLBACK=true" \
+  --region=us-central1
+```
+
+To restore Full Enterprise Production Security:
+```bash
+# 1. Re-enable Entra ID verification on auth-proxy
+gcloud run services update auth-proxy \
+  --set-env-vars="REQUIRE_ENTRA_AUTH=true,USER_AUTH_MODE=auto" \
+  --region=us-central1
+
+# 2. Enforce end-user token requirement on askgemini-proxy
+gcloud run services update askgemini-proxy \
+  --set-env-vars="ALLOW_SERVICE_ACCOUNT_FALLBACK=false" \
+  --region=us-central1
+```
+
